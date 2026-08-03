@@ -61,6 +61,19 @@ export function normalizePatient(stored) {
   };
 }
 
+export function isSameCalendarWeek(value, now = new Date()) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const weekStart = (d) => {
+    const copy = new Date(d);
+    copy.setDate(d.getDate() - d.getDay());
+    copy.setHours(0, 0, 0, 0);
+    return copy.getTime();
+  };
+  return weekStart(date) === weekStart(now);
+}
+
 export function isSameCalendarDay(value, now = new Date()) {
   if (!value) return false;
   const date = new Date(value);
@@ -74,9 +87,11 @@ export function isSameCalendarDay(value, now = new Date()) {
 
 export function refreshDailyPatientState(patient, now = new Date()) {
   if (isSameCalendarDay(patient.lastSessionAt, now) || patient.completed.length === 0) return patient;
+  const sameWeek = isSameCalendarWeek(patient.lastSessionAt, now);
   return {
     ...patient,
-    completed: []
+    completed: [],
+    ...(!sameWeek ? { weeklyProgress: createWeeklyProgress() } : {})
   };
 }
 

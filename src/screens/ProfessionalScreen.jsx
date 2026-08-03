@@ -13,7 +13,7 @@ import {
   TrendingUp,
   UserPlus
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link as LinkIcon } from "lucide-react";
 import { MAX_AI_QUESTIONS, MAX_PATIENT_AGE, MIN_AI_QUESTIONS } from "../constants/appConfig.js";
 import { activities } from "../data/activities.js";
@@ -39,6 +39,7 @@ export function ProfessionalScreen({
   const [newAge, setNewAge] = useState("70");
   const [instructions, setInstructions] = useState(selectedPatient.aiInstructions);
   const [maxQuestions, setMaxQuestions] = useState(selectedPatient.maxQuestions);
+  const searchInputRef = useRef(null);
   const [linkFeedback, setLinkFeedback] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [patientFormFeedback, setPatientFormFeedback] = useState("");
@@ -112,12 +113,6 @@ export function ProfessionalScreen({
     setConfigFeedback("Criterio guardado.");
   }
 
-  function searchPatients() {
-    const nextQuery = window.prompt("Buscar paciente por nombre", searchQuery);
-    if (nextQuery === null) return;
-    setSearchQuery(nextQuery);
-  }
-
   async function copyPatientLink() {
     const link = selectedPatient.link;
     try {
@@ -151,7 +146,8 @@ export function ProfessionalScreen({
   return (
     <div className="professional-layout">
       <section className="panel professional-patients">
-        <div className="section-head compact"><div><p className="eyebrow">Panel de pacientes</p><h2>Seguimiento</h2></div><button className="icon-action" type="button" title="Buscar paciente" onClick={searchPatients}><Search size={22} /></button></div>
+        <div className="section-head compact"><div><p className="eyebrow">Panel de pacientes</p><h2>Seguimiento</h2></div><button className="icon-action" type="button" title="Buscar paciente" aria-label="Buscar paciente" onClick={() => searchInputRef.current?.focus()}><Search size={22} /></button></div>
+        <input ref={searchInputRef} type="search" placeholder="Buscar por nombre..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} aria-label="Buscar paciente por nombre" style={{ marginBottom: "0.5rem" }} />
         <div className="patient-list">{filteredPatients.length > 0 ? filteredPatients.map((patient) => <button key={patient.id} className={cx("patient-row", patient.id === selectedPatient.id && "selected-patient")} onClick={() => selectPatient(patient)}><div className="avatar">{patient.name[0]}</div><div><strong>{patient.name}</strong><span>{patient.age} anios</span><small>{patient.status}</small></div><ChevronRight size={22} /></button>) : <div className="empty-chart">No hay pacientes que coincidan con "{searchQuery}".</div>}</div>
         <div className="create-box"><p className="eyebrow">Creacion del paciente</p><label htmlFor={patientNameId}>Nombre del paciente</label><input id={patientNameId} value={newName} onChange={(event) => { setNewName(event.target.value); setPatientFormFeedback(""); }} placeholder="Nombre del paciente" /><label htmlFor={patientAgeId}>Edad</label><input id={patientAgeId} value={newAge} onChange={(event) => { setNewAge(event.target.value); setPatientFormFeedback(""); }} placeholder="Edad" /><button className="primary" onClick={createNewPatient}><UserPlus size={20} /> Crear paciente</button>{patientFormFeedback && <p>{patientFormFeedback}</p>}<button className="secondary-action reset-demo" onClick={resetDemo}><RotateCcw size={18} /> Reiniciar datos demo</button></div>
       </section>

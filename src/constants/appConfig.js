@@ -1,6 +1,14 @@
 export const LOGIN_CREDENTIALS = {
-  patient: { email: "elena.rios@demo.com", password: "menteactiva" },
-  professional: { email: "psicologa@demo.com", password: "jardin2", id: "psico-01", name: "Dra. Ana Gomez" }
+  patient: {
+    email: import.meta.env.VITE_PATIENT_EMAIL ?? "elena.rios@demo.com",
+    password: import.meta.env.VITE_PATIENT_PASSWORD ?? "menteactiva"
+  },
+  professional: {
+    email: import.meta.env.VITE_PROFESSIONAL_EMAIL ?? "psicologa@demo.com",
+    password: import.meta.env.VITE_PROFESSIONAL_PASSWORD ?? "jardin2",
+    id: import.meta.env.VITE_PROFESSIONAL_ID ?? "psico-01",
+    name: import.meta.env.VITE_PROFESSIONAL_NAME ?? "Dra. Ana Gomez"
+  }
 };
 
 export const DEFAULT_PROFESSIONAL_ID = LOGIN_CREDENTIALS.professional.id;

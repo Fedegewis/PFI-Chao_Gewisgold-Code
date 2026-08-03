@@ -48,7 +48,10 @@ export function useAppController() {
   const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(initialHash.activityId));
   const [loginError, setLoginError] = useState("");
 
-  const selectedPatient = patients.find((patient) => patient.id === selectedPatientId) || patients[0];
+  const selectedPatient = useMemo(
+    () => patients.find((patient) => patient.id === selectedPatientId) ?? patients[0],
+    [patients, selectedPatientId]
+  );
   const motivationMessage = useMemo(() => MOTIVATION_MESSAGES[new Date().getDay() % MOTIVATION_MESSAGES.length], []);
 
   useEffect(() => {
@@ -159,6 +162,7 @@ export function useAppController() {
 
   return {
     activities,
+    isAuthenticated,
     loginError,
     login,
     logout,

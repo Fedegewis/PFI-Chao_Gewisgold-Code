@@ -4,8 +4,8 @@
 // disponible, cada funcion cae en una heuristica local para que la app siga
 // siendo 100% funcional en la demo/tesis.
 
-export const OLLAMA_URL = "http://localhost:11434/api/generate";
-export const OLLAMA_MODEL = "llama3";
+export const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL ?? "http://localhost:11434/api/generate";
+export const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL ?? "llama3";
 
 // Umbral de latencia (ms) por encima del cual una respuesta se considera "lenta".
 export const SLOW_MS = 6000;
