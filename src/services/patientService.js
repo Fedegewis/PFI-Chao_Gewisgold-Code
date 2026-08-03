@@ -124,6 +124,42 @@ export function buildInitialPatients() {
       email: "carlos.molina@demo.com",
       aiInstructions: "Priorizar sesiones cortas, pausas y preguntas con orientacion temporal.",
       link: "https://menteactiva.demo/p/carlos"
+    }),
+    createPatient({
+      id: "marta",
+      name: "Marta Fernandez",
+      age: 68,
+      email: "marta.fernandez@demo.com",
+      aiInstructions: "Enfocarse en memoria episodica reciente. Usar lenguaje simple y evitar terminos medicos. Reforzar positivamente cada respuesta.",
+      link: "https://menteactiva.demo/p/marta",
+      maxQuestions: 4
+    }),
+    createPatient({
+      id: "jorge",
+      name: "Jorge Benitez",
+      age: 81,
+      email: "jorge.benitez@demo.com",
+      aiInstructions: "Sesiones muy breves (maximo 3 preguntas). Orientacion espacial y temporal prioritaria. Tono calido y paciente.",
+      link: "https://menteactiva.demo/p/jorge",
+      maxQuestions: 3
+    }),
+    createPatient({
+      id: "rosa",
+      name: "Rosa Gutierrez",
+      age: 74,
+      email: "rosa.gutierrez@demo.com",
+      aiInstructions: "Trabajar fluidez verbal y atencion sostenida. Incluir actividades de nombrar objetos y secuencias simples.",
+      link: "https://menteactiva.demo/p/rosa",
+      maxQuestions: 5
+    }),
+    createPatient({
+      id: "alberto",
+      name: "Alberto Suarez",
+      age: 76,
+      email: "alberto.suarez@demo.com",
+      aiInstructions: "Priorizar ejercicios de calculo simple y orientacion en el tiempo. Evitar preguntas con multiples partes.",
+      link: "https://menteactiva.demo/p/alberto",
+      maxQuestions: 4
     })
   ];
 }
