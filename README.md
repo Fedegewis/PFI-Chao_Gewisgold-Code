@@ -11,6 +11,20 @@ npm run dev
 
 Abrir: http://127.0.0.1:5179/
 
+## Validaciones
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+## Variables de entorno
+
+No requiere variables de entorno para correr la demo local.
+La integracion opcional con Ollama usa la URL local fija `http://localhost:11434/api/generate`.
+
 ## Accesos demo
 
 Paciente:
