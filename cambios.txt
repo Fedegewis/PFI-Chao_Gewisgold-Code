@@ -1,0 +1,13 @@
+Sacar ambiente 2 y su nombre
+Revisar tamaños de los componentes
+Poner un footer bueno
+que el como te sentis cambie de estado cuando clickea
+que el progreso semanal este de otra manera
+
+
+En psicologo
+Cambiar aciertos y eso por usuario
+Revisar tema sintesis clinica que no este tan duro y tenga varias frases
+Revisar tema de preguntas, ir cambiando las preguntas
+Que aparezcan directamente los usuarios
+Revisar si se agrega un usuario
