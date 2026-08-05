@@ -1,4 +1,5 @@
 import { EMPTY_CHART_MESSAGE } from "../../constants/content.js";
+import { formatLatency, formatShortDate } from "../../lib/format.js";
 import { cx } from "../../lib/cx.js";
 
 export function EvolutionChart({ sessions }) {
@@ -14,9 +15,9 @@ export function EvolutionChart({ sessions }) {
           <span
             className={cx("evolution-bar", session.accuracy >= 70 ? "bar-high" : session.accuracy >= 50 ? "bar-mid" : "bar-low")}
             style={{ height: `${Math.max(8, session.accuracy)}%` }}
-            title={`${session.activityTitle} - ${session.accuracy}% - ${(session.avgLatencyMs / 1000).toFixed(1)} s`}
+            title={`${session.activityTitle} - ${session.accuracy}% - ${formatLatency(session.avgLatencyMs)}`}
           />
-          <small>{new Date(session.date).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}</small>
+          <small>{formatShortDate(session.date)}</small>
         </div>
       ))}
     </div>

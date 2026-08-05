@@ -4,11 +4,14 @@
 // disponible, cada funcion cae en una heuristica local para que la app siga
 // siendo 100% funcional en la demo/tesis.
 
+import { SLOW_MS } from "./constants/appConfig.js";
+import { formatLatency } from "./lib/format.js";
+import { countSessionsThisWeek, getPatientSessions } from "./services/sessionService.js";
+
+export { SLOW_MS };
+
 export const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL ?? "http://localhost:11434/api/generate";
 export const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL ?? "llama3";
-
-// Umbral de latencia (ms) por encima del cual una respuesta se considera "lenta".
-export const SLOW_MS = 6000;
 
 async function ollamaGenerate(prompt, { timeoutMs = 2500 } = {}) {
   const controller = new AbortController();
@@ -60,24 +63,14 @@ export async function recommendDifficulty(perf, aiInstructions) {
 
 // --- RF4.3: sintesis de observaciones clinicas ---
 
-function patientSessions(patient, sessions) {
-  return sessions.filter((session) => session.patientId === patient.id);
-}
-
-function sessionsThisWeek(sessions) {
-  const now = Date.now();
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
-  return sessions.filter((session) => now - new Date(session.date).getTime() <= weekMs).length;
-}
-
 // Observacion redactada localmente a partir de las metricas reales del paciente.
 export function heuristicObservation(patient, sessions) {
-  const mine = patientSessions(patient, sessions);
+  const mine = getPatientSessions(sessions, patient.id);
   if (mine.length === 0) {
     return `Aun no hay sesiones registradas para ${patient.name}. Se sugiere iniciar con actividades breves (5-8 min) para establecer una linea de base de precision y latencia.`;
   }
   const avgAccuracy = Math.round(mine.reduce((acc, s) => acc + s.accuracy, 0) / mine.length);
-  const avgLatency = (mine.reduce((acc, s) => acc + s.avgLatencyMs, 0) / mine.length / 1000).toFixed(1);
+  const avgLatencyMs = mine.reduce((acc, s) => acc + s.avgLatencyMs, 0) / mine.length;
   const last = mine[mine.length - 1];
   const half = Math.floor(mine.length / 2) || 1;
   const firstHalf = mine.slice(0, half);
@@ -103,8 +96,8 @@ export function heuristicObservation(patient, sessions) {
   const domains = [...new Set(mine.map((s) => s.skill).filter(Boolean))].join(", ");
 
   return [
-    `${patient.name} registro ${mine.length} sesion(es), con ${sessionsThisWeek(mine)} en la ultima semana.`,
-    `Precision promedio ${avgAccuracy}% y tiempo medio de respuesta ${avgLatency} s.`,
+    `${patient.name} registro ${mine.length} sesion(es), con ${countSessionsThisWeek(mine)} en la ultima semana.`,
+    `Precision promedio ${avgAccuracy}% y tiempo medio de respuesta ${formatLatency(avgLatencyMs)}.`,
     trendText,
     latencyText,
     domains ? `Dominios trabajados: ${domains}.` : ""
@@ -115,13 +108,13 @@ export function heuristicObservation(patient, sessions) {
 
 // Intenta que Ollama redacte la observacion; si falla usa la version heuristica.
 export async function generateObservation(patient, sessions) {
-  const mine = patientSessions(patient, sessions);
+  const mine = getPatientSessions(sessions, patient.id);
   const fallback = heuristicObservation(patient, sessions);
   if (mine.length === 0) return { text: fallback, source: "local" };
   try {
     const resumen = mine
       .slice(-8)
-      .map((s) => `${new Date(s.date).toLocaleDateString("es-AR")}: ${s.activityTitle} (${s.skill}) precision ${s.accuracy}%, latencia ${(s.avgLatencyMs / 1000).toFixed(1)} s`)
+      .map((s) => `${new Date(s.date).toLocaleDateString("es-AR")}: ${s.activityTitle} (${s.skill}) precision ${s.accuracy}%, latencia ${formatLatency(s.avgLatencyMs)}`)
       .join("\n");
     const prompt = [
       "Sos un asistente clinico que sintetiza patrones conductuales de estimulacion cognitiva en adultos mayores.",

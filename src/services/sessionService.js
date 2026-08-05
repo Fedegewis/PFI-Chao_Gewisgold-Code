@@ -1,4 +1,5 @@
-import { SLOW_MS } from "../ai.js";
+import { SLOW_MS } from "../constants/appConfig.js";
+import { formatLatency, formatShortDate } from "../lib/format.js";
 
 export function summarizeAnswers(list) {
   const total = list.length;
@@ -10,6 +11,12 @@ export function summarizeAnswers(list) {
 
 export function getPatientSessions(sessions, patientId) {
   return sessions.filter((session) => session.patientId === patientId);
+}
+
+export function countSessionsThisWeek(sessions) {
+  const now = Date.now();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  return sessions.filter((session) => now - new Date(session.date).getTime() <= weekMs).length;
 }
 
 export function buildCompletedActivityState({ patient, sessions, activity, summary, totalActivities, now = new Date() }) {
@@ -47,8 +54,8 @@ export function buildCompletedActivityState({ patient, sessions, activity, summa
       score: avgAccuracy,
       trend: `${delta >= 0 ? "+" : ""}${delta}%`,
       status: session.accuracy >= 70 ? "Rendimiento optimo" : session.accuracy >= 50 ? "En seguimiento" : "Requiere apoyo",
-      note: `Ultima actividad: ${session.activityTitle} - ${session.accuracy}% de aciertos, ${(session.avgLatencyMs / 1000).toFixed(1)} s promedio.`,
-      rt: `${(avgLatencyMs / 1000).toFixed(1)} s`,
+      note: `Ultima actividad: ${session.activityTitle} - ${session.accuracy}% de aciertos, ${formatLatency(session.avgLatencyMs)} promedio.`,
+      rt: formatLatency(avgLatencyMs),
       risk: session.avgLatencyMs > SLOW_MS || session.accuracy < 50 ? "Medio" : "Bajo",
       weeklyProgress: nextWeeklyProgress,
       lastSessionAt: session.date
@@ -60,12 +67,10 @@ export function computeStats(sessions) {
   if (sessions.length === 0) {
     return { count: 0, weekCount: 0, avgAccuracy: 0, avgLatencySec: "-", lastLabel: "sin registro" };
   }
-  const now = Date.now();
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
-  const weekCount = sessions.filter((session) => now - new Date(session.date).getTime() <= weekMs).length;
+  const weekCount = countSessionsThisWeek(sessions);
   const avgAccuracy = Math.round(sessions.reduce((sum, session) => sum + session.accuracy, 0) / sessions.length);
   const avgLatencySec = (sessions.reduce((sum, session) => sum + session.avgLatencyMs, 0) / sessions.length / 1000).toFixed(1);
   const last = sessions[sessions.length - 1];
-  const lastLabel = new Date(last.date).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+  const lastLabel = formatShortDate(last.date);
   return { count: sessions.length, weekCount, avgAccuracy, avgLatencySec, lastLabel };
 }

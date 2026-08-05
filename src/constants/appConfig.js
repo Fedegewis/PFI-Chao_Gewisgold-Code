@@ -37,3 +37,6 @@ export const DAY_LABELS = ["D", "L", "M", "M", "J", "V", "S"];
 export const MAX_PATIENT_AGE = 120;
 export const MAX_AI_QUESTIONS = 10;
 export const MIN_AI_QUESTIONS = 1;
+
+// Umbral de latencia (ms) por encima del cual una respuesta se considera lenta.
+export const SLOW_MS = 6000;

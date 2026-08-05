@@ -1,6 +1,6 @@
-﻿# MenteActiva Jardin - Ambiente 2
+﻿# MenteActiva Jardin - 
 
-App funcional del Ambiente 2 para la tesis. Incluye inicio de sesion, vista paciente, vista psicologo, jardin que crece por desafios, rendimiento, creacion de pacientes, configuracion de preguntas por IA y envio de link demo.
+App funcional para la tesis. Incluye inicio de sesion, vista paciente, vista psicologo, jardin que crece por desafios, rendimiento, creacion de pacientes, configuracion de preguntas por IA y envio de link demo.
 
 ## Como correrlo
 
