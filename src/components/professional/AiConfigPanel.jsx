@@ -1,5 +1,4 @@
-import { AlertTriangle, Brain, CheckCircle2, Copy, Send } from "lucide-react";
-import { Link as LinkIcon } from "lucide-react";
+import { AlertTriangle, Brain, CheckCircle2, Copy, Link as LinkIcon, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { MAX_AI_QUESTIONS, MIN_AI_QUESTIONS } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";

@@ -5,17 +5,22 @@ export function SessionTable({ sessions }) {
   const recent = [...sessions].slice(-5).reverse();
   return (
     <div className="session-table-wrap">
-    <div className="session-table">
-      <div className="session-table-head"><span>Fecha</span><span>Actividad</span><span>Aciertos</span><span>Latencia</span></div>
-      {recent.map((session) => (
-        <div key={session.id} className="session-table-row">
-          <span>{formatShortDate(session.date)}</span>
-          <span>{session.activityTitle}</span>
-          <span>{session.accuracy}%</span>
-          <span>{formatLatency(session.avgLatencyMs)}</span>
+      <div className="session-table">
+        <div className="session-table-head">
+          <span>Fecha</span>
+          <span>Actividad</span>
+          <span>Aciertos</span>
+          <span>Latencia</span>
         </div>
-      ))}
-    </div>
+        {recent.map((session) => (
+          <div key={session.id} className="session-table-row">
+            <span>{formatShortDate(session.date)}</span>
+            <span>{session.activityTitle}</span>
+            <span>{session.accuracy}%</span>
+            <span>{formatLatency(session.avgLatencyMs)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

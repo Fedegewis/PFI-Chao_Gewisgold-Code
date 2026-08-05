@@ -25,6 +25,18 @@ export function ProfessionalScreen({
     [sessions, selectedPatient.id]
   );
   const stats = useMemo(() => computeStats(patientSessions), [patientSessions]);
+  const questionBank = useMemo(
+    () => activities.flatMap((activity) =>
+      activity.questions.map((question, index) => (
+        <article key={`${activity.id}-${index}`}>
+          <strong>{activity.title}</strong>
+          <p>{question.prompt}</p>
+          <small>{question.clinician}</small>
+        </article>
+      ))
+    ),
+    []
+  );
 
   function handleSelectPatient(patient) {
     setSelectedPatientId(patient.id);
@@ -85,15 +97,7 @@ export function ProfessionalScreen({
             <BarChart3 size={30} />
           </div>
           <div className="question-bank">
-            {activities.flatMap((activity) =>
-              activity.questions.map((question, index) => (
-                <article key={`${activity.id}-${index}`}>
-                  <strong>{activity.title}</strong>
-                  <p>{question.prompt}</p>
-                  <small>{question.clinician}</small>
-                </article>
-              ))
-            )}
+            {questionBank}
           </div>
         </div>
       </section>

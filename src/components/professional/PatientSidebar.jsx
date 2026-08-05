@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, RotateCcw, Search, UserPlus } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { MAX_PATIENT_AGE } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";
 import { slugifyPatientName } from "../../services/patientService.js";
@@ -14,9 +14,15 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
   const patientNameId = "patient-name";
   const patientAgeId = "patient-age";
 
-  const professionalPatients = patients.filter((p) => p.professionalId === professionalId);
-  const filteredPatients = professionalPatients.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
+  const professionalPatients = useMemo(
+    () => patients.filter((p) => p.professionalId === professionalId),
+    [patients, professionalId]
+  );
+  const filteredPatients = useMemo(
+    () => professionalPatients.filter((p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
+    ),
+    [professionalPatients, searchQuery]
   );
 
   function setError(text) { setFeedback({ text, type: "error" }); }
