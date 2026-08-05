@@ -4,7 +4,7 @@ import { SCREEN_NAMES } from "../../constants/appConfig.js";
 export function GlobalHeader({ screen, role, onLogout, onNavigate }) {
   return (
     <header className="topbar">
-      <button className="brand" onClick={() => onNavigate(screen === SCREEN_NAMES.login ? SCREEN_NAMES.login : role)}>
+      <button className="brand" type="button" aria-label="Ir a inicio" onClick={() => onNavigate(screen === SCREEN_NAMES.login ? SCREEN_NAMES.login : role)}>
         <span><Leaf size={28} /></span>
         <div><strong>MenteActiva Jardin</strong><small>Ambiente 2 - Jardin Cognitivo</small></div>
       </button>

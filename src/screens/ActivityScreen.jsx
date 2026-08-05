@@ -86,14 +86,14 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
 
   return (
     <section className="panel game-panel">
-      <button onClick={onBack} className="back-link"><ArrowLeft size={22} /> Volver a actividades</button>
+      <button type="button" onClick={onBack} className="back-link"><ArrowLeft size={22} /> Volver a actividades</button>
       <div className="game-layout">
         <div className="game-prompt">
           <p>{activity.skill}</p>
           <h2>{activity.title}</h2>
           <div className="session-progress">
             <span>Pregunta {step + 1} de {sessionLength}</span>
-            <div><i style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
+            <div><span className="progress-fill" style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
           </div>
           <p className="prompt-copy">{activity.intro}</p>
           <div className="chip-row">

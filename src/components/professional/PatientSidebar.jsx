@@ -1,4 +1,4 @@
-import { ChevronRight, RotateCcw, Search, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, RotateCcw, Search, UserPlus } from "lucide-react";
 import { useRef, useState } from "react";
 import { MAX_PATIENT_AGE } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";
@@ -8,7 +8,7 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
   const [newName, setNewName] = useState("");
   const [newAge, setNewAge] = useState("70");
   const [searchQuery, setSearchQuery] = useState("");
-  const [feedback, setFeedback] = useState("");
+  const [feedback, setFeedback] = useState({ text: "", type: "" });
   const searchInputRef = useRef(null);
 
   const patientNameId = "patient-name";
@@ -19,26 +19,54 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
     p.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
   );
 
+  function setError(text) { setFeedback({ text, type: "error" }); }
+  function setSuccess(text) { setFeedback({ text, type: "success" }); }
+  function clearFeedback() { setFeedback({ text: "", type: "" }); }
+
   function handleCreate() {
     const trimmedName = newName.trim();
     if (!trimmedName) {
-      setFeedback("Ingresa un nombre para crear el paciente.");
+      setError("Ingresa un nombre para crear el paciente.");
       return;
     }
     const parsedAge = Number(newAge);
     if (!Number.isInteger(parsedAge) || parsedAge < 1 || parsedAge > MAX_PATIENT_AGE) {
-      setFeedback(`La edad debe ser un numero entero entre 1 y ${MAX_PATIENT_AGE}.`);
+      setError(`La edad debe ser un numero entero entre 1 y ${MAX_PATIENT_AGE}.`);
       return;
     }
     const nextPatientId = slugifyPatientName(trimmedName) || `paciente-${patients.length + 1}`;
     if (patients.some((p) => p.id === nextPatientId)) {
-      setFeedback("Ya existe un paciente con un nombre muy parecido. Usa otro nombre.");
+      setError("Ya existe un paciente con un nombre muy parecido. Usa otro nombre.");
       return;
     }
     onCreatePatient(trimmedName, parsedAge);
     setNewName("");
     setNewAge("70");
-    setFeedback("Paciente creado correctamente.");
+    setSuccess("Paciente creado correctamente.");
+  }
+
+  function renderPatientList() {
+    if (filteredPatients.length > 0) {
+      return filteredPatients.map((patient) => (
+        <button
+          key={patient.id}
+          className={cx("patient-row", patient.id === selectedPatient.id && "selected-patient")}
+          onClick={() => onSelectPatient(patient)}
+        >
+          <div className="avatar">{patient.name[0]}</div>
+          <div>
+            <strong>{patient.name}</strong>
+            <span>{patient.age} años</span>
+            <small>{patient.status}</small>
+          </div>
+          <ChevronRight size={22} />
+        </button>
+      ));
+    }
+    if (searchQuery) {
+      return <div className="empty-chart">No hay pacientes que coincidan con &quot;{searchQuery}&quot;.</div>;
+    }
+    return <div className="empty-chart">Aun no hay pacientes asignados. Crea el primero con el formulario de abajo.</div>;
   }
 
   return (
@@ -68,25 +96,7 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
         style={{ marginBottom: "0.5rem" }}
       />
       <div className="patient-list">
-        {filteredPatients.length > 0 ? (
-          filteredPatients.map((patient) => (
-            <button
-              key={patient.id}
-              className={cx("patient-row", patient.id === selectedPatient.id && "selected-patient")}
-              onClick={() => onSelectPatient(patient)}
-            >
-              <div className="avatar">{patient.name[0]}</div>
-              <div>
-                <strong>{patient.name}</strong>
-                <span>{patient.age} años</span>
-                <small>{patient.status}</small>
-              </div>
-              <ChevronRight size={22} />
-            </button>
-          ))
-        ) : (
-          <div className="empty-chart">No hay pacientes que coincidan con &quot;{searchQuery}&quot;.</div>
-        )}
+        {renderPatientList()}
       </div>
       <div className="create-box">
         <p className="eyebrow">Creacion del paciente</p>
@@ -94,21 +104,32 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
         <input
           id={patientNameId}
           value={newName}
-          onChange={(e) => { setNewName(e.target.value); setFeedback(""); }}
+          onChange={(e) => { setNewName(e.target.value); clearFeedback(); }}
           placeholder="Nombre del paciente"
         />
         <label htmlFor={patientAgeId}>Edad</label>
         <input
           id={patientAgeId}
+          type="number"
+          min="1"
+          max={MAX_PATIENT_AGE}
           value={newAge}
-          onChange={(e) => { setNewAge(e.target.value); setFeedback(""); }}
+          onChange={(e) => { setNewAge(e.target.value); clearFeedback(); }}
           placeholder="Edad"
         />
-        <button className="primary" onClick={handleCreate}>
+        <button className="primary" type="button" onClick={handleCreate}>
           <UserPlus size={20} /> Crear paciente
         </button>
-        {feedback && <p>{feedback}</p>}
-        <button className="secondary-action reset-demo" onClick={onResetDemo}>
+        {feedback.text && (
+          <p
+            className={cx("form-feedback", feedback.type === "success" ? "form-feedback-success" : "form-feedback-error")}
+            role="alert"
+          >
+            {feedback.type === "success" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+            {" "}{feedback.text}
+          </p>
+        )}
+        <button className="secondary-action reset-demo" type="button" onClick={onResetDemo}>
           <RotateCcw size={18} /> Reiniciar datos demo
         </button>
       </div>

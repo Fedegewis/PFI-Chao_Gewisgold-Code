@@ -5,6 +5,7 @@ body { margin: 0; min-width: 320px; color: #172114; font-family: Inter, ui-sans-
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 3px solid #617a58; outline-offset: 2px; border-radius: 4px; }
 .app-shell { min-height: 100vh; background: radial-gradient(circle at top right, rgba(126, 151, 118, 0.25), transparent 34rem), linear-gradient(135deg, #f7f1e7, #fbf8f1 48%, #e7efe4); }
 .app-inner { width: min(1240px, 100%); min-height: 100vh; margin: 0 auto; padding: 22px; }
 .topbar, .panel, .garden-strip, .activity-card, .motivation-banner, .garden-welcome { border: 2px solid rgba(97, 122, 88, 0.34); border-radius: 8px; background: rgba(255, 250, 241, 0.96); box-shadow: 0 18px 50px rgba(50, 70, 44, 0.12); }
@@ -93,7 +94,7 @@ textarea { min-height: 150px; resize: vertical; }
 .session-progress { display: grid; gap: 10px; margin-top: 18px; }
 .session-progress span { font-weight: 950; }
 .session-progress div { overflow: hidden; height: 14px; border-radius: 999px; background: rgba(255,255,255,0.3); }
-.session-progress i { display: block; height: 100%; border-radius: 999px; background: white; }
+.progress-fill { display: block; height: 100%; border-radius: 999px; background: white; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .status-chip { border-radius: 999px; background: rgba(255,255,255,0.18); padding: 9px 12px; color: white; font-size: 14px; font-weight: 950; }
 .session-card { display: grid; gap: 5px; margin-top: 22px; border-radius: 8px; background: rgba(255,255,255,0.16); padding: 16px; }
@@ -138,6 +139,9 @@ textarea { min-height: 150px; resize: vertical; }
 .question-bank p { margin: 6px 0; }
 .reset-demo { margin-top: 10px; }
 .empty-chart { border: 2px dashed #d5decf; border-radius: 8px; background: #f8faf6; padding: 18px; color: #52624d; font-weight: 850; }
+.form-feedback { border-radius: 8px; padding: 10px 12px; font-size: 14px; font-weight: 900; }
+.form-feedback-success { border: 2px solid #9dc88b; background: #f0f8ed; color: #15803d; }
+.form-feedback-error { border: 2px solid #f1b5a7; background: #fff2ef; color: #9a3412; }
 .evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
 .evolution-slot { display: grid; justify-items: center; align-items: end; gap: 6px; height: 100%; grid-template-rows: auto 1fr auto; }
 .evolution-value { font-size: 14px; font-weight: 950; color: #30442a; }
