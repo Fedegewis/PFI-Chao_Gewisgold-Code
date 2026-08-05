@@ -4,6 +4,7 @@ export function SessionTable({ sessions }) {
   if (sessions.length === 0) return null;
   const recent = [...sessions].slice(-5).reverse();
   return (
+    <div className="session-table-wrap">
     <div className="session-table">
       <div className="session-table-head"><span>Fecha</span><span>Actividad</span><span>Aciertos</span><span>Latencia</span></div>
       {recent.map((session) => (
@@ -14,6 +15,7 @@ export function SessionTable({ sessions }) {
           <span>{formatLatency(session.avgLatencyMs)}</span>
         </div>
       ))}
+    </div>
     </div>
   );
 }

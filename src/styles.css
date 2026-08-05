@@ -86,7 +86,7 @@ textarea { min-height: 150px; resize: vertical; }
 .mini-bar-today { background: linear-gradient(180deg, #c58f73, #9a5d3f); }
 .mini-bar-slot small { color: #405238; font-size: 15px; font-weight: 900; }
 .game-layout { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
-.back-link { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 20px; color: #617a58; font-weight: 950; }
+.back-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-bottom: 20px; color: #617a58; font-weight: 950; }
 .game-prompt { border-radius: 8px; background: linear-gradient(135deg, #526b4a, #8a7a5d); padding: 26px; color: white; }
 .game-prompt p, .game-prompt .eyebrow { color: rgba(255,255,255,0.88); }
 .game-prompt h2 { margin: 8px 0 0; font-size: 42px; line-height: 1.05; }
@@ -142,7 +142,7 @@ textarea { min-height: 150px; resize: vertical; }
 .form-feedback { border-radius: 8px; padding: 10px 12px; font-size: 14px; font-weight: 900; }
 .form-feedback-success { border: 2px solid #9dc88b; background: #f0f8ed; color: #15803d; }
 .form-feedback-error { border: 2px solid #f1b5a7; background: #fff2ef; color: #9a3412; }
-.evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
+.evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; overflow-x: auto; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
 .evolution-slot { display: grid; justify-items: center; align-items: end; gap: 6px; height: 100%; grid-template-rows: auto 1fr auto; }
 .evolution-value { font-size: 14px; font-weight: 950; color: #30442a; }
 .evolution-bar { width: 100%; align-self: end; border-radius: 10px 10px 4px 4px; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.24); }
@@ -150,7 +150,8 @@ textarea { min-height: 150px; resize: vertical; }
 .bar-mid { background: linear-gradient(180deg, #e2c281, #b98a3d); }
 .bar-low { background: linear-gradient(180deg, #dea187, #9a5d3f); }
 .evolution-slot small { color: #405238; font-size: 13px; font-weight: 900; }
-.session-table { display: grid; gap: 6px; margin-top: 16px; }
+.session-table-wrap { overflow-x: auto; }
+.session-table { display: grid; gap: 6px; margin-top: 16px; min-width: 360px; }
 .session-table-head, .session-table-row { display: grid; grid-template-columns: 0.7fr 1.6fr 0.8fr 0.8fr; gap: 10px; align-items: center; }
 .session-table-head { border-bottom: 2px solid rgba(97,122,88,0.28); padding-bottom: 8px; }
 .session-table-head span { font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: 0.06em; color: #3f5639; }
@@ -163,5 +164,5 @@ textarea { min-height: 150px; resize: vertical; }
 .ai-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: 0.06em; }
 .ai-badge-ollama { background: #dcecff; color: #1e40af; }
 .ai-badge-local { background: #e9e2f6; color: #5b3fa0; }
-@media (max-width: 1024px) { .login-layout, .patient-layout, .professional-layout, .game-layout { grid-template-columns: 1fr; } .professional-patients { position: static; } }
-@media (max-width: 760px) { .app-inner { padding: 14px; } .topbar, .section-head { align-items: stretch; flex-direction: column; } nav, .login-tabs { display: grid; grid-template-columns: 1fr; } .login-copy { min-height: auto; padding: 18px 4px; } .plant-row, .activity-grid, .metric-grid, .activity-actions { grid-template-columns: 1fr; } .activity-card, .patient-row, .answer-button { align-items: flex-start; } }
+@media (max-width: 1024px) { .login-layout, .patient-layout, .professional-layout, .game-layout { grid-template-columns: minmax(0, 1fr); } .professional-patients { position: static; } .login-copy { min-height: unset; } }
+@media (max-width: 760px) { .app-inner { padding: 14px; } .topbar, .section-head { align-items: stretch; flex-direction: column; } nav, .login-tabs { display: grid; grid-template-columns: minmax(0, 1fr); } .login-copy { padding: 18px 4px; } .plant-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } .activity-grid, .activity-actions { grid-template-columns: minmax(0, 1fr); } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .activity-card, .patient-row, .answer-button { align-items: flex-start; } }
