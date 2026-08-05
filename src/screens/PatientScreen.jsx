@@ -29,7 +29,7 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
           {activities.map((activity, index) => <ActivityCard key={activity.id} activity={activity} index={index} completed={patient.completed.includes(activity.id)} onClick={() => onOpenActivity(activity)} />)}
         </div>
       </section>
-      <aside className="patient-aside">
+      <aside className="patient-aside" aria-label="Panel del paciente">
         <PerformancePanel patient={patient} completedCount={completedCount} totalActivities={activities.length} />
         <MoodPanel patient={patient} onUpdatePatient={onUpdatePatient} />
         <ProgressPanel patient={patient} completedCount={completedCount} />

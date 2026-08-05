@@ -9,10 +9,10 @@ export function GlobalHeader({ screen, role, onLogout, onNavigate }) {
         <div><strong>MenteActiva Jardin</strong><small>Ambiente 2 - Jardin Cognitivo</small></div>
       </button>
       {screen !== SCREEN_NAMES.login && (
-        <nav>
-          <button className={screen === SCREEN_NAMES.patient ? "active" : ""} onClick={() => onNavigate(SCREEN_NAMES.patient)}><UserRound size={18} /> Paciente</button>
-          {role === SCREEN_NAMES.professional && <button className={screen === SCREEN_NAMES.professional ? "active" : ""} onClick={() => onNavigate(SCREEN_NAMES.professional)}><Stethoscope size={18} /> Psicologo</button>}
-          <button onClick={onLogout}><ArrowLeft size={18} /> Salir</button>
+        <nav aria-label="Navegacion principal">
+          <button type="button" className={screen === SCREEN_NAMES.patient ? "active" : ""} aria-current={screen === SCREEN_NAMES.patient ? "page" : undefined} onClick={() => onNavigate(SCREEN_NAMES.patient)}><UserRound size={18} /> Paciente</button>
+          {role === SCREEN_NAMES.professional && <button type="button" className={screen === SCREEN_NAMES.professional ? "active" : ""} aria-current={screen === SCREEN_NAMES.professional ? "page" : undefined} onClick={() => onNavigate(SCREEN_NAMES.professional)}><Stethoscope size={18} /> Psicologo</button>}
+          <button type="button" onClick={onLogout}><ArrowLeft size={18} /> Salir</button>
         </nav>
       )}
     </header>

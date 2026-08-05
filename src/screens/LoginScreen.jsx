@@ -34,9 +34,9 @@ export function LoginScreen({ loginError, onLogin }) {
         <div className="motivation-banner"><Sparkles size={24} /> Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
       </div>
       <form className="panel login-panel" onSubmit={handleSubmit} noValidate>
-        <div className="login-tabs">
-          <button type="button" className={mode === "patient" ? "tab-active" : ""} onClick={() => switchMode("patient")}><UserRound size={20} /> Paciente</button>
-          <button type="button" className={mode === "professional" ? "tab-active" : ""} onClick={() => switchMode("professional")}><Stethoscope size={20} /> Psicologo</button>
+        <div className="login-tabs" role="tablist" aria-label="Tipo de usuario">
+          <button type="button" role="tab" aria-selected={mode === "patient"} className={mode === "patient" ? "tab-active" : ""} onClick={() => switchMode("patient")}><UserRound size={20} /> Paciente</button>
+          <button type="button" role="tab" aria-selected={mode === "professional"} className={mode === "professional" ? "tab-active" : ""} onClick={() => switchMode("professional")}><Stethoscope size={20} /> Psicologo</button>
         </div>
         <div className="login-title"><ShieldCheck size={34} /><div><h2>Inicio de sesion</h2><p>Usa las credenciales demo del README.</p></div></div>
         <label htmlFor={emailId}>Email</label>

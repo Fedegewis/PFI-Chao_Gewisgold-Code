@@ -33,24 +33,27 @@ export function App() {
 
   return (
     <main className="app-shell">
+      <a href="#main-content" className="skip-link">Saltar al contenido principal</a>
       <div className="app-inner">
         <GlobalHeader screen={screen} role={role} onLogout={logout} onNavigate={setScreen} />
         <ErrorBoundary>
-          {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} />}
-          {screen === SCREEN_NAMES.patient && isAuthenticated && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
-          {screen === SCREEN_NAMES.activity && isAuthenticated && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
-          {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (
-            <ProfessionalScreen
-              patients={patients}
-              professionalId={professionalId}
-              resetDemo={resetDemo}
-              selectedPatient={selectedPatient}
-              sessions={sessions}
-              setPatients={setPatients}
-              setSelectedPatientId={setSelectedPatientId}
-              updatePatient={updatePatient}
-            />
-          )}
+          <div id="main-content">
+            {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} />}
+            {screen === SCREEN_NAMES.patient && isAuthenticated && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
+            {screen === SCREEN_NAMES.activity && isAuthenticated && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
+            {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (
+              <ProfessionalScreen
+                patients={patients}
+                professionalId={professionalId}
+                resetDemo={resetDemo}
+                selectedPatient={selectedPatient}
+                sessions={sessions}
+                setPatients={setPatients}
+                setSelectedPatientId={setSelectedPatientId}
+                updatePatient={updatePatient}
+              />
+            )}
+          </div>
         </ErrorBoundary>
       </div>
     </main>

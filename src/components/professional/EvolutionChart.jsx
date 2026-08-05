@@ -8,7 +8,7 @@ export function EvolutionChart({ sessions }) {
   }
   const recent = sessions.slice(-8);
   return (
-    <div className="evolution-bars">
+    <div className="evolution-bars" aria-hidden="true">
       {recent.map((session) => (
         <div key={session.id} className="evolution-slot">
           <span className="evolution-value">{session.accuracy}%</span>
