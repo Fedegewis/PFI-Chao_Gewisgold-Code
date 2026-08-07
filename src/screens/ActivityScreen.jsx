@@ -24,16 +24,21 @@ function nearestAvailable(level, used, length) {
 export function ActivityScreen({ activity, onBack, onComplete, patient }) {
   const pool = activity.questions;
   const sessionLength = Math.min(patient.maxQuestions, pool.length);
-  const draft = loadActivityDraft();
-  const canRestoreDraft =
-    draft &&
-    draft.patientId === patient.id &&
-    draft.activityId === activity.id &&
-    Array.isArray(draft.sequence) &&
-    Array.isArray(draft.answers);
-  const [sequence, setSequence] = useState(() => (canRestoreDraft ? draft.sequence : [nearestAvailable(0, [], pool.length)]));
-  const [answers, setAnswers] = useState(() => (canRestoreDraft ? draft.answers : []));
-  const [level, setLevel] = useState(() => (canRestoreDraft ? draft.level : 0));
+  const [initialState] = useState(() => {
+    const draft = loadActivityDraft();
+    const canRestore =
+      draft &&
+      draft.patientId === patient.id &&
+      draft.activityId === activity.id &&
+      Array.isArray(draft.sequence) &&
+      Array.isArray(draft.answers);
+    return canRestore
+      ? { sequence: draft.sequence, answers: draft.answers, level: draft.level }
+      : { sequence: [nearestAvailable(0, [], pool.length)], answers: [], level: 0 };
+  });
+  const [sequence, setSequence] = useState(initialState.sequence);
+  const [answers, setAnswers] = useState(initialState.answers);
+  const [level, setLevel] = useState(initialState.level);
   const shownAt = useRef(typeof performance !== "undefined" ? performance.now() : Date.now());
 
   const step = sequence.length - 1;
