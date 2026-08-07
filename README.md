@@ -1,4 +1,4 @@
-﻿# MenteActiva Jardin - 
+﻿# MenteActiva - 
 
 App funcional para la tesis. Incluye inicio de sesion, vista paciente, vista psicologo, jardin que crece por desafios, rendimiento, creacion de pacientes, configuracion de preguntas por IA y envio de link demo.
 

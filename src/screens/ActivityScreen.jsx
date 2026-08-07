@@ -86,7 +86,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
 
   return (
     <section className="panel game-panel" aria-labelledby="game-title">
-      <button type="button" onClick={onBack} className="back-link"><ArrowLeft size={22} /> Volver a actividades</button>
+      <button type="button" onClick={onBack} className="back-link"><ArrowLeft size={22} aria-hidden="true" /> Volver a actividades</button>
       <div className="game-layout">
         <div className="game-prompt">
           <p>{activity.skill}</p>
@@ -108,19 +108,19 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           </div>
         </div>
         <div className="question-panel">
-          <div className="question-header"><h3>Pregunta {step + 1}</h3><span>{answeredCount}/{sessionLength}</span></div>
-          <p className="question-text">{current.prompt}</p>
-          <div className="answer-grid" role="group" aria-label="Opciones de respuesta">
+          <div className="question-header"><h3>Pregunta {step + 1}</h3><span aria-hidden="true">{answeredCount}/{sessionLength}</span></div>
+          <p className="question-text" id="current-question">{current.prompt}</p>
+          <div className="answer-grid" role="group" aria-labelledby="current-question">
             {current.options.map((answer, index) => (
               <button key={answer} type="button" aria-pressed={selected === index} onClick={() => chooseAnswer(index)} className={cx("answer-button", selected === index && (isCorrect ? "answer-good" : "answer-review"))}>
-                <span>{String.fromCharCode(65 + index)}</span>{answer}{selected === index && <CheckCircle2 size={24} />}
+                <span aria-hidden="true">{String.fromCharCode(65 + index)}</span>{answer}{selected === index && <CheckCircle2 size={24} aria-hidden="true" />}
               </button>
             ))}
           </div>
           <div aria-live="polite" aria-atomic="true">
             {selectedEntry && (
               <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
-                {isCorrect ? <CheckCircle2 size={24} /> : <RefreshCw size={24} />}
+                {isCorrect ? <CheckCircle2 size={24} aria-hidden="true" /> : <RefreshCw size={24} aria-hidden="true" />}
                 <p>{isCorrect ? current.patientGood : current.patientTry}</p>
               </div>
             )}

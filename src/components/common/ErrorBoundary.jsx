@@ -13,7 +13,7 @@ export class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="panel" style={{ margin: "2rem", textAlign: "center", padding: "2rem" }}>
+        <div className="panel" role="alert" style={{ margin: "2rem", textAlign: "center", padding: "2rem" }}>
           <p style={{ marginBottom: "1rem" }}>Algo salió mal. Podés reintentar o recargar la página.</p>
           <button
             type="button"

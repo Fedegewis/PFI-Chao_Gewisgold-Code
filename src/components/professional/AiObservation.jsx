@@ -14,14 +14,14 @@ export function AiObservation({ patient, sessions }) {
 
   return (
     <div className="panel ai-observation">
-      <div className="section-head compact"><div><p className="eyebrow">Observaciones por IA</p><h2>Sintesis clinica</h2></div><NotebookPen size={30} /></div>
+      <div className="section-head compact"><div><p className="eyebrow">Observaciones por IA</p><h2>Sintesis clinica</h2></div><NotebookPen size={30} aria-hidden="true" /></div>
       <p className="ai-hint">Genera una lectura de patrones a partir de las metricas reales del paciente. Usa Ollama local si esta disponible; si no, una sintesis heuristica.</p>
-      <button className="primary" type="button" onClick={run} disabled={state.loading}>
+      <button className="primary" type="button" onClick={run} disabled={state.loading} aria-busy={state.loading}>
         {state.loading
-          ? <><Loader2 size={20} className="spin" /> Generando</>
+          ? <><Loader2 size={20} className="spin" aria-hidden="true" /> Generando</>
           : state.text
-            ? <><RefreshCw size={20} /> Regenerar observacion</>
-            : <><Sparkles size={20} /> Generar observacion</>}
+            ? <><RefreshCw size={20} aria-hidden="true" /> Regenerar observacion</>
+            : <><Sparkles size={20} aria-hidden="true" /> Generar observacion</>}
       </button>
       {state.text && (
         <div className="ai-output" role="status" aria-live="polite">

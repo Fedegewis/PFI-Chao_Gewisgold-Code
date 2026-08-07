@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronRight, ShieldCheck, Sparkles, Stethoscope, UserRound } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { LOGIN_CREDENTIALS, MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 
 export function LoginScreen({ loginError, onLogin }) {
@@ -9,6 +9,8 @@ export function LoginScreen({ loginError, onLogin }) {
   const [dirty, setDirty] = useState(false);
   const emailId = "login-email";
   const passwordId = "login-password";
+  const patientTabRef = useRef(null);
+  const professionalTabRef = useRef(null);
 
   const visibleError = dirty ? "" : loginError;
 
@@ -19,6 +21,16 @@ export function LoginScreen({ loginError, onLogin }) {
     setDirty(false);
   }
 
+  function handleTabKeyDown(e) {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      const nextMode = mode === "patient" ? "professional" : "patient";
+      switchMode(nextMode);
+      const nextRef = nextMode === "patient" ? patientTabRef : professionalTabRef;
+      nextRef.current?.focus();
+    }
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     setDirty(false);
@@ -26,44 +38,72 @@ export function LoginScreen({ loginError, onLogin }) {
   }
 
   return (
-    <section className="login-layout">
+    <section className="login-layout" aria-label="Inicio de sesion">
       <div className="login-copy">
-        <p className="eyebrow">Ambiente 2</p>
+        <p className="eyebrow"></p>
         <h1>Jardin Cognitivo</h1>
         <p>El jardin se alimenta y crece segun los desafios completados. El paciente ve juegos cotidianos; el psicologo configura preguntas, limites y seguimiento.</p>
-        <div className="motivation-banner"><Sparkles size={24} /> Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
+        <div className="motivation-banner"><Sparkles size={24} aria-hidden="true" /> Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
       </div>
       <form className="panel login-panel" onSubmit={handleSubmit} noValidate>
         <div className="login-tabs" role="tablist" aria-label="Tipo de usuario">
-          <button type="button" role="tab" aria-selected={mode === "patient"} className={mode === "patient" ? "tab-active" : ""} onClick={() => switchMode("patient")}><UserRound size={20} /> Paciente</button>
-          <button type="button" role="tab" aria-selected={mode === "professional"} className={mode === "professional" ? "tab-active" : ""} onClick={() => switchMode("professional")}><Stethoscope size={20} /> Psicologo</button>
+          <button
+            ref={patientTabRef}
+            type="button"
+            role="tab"
+            id="tab-patient"
+            aria-selected={mode === "patient"}
+            aria-controls="tabpanel-login"
+            tabIndex={mode === "patient" ? 0 : -1}
+            className={mode === "patient" ? "tab-active" : ""}
+            onClick={() => switchMode("patient")}
+            onKeyDown={handleTabKeyDown}
+          >
+            <UserRound size={20} aria-hidden="true" /> Paciente
+          </button>
+          <button
+            ref={professionalTabRef}
+            type="button"
+            role="tab"
+            id="tab-professional"
+            aria-selected={mode === "professional"}
+            aria-controls="tabpanel-login"
+            tabIndex={mode === "professional" ? 0 : -1}
+            className={mode === "professional" ? "tab-active" : ""}
+            onClick={() => switchMode("professional")}
+            onKeyDown={handleTabKeyDown}
+          >
+            <Stethoscope size={20} aria-hidden="true" /> Psicologo
+          </button>
         </div>
-        <div className="login-title"><ShieldCheck size={34} /><div><h2>Inicio de sesion</h2><p>Usa las credenciales demo del README.</p></div></div>
-        <label htmlFor={emailId}>Email</label>
-        <input
-          id={emailId}
-          type="email"
-          name="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => { setEmail(e.target.value); setDirty(true); }}
-        />
-        <label htmlFor={passwordId}>Clave</label>
-        <input
-          id={passwordId}
-          type="password"
-          name="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); setDirty(true); }}
-        />
+        <div id="tabpanel-login" role="tabpanel" aria-labelledby={mode === "patient" ? "tab-patient" : "tab-professional"}>
+          <div className="login-title"><ShieldCheck size={34} aria-hidden="true" /><div><h2>Inicio de sesion</h2><p>Usa las credenciales demo del README.</p></div></div>
+          <label htmlFor={emailId}>Email</label>
+          <input
+            id={emailId}
+            type="email"
+            name="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setDirty(true); }}
+          />
+          <label htmlFor={passwordId}>Clave</label>
+          <input
+            id={passwordId}
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setDirty(true); }}
+          />
+        </div>
         {visibleError && (
           <div className="error-box" role="alert">
-            <AlertTriangle size={20} /> {visibleError}
+            <AlertTriangle size={20} aria-hidden="true" /> {visibleError}
           </div>
         )}
         <button type="submit" className="primary">
-          Entrar como {mode === "patient" ? "paciente" : "psicologo"} <ChevronRight size={22} />
+          Entrar como {mode === "patient" ? "paciente" : "psicologo"} <ChevronRight size={22} aria-hidden="true" />
         </button>
       </form>
     </section>

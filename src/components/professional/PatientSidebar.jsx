@@ -56,16 +56,18 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
       return filteredPatients.map((patient) => (
         <button
           key={patient.id}
+          type="button"
           className={cx("patient-row", patient.id === selectedPatient.id && "selected-patient")}
+          aria-current={patient.id === selectedPatient.id ? "true" : undefined}
           onClick={() => onSelectPatient(patient)}
         >
-          <div className="avatar">{patient.name[0]}</div>
+          <div className="avatar" aria-hidden="true">{patient.name[0]}</div>
           <div>
             <strong>{patient.name}</strong>
             <span>{patient.age} años</span>
             <small>{patient.status}</small>
           </div>
-          <ChevronRight size={22} />
+          <ChevronRight size={22} aria-hidden="true" />
         </button>
       ));
     }
@@ -76,7 +78,7 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
   }
 
   return (
-    <section className="panel professional-patients">
+    <section className="panel professional-patients" aria-label="Panel de pacientes">
       <div className="section-head compact">
         <div>
           <p className="eyebrow">Panel de pacientes</p>
@@ -85,11 +87,10 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
         <button
           className="icon-action"
           type="button"
-          title="Buscar paciente"
           aria-label="Buscar paciente"
           onClick={() => searchInputRef.current?.focus()}
         >
-          <Search size={22} />
+          <Search size={22} aria-hidden="true" />
         </button>
       </div>
       <input
@@ -101,7 +102,7 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
         aria-label="Buscar paciente por nombre"
         style={{ marginBottom: "0.5rem" }}
       />
-      <div className="patient-list">
+      <div className="patient-list" role="list" aria-label="Lista de pacientes">
         {renderPatientList()}
       </div>
       <div className="create-box">
@@ -124,19 +125,19 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
           placeholder="Edad"
         />
         <button className="primary" type="button" onClick={handleCreate}>
-          <UserPlus size={20} /> Crear paciente
+          <UserPlus size={20} aria-hidden="true" /> Crear paciente
         </button>
         {feedback.text && (
           <p
             className={cx("form-feedback", feedback.type === "success" ? "form-feedback-success" : "form-feedback-error")}
             role="alert"
           >
-            {feedback.type === "success" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+            {feedback.type === "success" ? <CheckCircle2 size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
             {" "}{feedback.text}
           </p>
         )}
         <button className="secondary-action reset-demo" type="button" onClick={onResetDemo}>
-          <RotateCcw size={18} /> Reiniciar datos demo
+          <RotateCcw size={18} aria-hidden="true" /> Reiniciar datos demo
         </button>
       </div>
     </section>

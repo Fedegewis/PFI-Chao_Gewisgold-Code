@@ -7,10 +7,10 @@ export function SessionTable({ sessions }) {
     <div className="session-table-wrap">
       <div className="session-table" role="table" aria-label="Sesiones recientes">
         <div className="session-table-head" role="row">
-          <span role="columnheader">Fecha</span>
-          <span role="columnheader">Actividad</span>
-          <span role="columnheader">Aciertos</span>
-          <span role="columnheader">Latencia</span>
+          <span role="columnheader" scope="col">Fecha</span>
+          <span role="columnheader" scope="col">Actividad</span>
+          <span role="columnheader" scope="col">Aciertos</span>
+          <span role="columnheader" scope="col">Latencia</span>
         </div>
         <div role="rowgroup">
           {recent.map((session) => (

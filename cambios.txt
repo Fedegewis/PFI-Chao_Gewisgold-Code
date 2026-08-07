@@ -11,3 +11,4 @@ Revisar tema sintesis clinica que no este tan duro y tenga varias frases
 Revisar tema de preguntas, ir cambiando las preguntas, no poner todas las preguntas
 Que aparezcan directamente los usuarios
 Revisar si se agrega un usuario
+Que la vista cuand 

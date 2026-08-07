@@ -68,7 +68,7 @@ export function ProfessionalScreen({
         onCreatePatient={handleCreatePatient}
         onResetDemo={resetDemo}
       />
-      <section className="professional-stack">
+      <section className="professional-stack" aria-label={`Datos de ${selectedPatient.name}`}>
         <div className="metric-grid">
           <MetricCard icon={CheckCircle2} label="Aciertos" value={stats.count ? `${stats.avgAccuracy}%` : `${selectedPatient.score}%`} detail={selectedPatient.trend} />
           <MetricCard icon={Timer} label="Tiempo medio" value={stats.count ? `${stats.avgLatencySec} s` : selectedPatient.rt} detail="respuesta" />
@@ -81,7 +81,7 @@ export function ProfessionalScreen({
               <p className="eyebrow">Evolucion del rendimiento</p>
               <h2>Precision por sesion</h2>
             </div>
-            <TrendingUp size={30} />
+            <TrendingUp size={30} aria-hidden="true" />
           </div>
           <EvolutionChart sessions={patientSessions} />
           <SessionTable sessions={patientSessions} />
@@ -94,9 +94,9 @@ export function ProfessionalScreen({
               <p className="eyebrow">Dentro de cada paciente</p>
               <h2>Preguntas que se hacen</h2>
             </div>
-            <BarChart3 size={30} />
+            <BarChart3 size={30} aria-hidden="true" />
           </div>
-          <div className="question-bank">
+          <div className="question-bank" role="feed" aria-label="Banco de preguntas">
             {questionBank}
           </div>
         </div>

@@ -13,8 +13,8 @@ export function MoodPanel({ patient, onUpdatePatient }) {
 
   return (
     <div className="panel">
-      <h3>Como te sentis hoy?</h3>
-      <div className="mood-row">
+      <h3 id="mood-heading">Como te sentis hoy?</h3>
+      <div className="mood-row" role="group" aria-labelledby="mood-heading">
         {MOOD_OPTIONS.map((option) => (
           <button
             key={option.id}
@@ -23,7 +23,7 @@ export function MoodPanel({ patient, onUpdatePatient }) {
             onClick={() => chooseMood(option)}
             aria-pressed={patient.mood === option.id}
           >
-            <Heart size={24} />
+            <Heart size={24} aria-hidden="true" />
             <div>
               <strong>{option.label}</strong>
               <span>{option.note}</span>

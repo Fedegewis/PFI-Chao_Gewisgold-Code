@@ -6,10 +6,10 @@ export function ProgressPanel({ patient, completedCount }) {
 
   return (
     <div className="panel">
-      <h3>Progreso semanal</h3>
-      <div className="mini-bars">
+      <h3 id="weekly-progress-heading">Progreso semanal</h3>
+      <div className="mini-bars" role="img" aria-label={`Progreso semanal: ${DAY_LABELS.map((day, i) => `${day} ${patient.weeklyProgress[i]}%`).join(", ")}`}>
         {patient.weeklyProgress.map((value, index) => (
-          <div key={`${DAY_LABELS[index]}-${index}`} className="mini-bar-slot">
+          <div key={`${DAY_LABELS[index]}-${index}`} className="mini-bar-slot" aria-hidden="true">
             <span className={cx("mini-bar", index === todayIndex && "mini-bar-today")} style={{ height: `${Math.max(16, value)}%` }} />
             <small>{DAY_LABELS[index]}</small>
           </div>

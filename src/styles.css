@@ -28,6 +28,7 @@ p, label, small { color: #52624d; font-weight: 760; line-height: 1.45; }
 .login-copy > p { max-width: 620px; color: #263f20; font-size: 20px; font-weight: 850; }
 .motivation-banner { max-width: 620px; padding: 18px; background: rgba(255,255,255,0.82); color: #30442a; font-size: 18px; font-weight: 900; }
 .login-panel { display: grid; align-content: start; gap: 16px; padding: 24px; }
+.login-panel [role="tabpanel"] { display: grid; gap: 16px; }
 .login-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .login-title { align-items: flex-start; margin-top: 6px; }
 .login-title h2 { margin: 0; font-size: 32px; }
@@ -89,6 +90,7 @@ textarea { min-height: 150px; resize: vertical; }
 .back-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-bottom: 20px; color: #617a58; font-weight: 950; }
 .skip-link { position: absolute; top: -100%; left: 0; z-index: 9999; padding: 8px 16px; background: #617a58; color: #fff; text-decoration: none; font-weight: 600; border-radius: 0 0 4px 0; }
 .skip-link:focus { top: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .game-prompt { border-radius: 8px; background: linear-gradient(135deg, #526b4a, #8a7a5d); padding: 26px; color: white; }
 .game-prompt p, .game-prompt .eyebrow { color: rgba(255,255,255,0.88); }
 .game-prompt h2 { margin: 8px 0 0; font-size: 42px; line-height: 1.05; }

@@ -73,7 +73,7 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
           <p className="eyebrow">Instrucciones para IA</p>
           <h2>{selectedPatient.name}</h2>
         </div>
-        <Brain size={30} />
+        <Brain size={30} aria-hidden="true" />
       </div>
       <label htmlFor={aiInstructionsId}>Como se mide y que tipo de preguntas debe hacer</label>
       <textarea
@@ -91,29 +91,29 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
         onChange={(e) => { setMaxQuestions(e.target.value); setConfigFeedback({ text: "", type: "" }); }}
       />
       <button className="primary" type="button" onClick={handleSave}>
-        <CheckCircle2 size={20} /> Guardar criterio
+        <CheckCircle2 size={20} aria-hidden="true" /> Guardar criterio
       </button>
       {configFeedback.text && (
         <p
           className={cx("form-feedback", configFeedback.type === "success" ? "form-feedback-success" : "form-feedback-error")}
           role="alert"
         >
-          {configFeedback.type === "success" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+          {configFeedback.type === "success" ? <CheckCircle2 size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
           {" "}{configFeedback.text}
         </p>
       )}
       <div className="link-box">
-        <LinkIcon size={22} />
+        <LinkIcon size={22} aria-hidden="true" />
         <div>
           <strong>Envio de link</strong>
           <p>{selectedPatient.link}</p>
           {linkFeedback && <small role="status">{linkFeedback}</small>}
         </div>
-        <button className="icon-action" title="Copiar link" type="button" onClick={copyPatientLink}>
-          <Copy size={20} />
+        <button className="icon-action" type="button" aria-label="Copiar link" onClick={copyPatientLink}>
+          <Copy size={20} aria-hidden="true" />
         </button>
-        <button className="icon-action" title="Enviar link" type="button" onClick={sendPatientLink}>
-          <Send size={20} />
+        <button className="icon-action" type="button" aria-label="Enviar link por correo" onClick={sendPatientLink}>
+          <Send size={20} aria-hidden="true" />
         </button>
       </div>
     </div>
