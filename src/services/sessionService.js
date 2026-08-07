@@ -1,6 +1,11 @@
 import { SLOW_MS } from "../constants/appConfig.js";
 import { formatLatency, formatShortDate } from "../lib/format.js";
 
+export function averageField(items, key) {
+  if (items.length === 0) return 0;
+  return items.reduce((sum, item) => sum + item[key], 0) / items.length;
+}
+
 export function summarizeAnswers(list) {
   const total = list.length;
   const correctCount = list.filter((answer) => answer.correct).length;
@@ -38,11 +43,11 @@ export function buildCompletedActivityState({ patient, sessions, activity, summa
   const nextWeeklyProgress = [...patient.weeklyProgress];
   nextWeeklyProgress[todayIndex] = Math.min(100, nextWeeklyProgress[todayIndex] + Math.round(100 / totalActivities));
   const completed = Array.from(new Set([...patient.completed, activity.id]));
-  const avgAccuracy = Math.round(patientSessions.reduce((sum, item) => sum + item.accuracy, 0) / patientSessions.length);
-  const avgLatencyMs = Math.round(patientSessions.reduce((sum, item) => sum + item.avgLatencyMs, 0) / patientSessions.length);
+  const avgAccuracy = Math.round(averageField(patientSessions, "accuracy"));
+  const avgLatencyMs = Math.round(averageField(patientSessions, "avgLatencyMs"));
   const previousSessions = patientSessions.slice(0, -1);
   const previousAvg = previousSessions.length
-    ? Math.round(previousSessions.reduce((sum, item) => sum + item.accuracy, 0) / previousSessions.length)
+    ? Math.round(averageField(previousSessions, "accuracy"))
     : avgAccuracy;
   const delta = avgAccuracy - previousAvg;
 
@@ -55,7 +60,7 @@ export function buildCompletedActivityState({ patient, sessions, activity, summa
       trend: `${delta >= 0 ? "+" : ""}${delta}%`,
       status: session.accuracy >= 70 ? "Rendimiento optimo" : session.accuracy >= 50 ? "En seguimiento" : "Requiere apoyo",
       note: `Ultima actividad: ${session.activityTitle} - ${session.accuracy}% de aciertos, ${formatLatency(session.avgLatencyMs)} promedio.`,
-      rt: formatLatency(avgLatencyMs),
+      responseTime: formatLatency(avgLatencyMs),
       risk: session.avgLatencyMs > SLOW_MS || session.accuracy < 50 ? "Medio" : "Bajo",
       weeklyProgress: nextWeeklyProgress,
       lastSessionAt: session.date
@@ -68,8 +73,8 @@ export function computeStats(sessions) {
     return { count: 0, weekCount: 0, avgAccuracy: 0, avgLatencySec: "-", lastLabel: "sin registro" };
   }
   const weekCount = countSessionsThisWeek(sessions);
-  const avgAccuracy = Math.round(sessions.reduce((sum, session) => sum + session.accuracy, 0) / sessions.length);
-  const avgLatencySec = (sessions.reduce((sum, session) => sum + session.avgLatencyMs, 0) / sessions.length / 1000).toFixed(1);
+  const avgAccuracy = Math.round(averageField(sessions, "accuracy"));
+  const avgLatencySec = (averageField(sessions, "avgLatencyMs") / 1000).toFixed(1);
   const last = sessions[sessions.length - 1];
   const lastLabel = formatShortDate(last.date);
   return { count: sessions.length, weekCount, avgAccuracy, avgLatencySec, lastLabel };

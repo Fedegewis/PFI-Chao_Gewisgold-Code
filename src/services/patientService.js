@@ -26,7 +26,7 @@ export function createPatient({
     note: PATIENT_DEFAULTS.note,
     score: PATIENT_DEFAULTS.score,
     trend: PATIENT_DEFAULTS.trend,
-    rt: PATIENT_DEFAULTS.responseTime,
+    responseTime: PATIENT_DEFAULTS.responseTime,
     risk: PATIENT_DEFAULTS.risk,
     aiInstructions,
     link,
@@ -104,6 +104,10 @@ export function slugifyPatientName(value) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "") || ""
   );
+}
+
+export function generatePatientId(name, fallbackIndex) {
+  return slugifyPatientName(name) || `paciente-${fallbackIndex}`;
 }
 
 export function buildInitialPatients() {

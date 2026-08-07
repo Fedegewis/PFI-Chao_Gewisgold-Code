@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, ChevronRight, RotateCcw, Search, UserPlus 
 import { useMemo, useRef, useState } from "react";
 import { MAX_PATIENT_AGE } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";
-import { slugifyPatientName } from "../../services/patientService.js";
+import { generatePatientId } from "../../services/patientService.js";
 
 export function PatientSidebar({ patients, professionalId, selectedPatient, onSelectPatient, onCreatePatient, onResetDemo }) {
   const [newName, setNewName] = useState("");
@@ -40,7 +40,7 @@ export function PatientSidebar({ patients, professionalId, selectedPatient, onSe
       setError(`La edad debe ser un numero entero entre 1 y ${MAX_PATIENT_AGE}.`);
       return;
     }
-    const nextPatientId = slugifyPatientName(trimmedName) || `paciente-${patients.length + 1}`;
+    const nextPatientId = generatePatientId(trimmedName, patients.length + 1);
     if (patients.some((p) => p.id === nextPatientId)) {
       setError("Ya existe un paciente con un nombre muy parecido. Usa otro nombre.");
       return;

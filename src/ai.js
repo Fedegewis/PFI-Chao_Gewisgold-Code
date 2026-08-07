@@ -6,9 +6,7 @@
 
 import { SLOW_MS } from "./constants/appConfig.js";
 import { formatLatency } from "./lib/format.js";
-import { countSessionsThisWeek, getPatientSessions } from "./services/sessionService.js";
-
-export { SLOW_MS };
+import { averageField, countSessionsThisWeek, getPatientSessions } from "./services/sessionService.js";
 
 export const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL ?? "http://localhost:11434/api/generate";
 export const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL ?? "llama3";
@@ -65,22 +63,22 @@ export async function recommendDifficulty(perf, aiInstructions) {
 
 // Observacion redactada localmente a partir de las metricas reales del paciente.
 export function heuristicObservation(patient, sessions) {
-  const mine = getPatientSessions(sessions, patient.id);
-  if (mine.length === 0) {
+  const patientSessions = getPatientSessions(sessions, patient.id);
+  if (patientSessions.length === 0) {
     return `Aun no hay sesiones registradas para ${patient.name}. Se sugiere iniciar con actividades breves (5-8 min) para establecer una linea de base de precision y latencia.`;
   }
-  const avgAccuracy = Math.round(mine.reduce((acc, s) => acc + s.accuracy, 0) / mine.length);
-  const avgLatencyMs = mine.reduce((acc, s) => acc + s.avgLatencyMs, 0) / mine.length;
-  const last = mine[mine.length - 1];
-  const half = Math.floor(mine.length / 2) || 1;
-  const firstHalf = mine.slice(0, half);
-  const lastHalf = mine.slice(-half);
-  const firstAvg = Math.round(firstHalf.reduce((acc, s) => acc + s.accuracy, 0) / firstHalf.length);
-  const lastAvg = Math.round(lastHalf.reduce((acc, s) => acc + s.accuracy, 0) / lastHalf.length);
+  const avgAccuracy = Math.round(averageField(patientSessions, "accuracy"));
+  const avgLatencyMs = averageField(patientSessions, "avgLatencyMs");
+  const last = patientSessions[patientSessions.length - 1];
+  const half = Math.floor(patientSessions.length / 2) || 1;
+  const firstHalf = patientSessions.slice(0, half);
+  const lastHalf = patientSessions.slice(-half);
+  const firstAvg = Math.round(averageField(firstHalf, "accuracy"));
+  const lastAvg = Math.round(averageField(lastHalf, "accuracy"));
   const delta = lastAvg - firstAvg;
 
   const trendText =
-    mine.length < 2
+    patientSessions.length < 2
       ? "Todavia no hay suficientes sesiones para establecer una tendencia."
       : delta > 5
         ? `Se observa una mejora de ${delta} puntos de precision entre las primeras y ultimas sesiones.`
@@ -93,10 +91,10 @@ export function heuristicObservation(patient, sessions) {
       ? "La latencia media de la ultima sesion es elevada; conviene priorizar consignas breves y pausas."
       : "Los tiempos de respuesta se encuentran dentro de un rango funcional.";
 
-  const domains = [...new Set(mine.map((s) => s.skill).filter(Boolean))].join(", ");
+  const domains = [...new Set(patientSessions.map((s) => s.skill).filter(Boolean))].join(", ");
 
   return [
-    `${patient.name} registro ${mine.length} sesion(es), con ${countSessionsThisWeek(mine)} en la ultima semana.`,
+    `${patient.name} registro ${patientSessions.length} sesion(es), con ${countSessionsThisWeek(patientSessions)} en la ultima semana.`,
     `Precision promedio ${avgAccuracy}% y tiempo medio de respuesta ${formatLatency(avgLatencyMs)}.`,
     trendText,
     latencyText,
@@ -108,11 +106,11 @@ export function heuristicObservation(patient, sessions) {
 
 // Intenta que Ollama redacte la observacion; si falla usa la version heuristica.
 export async function generateObservation(patient, sessions) {
-  const mine = getPatientSessions(sessions, patient.id);
+  const patientSessions = getPatientSessions(sessions, patient.id);
   const fallback = heuristicObservation(patient, sessions);
-  if (mine.length === 0) return { text: fallback, source: "local" };
+  if (patientSessions.length === 0) return { text: fallback, source: "local" };
   try {
-    const resumen = mine
+    const resumen = patientSessions
       .slice(-8)
       .map((s) => `${new Date(s.date).toLocaleDateString("es-AR")}: ${s.activityTitle} (${s.skill}) precision ${s.accuracy}%, latencia ${formatLatency(s.avgLatencyMs)}`)
       .join("\n");

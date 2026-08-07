@@ -1,7 +1,7 @@
 import { Activity, BarChart3, CalendarDays, CheckCircle2, Timer, TrendingUp } from "lucide-react";
 import { useMemo } from "react";
 import { activities } from "../data/activities.js";
-import { createNewProfessionalPatient, slugifyPatientName } from "../services/patientService.js";
+import { createNewProfessionalPatient, generatePatientId } from "../services/patientService.js";
 import { computeStats, getPatientSessions } from "../services/sessionService.js";
 import { AiConfigPanel } from "../components/professional/AiConfigPanel.jsx";
 import { AiObservation } from "../components/professional/AiObservation.jsx";
@@ -43,7 +43,7 @@ export function ProfessionalScreen({
   }
 
   function handleCreatePatient(trimmedName, parsedAge) {
-    const nextPatientId = slugifyPatientName(trimmedName) || `paciente-${patients.length + 1}`;
+    const nextPatientId = generatePatientId(trimmedName, patients.length + 1);
     const nextPatient = createNewProfessionalPatient({
       patientId: nextPatientId,
       name: trimmedName,
@@ -71,7 +71,7 @@ export function ProfessionalScreen({
       <section className="professional-stack" aria-label={`Datos de ${selectedPatient.name}`}>
         <div className="metric-grid">
           <MetricCard icon={CheckCircle2} label="Aciertos" value={stats.count ? `${stats.avgAccuracy}%` : `${selectedPatient.score}%`} detail={selectedPatient.trend} />
-          <MetricCard icon={Timer} label="Tiempo medio" value={stats.count ? `${stats.avgLatencySec} s` : selectedPatient.rt} detail="respuesta" />
+          <MetricCard icon={Timer} label="Tiempo medio" value={stats.count ? `${stats.avgLatencySec} s` : selectedPatient.responseTime} detail="respuesta" />
           <MetricCard icon={Activity} label="Riesgo" value={selectedPatient.risk} detail="preventivo" />
           <MetricCard icon={CalendarDays} label="Sesiones" value={`${stats.count}`} detail={`${stats.weekCount} esta semana`} />
         </div>
