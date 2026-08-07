@@ -1,5 +1,6 @@
 import { SCREEN_NAMES } from "../constants/appConfig.js";
 import { ErrorBoundary } from "../components/common/ErrorBoundary.jsx";
+import { Footer } from "../components/common/Footer.jsx";
 import { GlobalHeader } from "../components/common/GlobalHeader.jsx";
 import { useAppController } from "../hooks/useAppController.js";
 import { ActivityScreen } from "../screens/ActivityScreen.jsx";
@@ -55,6 +56,7 @@ export function App() {
             )}
           </div>
         </ErrorBoundary>
+        <Footer />
       </div>
     </main>
   );
