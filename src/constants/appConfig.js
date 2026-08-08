@@ -1,6 +1,14 @@
 export const LOGIN_CREDENTIALS = {
-  patient: { email: "elena.rios@demo.com", password: "menteactiva" },
-  professional: { email: "psicologa@demo.com", password: "jardin2", id: "psico-01", name: "Dra. Ana Gomez" }
+  patient: {
+    email: import.meta.env.VITE_PATIENT_EMAIL ?? "elena.rios@demo.com",
+    password: import.meta.env.VITE_PATIENT_PASSWORD ?? "menteactiva"
+  },
+  professional: {
+    email: import.meta.env.VITE_PROFESSIONAL_EMAIL ?? "psicologa@demo.com",
+    password: import.meta.env.VITE_PROFESSIONAL_PASSWORD ?? "jardin2",
+    id: import.meta.env.VITE_PROFESSIONAL_ID ?? "psico-01",
+    name: import.meta.env.VITE_PROFESSIONAL_NAME ?? "Dra. Ana Gomez"
+  }
 };
 
 export const DEFAULT_PROFESSIONAL_ID = LOGIN_CREDENTIALS.professional.id;
@@ -29,3 +37,6 @@ export const DAY_LABELS = ["D", "L", "M", "M", "J", "V", "S"];
 export const MAX_PATIENT_AGE = 120;
 export const MAX_AI_QUESTIONS = 10;
 export const MIN_AI_QUESTIONS = 1;
+
+// Umbral de latencia (ms) por encima del cual una respuesta se considera lenta.
+export const SLOW_MS = 6000;

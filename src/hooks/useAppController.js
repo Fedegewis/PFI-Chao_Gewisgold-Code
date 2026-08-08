@@ -27,28 +27,36 @@ function loadAppPatients() {
 }
 
 export function useAppController() {
-  const initialSession = loadAppSession();
-  const initialHash = readHashState();
-  const [role, setRole] = useState(() => initialSession?.role || "patient");
-  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(initialSession?.role));
+  const [init] = useState(() => {
+    const session = loadAppSession();
+    const hash = readHashState();
+    const patients = loadAppPatients();
+    return { session, hash, patients };
+  });
+  const [role, setRole] = useState(() => init.session?.role || "patient");
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(init.session?.role));
   const [screen, setScreen] = useState(() => {
-    if (!initialSession?.role) return SCREEN_NAMES.login;
-    if (initialHash.screen === SCREEN_NAMES.professional && initialSession.role !== SCREEN_NAMES.professional) {
+    const { session, hash } = init;
+    if (!session?.role) return SCREEN_NAMES.login;
+    if (hash.screen === SCREEN_NAMES.professional && session.role !== SCREEN_NAMES.professional) {
       return SCREEN_NAMES.patient;
     }
-    if ([SCREEN_NAMES.patient, SCREEN_NAMES.professional, SCREEN_NAMES.activity].includes(initialHash.screen)) {
-      return initialHash.screen;
+    if ([SCREEN_NAMES.patient, SCREEN_NAMES.professional, SCREEN_NAMES.activity].includes(hash.screen)) {
+      return hash.screen;
     }
-    return initialSession.role === SCREEN_NAMES.professional ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
+    return session.role === SCREEN_NAMES.professional ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
   });
-  const [professionalId, setProfessionalId] = useState(() => initialSession?.professionalId || DEFAULT_PROFESSIONAL_ID);
-  const [patients, setPatients] = useState(loadAppPatients);
+  const [professionalId, setProfessionalId] = useState(() => init.session?.professionalId || DEFAULT_PROFESSIONAL_ID);
+  const [patients, setPatients] = useState(() => init.patients);
   const [sessions, setSessions] = useState(loadSessions);
-  const [selectedPatientId, setSelectedPatientId] = useState(() => loadAppPatients()[0].id);
-  const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(initialHash.activityId));
+  const [selectedPatientId, setSelectedPatientId] = useState(() => init.patients[0].id);
+  const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(init.hash.activityId));
   const [loginError, setLoginError] = useState("");
 
-  const selectedPatient = patients.find((patient) => patient.id === selectedPatientId) || patients[0];
+  const selectedPatient = useMemo(
+    () => patients.find((patient) => patient.id === selectedPatientId) ?? patients[0],
+    [patients, selectedPatientId]
+  );
   const motivationMessage = useMemo(() => MOTIVATION_MESSAGES[new Date().getDay() % MOTIVATION_MESSAGES.length], []);
 
   useEffect(() => {
@@ -159,6 +167,7 @@ export function useAppController() {
 
   return {
     activities,
+    isAuthenticated,
     loginError,
     login,
     logout,

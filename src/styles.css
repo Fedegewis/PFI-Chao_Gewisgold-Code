@@ -5,6 +5,7 @@ body { margin: 0; min-width: 320px; color: #172114; font-family: Inter, ui-sans-
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 3px solid #617a58; outline-offset: 2px; border-radius: 4px; }
 .app-shell { min-height: 100vh; background: radial-gradient(circle at top right, rgba(126, 151, 118, 0.25), transparent 34rem), linear-gradient(135deg, #f7f1e7, #fbf8f1 48%, #e7efe4); }
 .app-inner { width: min(1240px, 100%); min-height: 100vh; margin: 0 auto; padding: 22px; }
 .topbar, .panel, .garden-strip, .activity-card, .motivation-banner, .garden-welcome { border: 2px solid rgba(97, 122, 88, 0.34); border-radius: 8px; background: rgba(255, 250, 241, 0.96); box-shadow: 0 18px 50px rgba(50, 70, 44, 0.12); }
@@ -27,6 +28,7 @@ p, label, small { color: #52624d; font-weight: 760; line-height: 1.45; }
 .login-copy > p { max-width: 620px; color: #263f20; font-size: 20px; font-weight: 850; }
 .motivation-banner { max-width: 620px; padding: 18px; background: rgba(255,255,255,0.82); color: #30442a; font-size: 18px; font-weight: 900; }
 .login-panel { display: grid; align-content: start; gap: 16px; padding: 24px; }
+.login-panel [role="tabpanel"] { display: grid; gap: 16px; }
 .login-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .login-title { align-items: flex-start; margin-top: 6px; }
 .login-title h2 { margin: 0; font-size: 32px; }
@@ -85,7 +87,10 @@ textarea { min-height: 150px; resize: vertical; }
 .mini-bar-today { background: linear-gradient(180deg, #c58f73, #9a5d3f); }
 .mini-bar-slot small { color: #405238; font-size: 15px; font-weight: 900; }
 .game-layout { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
-.back-link { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 20px; color: #617a58; font-weight: 950; }
+.back-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-bottom: 20px; color: #617a58; font-weight: 950; }
+.skip-link { position: absolute; top: -100%; left: 0; z-index: 9999; padding: 8px 16px; background: #617a58; color: #fff; text-decoration: none; font-weight: 600; border-radius: 0 0 4px 0; }
+.skip-link:focus { top: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .game-prompt { border-radius: 8px; background: linear-gradient(135deg, #526b4a, #8a7a5d); padding: 26px; color: white; }
 .game-prompt p, .game-prompt .eyebrow { color: rgba(255,255,255,0.88); }
 .game-prompt h2 { margin: 8px 0 0; font-size: 42px; line-height: 1.05; }
@@ -93,7 +98,7 @@ textarea { min-height: 150px; resize: vertical; }
 .session-progress { display: grid; gap: 10px; margin-top: 18px; }
 .session-progress span { font-weight: 950; }
 .session-progress div { overflow: hidden; height: 14px; border-radius: 999px; background: rgba(255,255,255,0.3); }
-.session-progress i { display: block; height: 100%; border-radius: 999px; background: white; }
+.progress-fill { display: block; height: 100%; border-radius: 999px; background: white; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .status-chip { border-radius: 999px; background: rgba(255,255,255,0.18); padding: 9px 12px; color: white; font-size: 14px; font-weight: 950; }
 .session-card { display: grid; gap: 5px; margin-top: 22px; border-radius: 8px; background: rgba(255,255,255,0.16); padding: 16px; }
@@ -138,7 +143,10 @@ textarea { min-height: 150px; resize: vertical; }
 .question-bank p { margin: 6px 0; }
 .reset-demo { margin-top: 10px; }
 .empty-chart { border: 2px dashed #d5decf; border-radius: 8px; background: #f8faf6; padding: 18px; color: #52624d; font-weight: 850; }
-.evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
+.form-feedback { border-radius: 8px; padding: 10px 12px; font-size: 14px; font-weight: 900; }
+.form-feedback-success { border: 2px solid #9dc88b; background: #f0f8ed; color: #15803d; }
+.form-feedback-error { border: 2px solid #f1b5a7; background: #fff2ef; color: #9a3412; }
+.evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; overflow-x: auto; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
 .evolution-slot { display: grid; justify-items: center; align-items: end; gap: 6px; height: 100%; grid-template-rows: auto 1fr auto; }
 .evolution-value { font-size: 14px; font-weight: 950; color: #30442a; }
 .evolution-bar { width: 100%; align-self: end; border-radius: 10px 10px 4px 4px; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.24); }
@@ -146,7 +154,8 @@ textarea { min-height: 150px; resize: vertical; }
 .bar-mid { background: linear-gradient(180deg, #e2c281, #b98a3d); }
 .bar-low { background: linear-gradient(180deg, #dea187, #9a5d3f); }
 .evolution-slot small { color: #405238; font-size: 13px; font-weight: 900; }
-.session-table { display: grid; gap: 6px; margin-top: 16px; }
+.session-table-wrap { overflow-x: auto; }
+.session-table { display: grid; gap: 6px; margin-top: 16px; min-width: 360px; }
 .session-table-head, .session-table-row { display: grid; grid-template-columns: 0.7fr 1.6fr 0.8fr 0.8fr; gap: 10px; align-items: center; }
 .session-table-head { border-bottom: 2px solid rgba(97,122,88,0.28); padding-bottom: 8px; }
 .session-table-head span { font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: 0.06em; color: #3f5639; }
@@ -159,5 +168,5 @@ textarea { min-height: 150px; resize: vertical; }
 .ai-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: 0.06em; }
 .ai-badge-ollama { background: #dcecff; color: #1e40af; }
 .ai-badge-local { background: #e9e2f6; color: #5b3fa0; }
-@media (max-width: 1024px) { .login-layout, .patient-layout, .professional-layout, .game-layout { grid-template-columns: 1fr; } .professional-patients { position: static; } }
-@media (max-width: 760px) { .app-inner { padding: 14px; } .topbar, .section-head { align-items: stretch; flex-direction: column; } nav, .login-tabs { display: grid; grid-template-columns: 1fr; } .login-copy { min-height: auto; padding: 18px 4px; } .plant-row, .activity-grid, .metric-grid, .activity-actions { grid-template-columns: 1fr; } .activity-card, .patient-row, .answer-button { align-items: flex-start; } }
+@media (max-width: 1024px) { .login-layout, .patient-layout, .professional-layout, .game-layout { grid-template-columns: minmax(0, 1fr); } .professional-patients { position: static; } .login-copy { min-height: unset; } }
+@media (max-width: 760px) { .app-inner { padding: 14px; } .topbar, .section-head { align-items: stretch; flex-direction: column; } nav, .login-tabs { display: grid; grid-template-columns: minmax(0, 1fr); } .login-copy { padding: 18px 4px; } .plant-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } .activity-grid, .activity-actions { grid-template-columns: minmax(0, 1fr); } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .activity-card, .patient-row, .answer-button { align-items: flex-start; } }

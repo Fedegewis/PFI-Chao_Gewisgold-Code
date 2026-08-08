@@ -24,16 +24,21 @@ function nearestAvailable(level, used, length) {
 export function ActivityScreen({ activity, onBack, onComplete, patient }) {
   const pool = activity.questions;
   const sessionLength = Math.min(patient.maxQuestions, pool.length);
-  const draft = loadActivityDraft();
-  const canRestoreDraft =
-    draft &&
-    draft.patientId === patient.id &&
-    draft.activityId === activity.id &&
-    Array.isArray(draft.sequence) &&
-    Array.isArray(draft.answers);
-  const [sequence, setSequence] = useState(() => (canRestoreDraft ? draft.sequence : [nearestAvailable(0, [], pool.length)]));
-  const [answers, setAnswers] = useState(() => (canRestoreDraft ? draft.answers : []));
-  const [level, setLevel] = useState(() => (canRestoreDraft ? draft.level : 0));
+  const [initialState] = useState(() => {
+    const draft = loadActivityDraft();
+    const canRestore =
+      draft &&
+      draft.patientId === patient.id &&
+      draft.activityId === activity.id &&
+      Array.isArray(draft.sequence) &&
+      Array.isArray(draft.answers);
+    return canRestore
+      ? { sequence: draft.sequence, answers: draft.answers, level: draft.level }
+      : { sequence: [nearestAvailable(0, [], pool.length)], answers: [], level: 0 };
+  });
+  const [sequence, setSequence] = useState(initialState.sequence);
+  const [answers, setAnswers] = useState(initialState.answers);
+  const [level, setLevel] = useState(initialState.level);
   const shownAt = useRef(typeof performance !== "undefined" ? performance.now() : Date.now());
 
   const step = sequence.length - 1;
@@ -85,15 +90,15 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
   }
 
   return (
-    <section className="panel game-panel">
-      <button onClick={onBack} className="back-link"><ArrowLeft size={22} /> Volver a actividades</button>
+    <section className="panel game-panel" aria-labelledby="game-title">
+      <button type="button" onClick={onBack} className="back-link"><ArrowLeft size={22} aria-hidden="true" /> Volver a actividades</button>
       <div className="game-layout">
         <div className="game-prompt">
           <p>{activity.skill}</p>
-          <h2>{activity.title}</h2>
+          <h2 id="game-title">{activity.title}</h2>
           <div className="session-progress">
             <span>Pregunta {step + 1} de {sessionLength}</span>
-            <div><i style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
+            <div role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={sessionLength} aria-label="Progreso de la sesion"><span className="progress-fill" style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
           </div>
           <p className="prompt-copy">{activity.intro}</p>
           <div className="chip-row">
@@ -108,23 +113,25 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           </div>
         </div>
         <div className="question-panel">
-          <div className="question-header"><h3>Pregunta {step + 1}</h3><span>{answeredCount}/{sessionLength}</span></div>
-          <p className="question-text">{current.prompt}</p>
-          <div className="answer-grid">
+          <div className="question-header"><h3>Pregunta {step + 1}</h3><span aria-hidden="true">{answeredCount}/{sessionLength}</span></div>
+          <p className="question-text" id="current-question">{current.prompt}</p>
+          <div className="answer-grid" role="group" aria-labelledby="current-question">
             {current.options.map((answer, index) => (
-              <button key={answer} onClick={() => chooseAnswer(index)} className={cx("answer-button", selected === index && (isCorrect ? "answer-good" : "answer-review"))}>
-                <span>{String.fromCharCode(65 + index)}</span>{answer}{selected === index && <CheckCircle2 size={24} />}
+              <button key={answer} type="button" aria-pressed={selected === index} onClick={() => chooseAnswer(index)} className={cx("answer-button", selected === index && (isCorrect ? "answer-good" : "answer-review"))}>
+                <span aria-hidden="true">{String.fromCharCode(65 + index)}</span>{answer}{selected === index && <CheckCircle2 size={24} aria-hidden="true" />}
               </button>
             ))}
           </div>
-          {selectedEntry && (
-            <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
-              {isCorrect ? <CheckCircle2 size={24} /> : <RefreshCw size={24} />}
-              <p>{isCorrect ? current.patientGood : current.patientTry}</p>
-            </div>
-          )}
+          <div aria-live="polite" aria-atomic="true">
+            {selectedEntry && (
+              <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
+                {isCorrect ? <CheckCircle2 size={24} aria-hidden="true" /> : <RefreshCw size={24} aria-hidden="true" />}
+                <p>{isCorrect ? current.patientGood : current.patientTry}</p>
+              </div>
+            )}
+          </div>
           <div className="activity-actions single">
-            <button onClick={goNext} className="primary" disabled={selected === undefined}>
+            <button type="button" onClick={goNext} className="primary" disabled={selected === undefined}>
               {isLast ? "Finalizar sesion" : "Siguiente"}
             </button>
           </div>
