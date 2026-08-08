@@ -1,5 +1,6 @@
 import { Sparkles } from "lucide-react";
 import { ActivityCard } from "../components/patient/ActivityCard.jsx";
+import { AiChatPanel } from "../components/patient/AiChatPanel.jsx";
 import { GardenStrip } from "../components/patient/GardenStrip.jsx";
 import { MoodPanel } from "../components/patient/MoodPanel.jsx";
 import { PerformancePanel } from "../components/patient/PerformancePanel.jsx";
@@ -32,6 +33,7 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
       <aside className="patient-aside" aria-label="Panel del paciente">
         <PerformancePanel patient={patient} completedCount={completedCount} totalActivities={activities.length} />
         <MoodPanel patient={patient} onUpdatePatient={onUpdatePatient} />
+        <AiChatPanel patient={patient} />
         <ProgressPanel patient={patient} completedCount={completedCount} />
       </aside>
     </div>

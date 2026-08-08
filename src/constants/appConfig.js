@@ -27,9 +27,11 @@ export const MOTIVATION_MESSAGES = [
 ];
 
 export const MOOD_OPTIONS = [
-  { id: "bien", label: "Bien", note: "Te sentis con energia para seguir." },
-  { id: "calma", label: "Calma", note: "Preferis avanzar con pausas y sin apuro." },
-  { id: "cansancio", label: "Cansancio", note: "Conviene una sesion breve o mas guiada." }
+  { id: "alegria", label: "Alegria", note: "Estas con muchas ganas de jugar hoy.", risk: "Bajo" },
+  { id: "bien", label: "Bien", note: "Te sentis con energia para seguir.", risk: "Bajo" },
+  { id: "calma", label: "Calma", note: "Preferis avanzar con pausas y sin apuro.", risk: "Bajo" },
+  { id: "cansancio", label: "Cansancio", note: "Conviene una sesion breve o mas guiada.", risk: "Medio" },
+  { id: "tristeza", label: "Tristeza", note: "Podemos empezar con algo suave, sin exigencia.", risk: "Medio" }
 ];
 
 export const DAY_LABELS = ["D", "L", "M", "M", "J", "V", "S"];
