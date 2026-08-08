@@ -190,10 +190,11 @@ textarea { min-height: 150px; resize: vertical; }
 .patient-card-body strong { font-size: 16px; color: #172114; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .patient-card-body span { color: #52624d; font-size: 13px; font-weight: 850; }
 .patient-card-body small { color: #405238; font-size: 12px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.patient-card-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 10px; border-top: 1px solid rgba(97,122,88,0.18); }
-.patient-card-metric { display: grid; gap: 2px; }
-.patient-card-metric em { font-style: normal; font-weight: 950; color: #2f5c4c; font-size: 15px; }
-.patient-card-metric small { color: #52624d; font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: 0.06em; }
+.patient-card-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid rgba(97,122,88,0.18); }
+.patient-card-metric { display: grid; gap: 4px; min-width: 0; }
+.patient-card-metric--right { text-align: right; }
+.patient-card-metric em { font-style: normal; font-weight: 800; color: #2f5c4c; font-size: 18px; line-height: 1; letter-spacing: -0.01em; }
+.patient-card-metric small { color: #7c8f74; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 .new-patient-card { align-items: center; justify-content: center; text-align: center; border-style: dashed; border-color: #b8c8b0; background: #fbfaf3; color: #3f5639; cursor: pointer; }
 .new-patient-card:hover { border-color: #617a58; background: #f4f8ee; }
 .new-patient-icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 999px; background: #e4ecdf; color: #3f7d68; margin: 0 auto; }

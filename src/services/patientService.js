@@ -110,7 +110,7 @@ export function generatePatientId(name, fallbackIndex) {
   return slugifyPatientName(name) || `paciente-${fallbackIndex}`;
 }
 
-const DEMO_PROFILES = {
+export const DEMO_PROFILES = {
   elena: {
     mood: "bien",
     status: "Rendimiento óptimo",

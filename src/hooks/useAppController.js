@@ -3,6 +3,7 @@ import { DEFAULT_PROFESSIONAL_ID, LOGIN_CREDENTIALS, MOTIVATION_MESSAGES, PATIEN
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
+  DEMO_PROFILES,
   buildInitialPatients,
   normalizePatient,
   refreshDailyPatientState
@@ -23,7 +24,20 @@ import { LOGIN_ERROR_MESSAGE } from "../constants/content.js";
 
 function loadAppPatients() {
   const initialPatients = buildInitialPatients();
-  return loadPatients(initialPatients, normalizePatient).map((patient) => refreshDailyPatientState(patient));
+  const stored = loadPatients(initialPatients, normalizePatient);
+  const initialById = new Map(initialPatients.map((p) => [p.id, p]));
+  const storedIds = new Set(stored.map((p) => p.id));
+
+  // Enriquecer pacientes demo cuyos datos quedaron sin perfil (score 0 y sin actividad).
+  const enriched = stored.map((patient) => {
+    const profile = DEMO_PROFILES[patient.id];
+    const looksEmpty = (patient.score ?? 0) === 0 && (patient.completed?.length ?? 0) === 0;
+    return profile && looksEmpty ? { ...patient, ...profile } : patient;
+  });
+
+  // Sumar pacientes iniciales que faltan en storage (demo nuevos).
+  const missing = initialPatients.filter((p) => !storedIds.has(p.id));
+  return [...enriched, ...missing].map((patient) => refreshDailyPatientState(patient));
 }
 
 export function useAppController() {

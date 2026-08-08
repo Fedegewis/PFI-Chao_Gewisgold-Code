@@ -27,12 +27,12 @@ export function PatientCard({ patient, selected, onSelect }) {
       </div>
       <div className="patient-card-foot">
         <span className="patient-card-metric">
+          <small>Precisión</small>
           <em>{patient.score ?? 0}%</em>
-          <small>Precision</small>
         </span>
-        <span className="patient-card-metric">
-          <em>{patient.trend ?? "0%"}</em>
-          <small>Tendencia</small>
+        <span className="patient-card-metric patient-card-metric--right">
+          <small>Tiempo</small>
+          <em>{patient.responseTime && patient.responseTime !== "-" ? patient.responseTime : "—"}</em>
         </span>
       </div>
     </button>
