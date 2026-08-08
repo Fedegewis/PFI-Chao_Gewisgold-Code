@@ -70,7 +70,7 @@ export function AiChatPanel({ patient }) {
             className="ai-chat-messages"
             role="log"
             aria-live="polite"
-            aria-label="Conversacion con el companero del jardin"
+            aria-label="Conversación con el compañero del jardín"
           >
             {messages.map((msg) => (
               <div key={msg.id} className={cx("ai-bubble", `ai-bubble--${msg.author}`)}>
@@ -86,13 +86,13 @@ export function AiChatPanel({ patient }) {
             )}
           </div>
           <form className="ai-chat-form" onSubmit={sendMessage}>
-            <label htmlFor="ai-chat-input" className="sr-only">Escribi tu mensaje</label>
+            <label htmlFor="ai-chat-input" className="sr-only">Escribí tu mensaje</label>
             <input
               id="ai-chat-input"
               type="text"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Contame como va tu dia..."
+              placeholder="Contame cómo va tu día..."
               autoComplete="off"
             />
             <button type="submit" className="ai-chat-send" disabled={!draft.trim() || thinking} aria-label="Enviar mensaje">

@@ -55,7 +55,7 @@ export function ProgressPanel({ patient, completedCount }) {
         </div>
         <div className="week-meta">
           <p className="week-active">
-            <strong>{activeDays}</strong>/7 dias activos
+            <strong>{activeDays}</strong>/7 días activos
           </p>
           <div className="week-dots" aria-hidden="true">
             {values.map((value, index) => (
@@ -77,7 +77,7 @@ export function ProgressPanel({ patient, completedCount }) {
       <p className="week-caption">
         {completedCount > 0
           ? `Ya completaste ${completedCount} actividad${completedCount === 1 ? "" : "es"} hoy.`
-          : "Todavia no completaste actividades hoy."}
+          : "Todavía no completaste actividades hoy."}
       </p>
     </div>
   );

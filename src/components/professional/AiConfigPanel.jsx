@@ -23,11 +23,11 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
     const trimmedInstructions = instructions.trim();
     const parsedMaxQuestions = Number(maxQuestions);
     if (!trimmedInstructions) {
-      setConfigFeedback({ text: "Describe al menos una indicacion para la IA.", type: "error" });
+      setConfigFeedback({ text: "Describí al menos una indicación para la IA.", type: "error" });
       return;
     }
     if (!Number.isInteger(parsedMaxQuestions) || parsedMaxQuestions < MIN_AI_QUESTIONS || parsedMaxQuestions > MAX_AI_QUESTIONS) {
-      setConfigFeedback({ text: `La cantidad maxima debe estar entre ${MIN_AI_QUESTIONS} y ${MAX_AI_QUESTIONS} preguntas.`, type: "error" });
+      setConfigFeedback({ text: `La cantidad máxima debe estar entre ${MIN_AI_QUESTIONS} y ${MAX_AI_QUESTIONS} preguntas.`, type: "error" });
       return;
     }
     onSave(trimmedInstructions, parsedMaxQuestions);
@@ -63,7 +63,7 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
     const subject = encodeURIComponent(`Acceso a MenteActiva Jardin para ${selectedPatient.name}`);
     const body = encodeURIComponent(`Hola, te comparto tu acceso demo: ${selectedPatient.link}`);
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
-    setLinkFeedback("Se preparo un correo con el link.");
+    setLinkFeedback("Se preparó un correo con el link.");
   }
 
   return (
@@ -75,13 +75,13 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
         </div>
         <Brain size={30} aria-hidden="true" />
       </div>
-      <label htmlFor={aiInstructionsId}>Como se mide y que tipo de preguntas debe hacer</label>
+      <label htmlFor={aiInstructionsId}>Cómo se mide y qué tipo de preguntas debe hacer</label>
       <textarea
         id={aiInstructionsId}
         value={instructions}
         onChange={(e) => { setInstructions(e.target.value); setConfigFeedback({ text: "", type: "" }); }}
       />
-      <label htmlFor={aiMaxQuestionsId}>Cantidad maxima de preguntas</label>
+      <label htmlFor={aiMaxQuestionsId}>Cantidad máxima de preguntas</label>
       <input
         id={aiMaxQuestionsId}
         type="number"
@@ -105,7 +105,7 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
       <div className="link-box">
         <LinkIcon size={22} aria-hidden="true" />
         <div>
-          <strong>Envio de link</strong>
+          <strong>Envío de link</strong>
           <p>{selectedPatient.link}</p>
           {linkFeedback && <small role="status">{linkFeedback}</small>}
         </div>

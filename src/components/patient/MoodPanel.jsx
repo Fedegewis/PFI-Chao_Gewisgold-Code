@@ -79,7 +79,7 @@ export function MoodPanel({ patient, onUpdatePatient }) {
 
   return (
     <div className="panel">
-      <h3 id="mood-heading">Como te sentis hoy?</h3>
+      <h3 id="mood-heading">¿Cómo te sentís hoy?</h3>
       <div className="mood-grid" role="group" aria-labelledby="mood-heading">
         {MOOD_OPTIONS.map((option) => {
           const selected = patient.mood === option.id;

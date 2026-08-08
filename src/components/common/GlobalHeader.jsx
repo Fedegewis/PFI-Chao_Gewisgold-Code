@@ -9,9 +9,9 @@ export function GlobalHeader({ screen, role, onLogout, onNavigate }) {
         <div><strong>MenteActiva </strong><small></small></div>
       </button>
       {screen !== SCREEN_NAMES.login && (
-        <nav aria-label="Navegacion principal">
+        <nav aria-label="Navegación principal">
           <button type="button" className={screen === SCREEN_NAMES.patient ? "active" : ""} aria-current={screen === SCREEN_NAMES.patient ? "page" : undefined} onClick={() => onNavigate(SCREEN_NAMES.patient)}><UserRound size={18} aria-hidden="true" /> Paciente</button>
-          {role === SCREEN_NAMES.professional && <button type="button" className={screen === SCREEN_NAMES.professional ? "active" : ""} aria-current={screen === SCREEN_NAMES.professional ? "page" : undefined} onClick={() => onNavigate(SCREEN_NAMES.professional)}><Stethoscope size={18} aria-hidden="true" /> Psicologo</button>}
+          {role === SCREEN_NAMES.professional && <button type="button" className={screen === SCREEN_NAMES.professional ? "active" : ""} aria-current={screen === SCREEN_NAMES.professional ? "page" : undefined} onClick={() => onNavigate(SCREEN_NAMES.professional)}><Stethoscope size={18} aria-hidden="true" /> Psicólogo</button>}
           <button type="button" onClick={onLogout}><ArrowLeft size={18} aria-hidden="true" /> Salir</button>
         </nav>
       )}

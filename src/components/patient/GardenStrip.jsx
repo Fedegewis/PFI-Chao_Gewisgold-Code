@@ -3,8 +3,8 @@ import { cx } from "../../lib/cx.js";
 
 export function GardenStrip({ activities, completedIds }) {
   return (
-    <div className="garden-strip" role="group" aria-label="Progreso del jardin">
-      <div><p className="eyebrow">Idea jardin</p><h2>Regamos una actividad por dia</h2></div>
+    <div className="garden-strip" role="group" aria-label="Progreso del jardín">
+      <div><p className="eyebrow">Idea jardín</p><h2>Regamos una actividad por día</h2></div>
       <div className="plant-row">
         {activities.map((activity, index) => {
           const done = completedIds.includes(activity.id);

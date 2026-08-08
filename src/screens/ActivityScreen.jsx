@@ -98,18 +98,18 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           <h2 id="game-title">{activity.title}</h2>
           <div className="session-progress">
             <span>Pregunta {step + 1} de {sessionLength}</span>
-            <div role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={sessionLength} aria-label="Progreso de la sesion"><span className="progress-fill" style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
+            <div role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={sessionLength} aria-label="Progreso de la sesión"><span className="progress-fill" style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
           </div>
           <p className="prompt-copy">{activity.intro}</p>
           <div className="chip-row">
-            <StatusChip icon={Clock3} text="Sin limite estricto" />
+            <StatusChip icon={Clock3} text="Sin límite estricto" />
             <StatusChip icon={Gauge} text={`Nivel ${level + 1} de ${pool.length}`} />
             <StatusChip icon={Sparkles} text="IA adaptativa" />
           </div>
           <div className="session-card">
             <p>{ACTIVITY_DRAFT_MESSAGE}</p>
             <span>Respondidas: {answeredCount}/{sessionLength}</span>
-            <span>Cuando completas, se pinta una parte del jardin.</span>
+            <span>Cuando completás, se pinta una parte del jardín.</span>
           </div>
         </div>
         <div className="question-panel">
@@ -132,7 +132,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           </div>
           <div className="activity-actions single">
             <button type="button" onClick={goNext} className="primary" disabled={selected === undefined}>
-              {isLast ? "Finalizar sesion" : "Siguiente"}
+              {isLast ? "Finalizar sesión" : "Siguiente"}
             </button>
           </div>
         </div>
