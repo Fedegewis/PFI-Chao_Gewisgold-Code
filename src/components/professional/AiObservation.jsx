@@ -1,4 +1,4 @@
-import { Loader2, NotebookPen, RefreshCw, Sparkles } from "lucide-react";
+import { Bot, Loader2, NotebookPen, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { generateObservation } from "../../ai.js";
 import { cx } from "../../lib/cx.js";
@@ -23,7 +23,7 @@ export function AiObservation({ patient, sessions }) {
     ? <><Loader2 size={20} className="spin" aria-hidden="true" /> Generando</>
     : state.text
       ? <><RefreshCw size={20} aria-hidden="true" /> Regenerar observación</>
-      : <><Sparkles size={20} aria-hidden="true" /> Generar observación</>;
+      : <><Bot size={20} aria-hidden="true" /> Generar observación</>;
 
   return (
     <div className="panel ai-observation">

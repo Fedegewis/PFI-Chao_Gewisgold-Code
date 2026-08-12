@@ -20,13 +20,13 @@ export const AI_CHAT_DISCLAIMER =
   "Conversación simulada para demostración. No reemplaza acompañamiento profesional.";
 
 export const AI_CHAT_GREETING =
-  "Hola, soy tu compañero del jardín. Contame cómo estás hoy y elegimos juntos por dónde empezar.";
+  "Hola, soy tu asistente de entrenamiento. Contame cómo estás hoy y elegimos juntos por dónde empezar.";
 
 export const AI_CHAT_REPLIES = {
   alegria: [
-    "Qué bueno saberlo. Aprovechemos esa energía con un desafío nuevo del jardín.",
-    "Me alegra mucho. Si querés, sumamos una actividad un poquito más larga hoy.",
-    "Se nota tu entusiasmo. ¿Vamos a regar dos plantas hoy?"
+    "Qué bueno saberlo. Aprovechemos esa energía con un nuevo desafío.",
+    "Me alegra mucho. Si querés, sumamos una actividad un poco más larga hoy.",
+    "Se nota tu entusiasmo. ¿Hacemos dos actividades hoy?"
   ],
   bien: [
     "Genial. Vamos a un ritmo parejo y sumamos una actividad recomendada.",
@@ -41,7 +41,7 @@ export const AI_CHAT_REPLIES = {
   cansancio: [
     "Está bien descansar. ¿Qué te parece una sola actividad breve y guiada?",
     "Vamos despacio hoy. Si querés paramos cuando lo necesites.",
-    "Con poquito ya alcanza. Elegí la más corta y vemos cómo te va."
+    "Con poco ya alcanza. Elegí la más corta y vemos cómo te va."
   ],
   tristeza: [
     "Gracias por contarme. Empecemos con algo suave, sin exigencia.",
@@ -51,6 +51,6 @@ export const AI_CHAT_REPLIES = {
   default: [
     "Contame un poco más para poder acompañarte mejor.",
     "Estoy escuchando. Si querés, empezamos por una actividad corta.",
-    "Cuando estés listo/a elegimos juntos una actividad del jardín."
+    "Cuando estés listo/a elegimos juntos una actividad."
   ]
 };

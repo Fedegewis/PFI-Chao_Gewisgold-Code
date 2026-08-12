@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Send, Sparkles } from "lucide-react";
+import { ChevronDown, MessageCircle, Send } from "lucide-react";
 import {
   AI_CHAT_DISCLAIMER,
   AI_CHAT_GREETING,
@@ -53,8 +53,8 @@ export function AiChatPanel({ patient }) {
         aria-controls="ai-chat-body"
       >
         <span className="ai-chat-toggle-title">
-          <Sparkles size={18} aria-hidden="true" />
-          <span>Charlemos un ratito</span>
+          <MessageCircle size={18} aria-hidden="true" />
+          <span>Conversemos</span>
         </span>
         <ChevronDown
           size={20}
@@ -70,7 +70,7 @@ export function AiChatPanel({ patient }) {
             className="ai-chat-messages"
             role="log"
             aria-live="polite"
-            aria-label="Conversación con el compañero del jardín"
+            aria-label="Conversación con el asistente"
           >
             {messages.map((msg) => (
               <div key={msg.id} className={cx("ai-bubble", `ai-bubble--${msg.author}`)}>

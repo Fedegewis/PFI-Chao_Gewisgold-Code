@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, Clock3, Gauge, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowLeft, Bot, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { heuristicDifficulty } from "../ai.js";
 import { ACTIVITY_DRAFT_MESSAGE } from "../constants/content.js";
@@ -90,12 +90,12 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
   }
 
   return (
-    <section className="panel game-panel" aria-labelledby="game-title">
+    <section className="panel activity-panel" aria-labelledby="activity-title">
       <button type="button" onClick={onBack} className="back-link"><ArrowLeft size={22} aria-hidden="true" /> Volver a actividades</button>
-      <div className="game-layout">
-        <div className="game-prompt">
+      <div className="activity-layout">
+        <div className="activity-prompt">
           <p>{activity.skill}</p>
-          <h2 id="game-title">{activity.title}</h2>
+          <h2 id="activity-title">{activity.title}</h2>
           <div className="session-progress">
             <span>Pregunta {step + 1} de {sessionLength}</span>
             <div role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={sessionLength} aria-label="Progreso de la sesión"><span className="progress-fill" style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
@@ -103,13 +103,12 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           <p className="prompt-copy">{activity.intro}</p>
           <div className="chip-row">
             <StatusChip icon={Clock3} text="Sin límite estricto" />
-            <StatusChip icon={Gauge} text={`Nivel ${level + 1} de ${pool.length}`} />
-            <StatusChip icon={Sparkles} text="IA adaptativa" />
+            <StatusChip icon={Bot} text="IA adaptativa" />
           </div>
           <div className="session-card">
             <p>{ACTIVITY_DRAFT_MESSAGE}</p>
             <span>Respondidas: {answeredCount}/{sessionLength}</span>
-            <span>Cuando completás, se pinta una parte del jardín.</span>
+            <span>Cada actividad completada se suma a tu progreso.</span>
           </div>
         </div>
         <div className="question-panel">

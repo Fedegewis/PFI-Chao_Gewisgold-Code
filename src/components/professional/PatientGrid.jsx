@@ -13,7 +13,7 @@ export function PatientGrid({
   onCreatePatient
 }) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [creating, setCreating] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newAge, setNewAge] = useState("70");
   const [feedback, setFeedback] = useState({ text: "", type: "" });
@@ -80,6 +80,67 @@ export function PatientGrid({
         </div>
       </div>
 
+      {!creating ? (
+        <button
+          type="button"
+          className="new-patient-inline"
+          onClick={() => { setCreating(true); setFeedback({ text: "", type: "" }); }}
+          aria-label="Abrir formulario para agregar paciente"
+        >
+          <UserPlus size={18} aria-hidden="true" /> Agregar paciente
+        </button>
+      ) : (
+        <div className="new-patient-form">
+          <div className="new-patient-form-head">
+            <strong>Nuevo paciente</strong>
+            <button
+              type="button"
+              className="icon-action"
+              aria-label="Cancelar creación"
+              onClick={() => { setCreating(false); resetForm(); }}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="new-patient-form-fields">
+            <div>
+              <label htmlFor="patient-name">Nombre del paciente</label>
+              <input
+                id="patient-name"
+                value={newName}
+                onChange={(e) => { setNewName(e.target.value); setFeedback({ text: "", type: "" }); }}
+                placeholder="Nombre completo"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label htmlFor="patient-age">Edad</label>
+              <input
+                id="patient-age"
+                type="number"
+                min="1"
+                max={MAX_PATIENT_AGE}
+                value={newAge}
+                onChange={(e) => { setNewAge(e.target.value); setFeedback({ text: "", type: "" }); }}
+                placeholder="Edad"
+              />
+            </div>
+            <button className="primary" type="button" onClick={handleCreate}>
+              <UserPlus size={18} aria-hidden="true" /> Crear paciente
+            </button>
+          </div>
+          {feedback.text && (
+            <p
+              className={cx("form-feedback", feedback.type === "success" ? "form-feedback-success" : "form-feedback-error")}
+              role="alert"
+            >
+              {feedback.type === "success" ? <CheckCircle2 size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
+              {" "}{feedback.text}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="patient-grid" role="list" aria-label="Lista de pacientes">
         {filteredPatients.map((patient) => (
           <div role="listitem" key={patient.id}>
@@ -90,63 +151,6 @@ export function PatientGrid({
             />
           </div>
         ))}
-
-        {!creating ? (
-          <button
-            type="button"
-            className="patient-card new-patient-card"
-            onClick={() => { setCreating(true); setFeedback({ text: "", type: "" }); }}
-            aria-label="Abrir formulario para agregar paciente"
-          >
-            <div className="new-patient-icon" aria-hidden="true"><Plus size={26} /></div>
-            <strong>Agregar paciente</strong>
-            <small>Cargalo en segundos</small>
-          </button>
-        ) : (
-          <div className="patient-card new-patient-card new-patient-card--open">
-            <div className="new-patient-form-head">
-              <strong>Nuevo paciente</strong>
-              <button
-                type="button"
-                className="icon-action"
-                aria-label="Cancelar creación"
-                onClick={() => { setCreating(false); resetForm(); }}
-              >
-                <X size={18} aria-hidden="true" />
-              </button>
-            </div>
-            <label htmlFor="patient-name">Nombre del paciente</label>
-            <input
-              id="patient-name"
-              value={newName}
-              onChange={(e) => { setNewName(e.target.value); setFeedback({ text: "", type: "" }); }}
-              placeholder="Nombre del paciente"
-              autoFocus
-            />
-            <label htmlFor="patient-age">Edad</label>
-            <input
-              id="patient-age"
-              type="number"
-              min="1"
-              max={MAX_PATIENT_AGE}
-              value={newAge}
-              onChange={(e) => { setNewAge(e.target.value); setFeedback({ text: "", type: "" }); }}
-              placeholder="Edad"
-            />
-            <button className="primary" type="button" onClick={handleCreate}>
-              <UserPlus size={18} aria-hidden="true" /> Crear paciente
-            </button>
-            {feedback.text && (
-              <p
-                className={cx("form-feedback", feedback.type === "success" ? "form-feedback-success" : "form-feedback-error")}
-                role="alert"
-              >
-                {feedback.type === "success" ? <CheckCircle2 size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
-                {" "}{feedback.text}
-              </p>
-            )}
-          </div>
-        )}
       </div>
 
       {filteredPatients.length === 0 && searchQuery && (

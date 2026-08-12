@@ -28,13 +28,13 @@ export const SCREEN_NAMES = {
 };
 
 export const MOTIVATION_MESSAGES = [
-  "Hoy también cuenta: una pregunta hecha con calma ya riega el jardín.",
-  "Avanzar poquito sigue siendo avanzar.",
+  "Hoy también cuenta: una pregunta hecha con calma ya es parte del entrenamiento.",
+  "Cada paso cuenta.",
   "Tu ritmo es parte del entrenamiento, no un obstáculo."
 ];
 
 export const MOOD_OPTIONS = [
-  { id: "alegria", label: "Alegría", note: "Estás con muchas ganas de jugar hoy.", risk: "Bajo" },
+  { id: "alegria", label: "Alegría", note: "Estás con mucha energía hoy.", risk: "Bajo" },
   { id: "bien", label: "Bien", note: "Te sentís con energía para seguir.", risk: "Bajo" },
   { id: "calma", label: "Calma", note: "Preferís avanzar con pausas y sin apuro.", risk: "Bajo" },
   { id: "cansancio", label: "Cansancio", note: "Conviene una sesión breve o más guiada.", risk: "Medio" },

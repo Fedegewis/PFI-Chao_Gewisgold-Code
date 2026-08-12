@@ -1,11 +1,11 @@
-import { ArrowLeft, Leaf, Stethoscope, UserRound } from "lucide-react";
+import { ArrowLeft, Brain, Stethoscope, UserRound } from "lucide-react";
 import { SCREEN_NAMES } from "../../constants/appConfig.js";
 
 export function GlobalHeader({ screen, role, onLogout, onNavigate }) {
   return (
     <header className="topbar">
       <button className="brand" type="button" aria-label="Ir a inicio" onClick={() => onNavigate(screen === SCREEN_NAMES.login ? SCREEN_NAMES.login : role)}>
-        <span><Leaf size={28} aria-hidden="true" /></span>
+        <span><Brain size={28} aria-hidden="true" /></span>
         <div><strong>MenteActiva </strong><small></small></div>
       </button>
       {screen !== SCREEN_NAMES.login && (

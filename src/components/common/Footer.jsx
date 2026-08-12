@@ -1,32 +1,32 @@
-import { GraduationCap, Heart, Leaf } from "lucide-react";
+import { Brain, GraduationCap } from "lucide-react";
 
 export function Footer() {
   return (
     <footer className="app-footer" aria-label="Créditos del proyecto">
       <div className="footer-brand">
-        <span className="footer-icon" aria-hidden="true"><Leaf size={22} /></span>
+        <span className="footer-icon" aria-hidden="true"><Brain size={22} /></span>
         <div>
-          <strong>Jardín Cognitivo</strong>
+          <strong>MenteActiva</strong>
           <small>Rehabilitación cognitiva para adultos mayores</small>
         </div>
       </div>
       <div className="footer-meta" aria-label="Datos académicos">
         <div>
           <span className="footer-label"><GraduationCap size={14} aria-hidden="true" /> Tesis de</span>
-          <p>[Tu Nombre]</p>
+          <p>Federico Gewisgold, Florencia Chao</p>
         </div>
         <div>
           <span className="footer-label">Universidad</span>
-          <p>[Universidad] · [Carrera]</p>
+          <p>UADE · Ingeniería en Informática </p>
         </div>
         <div>
           <span className="footer-label">Tutor</span>
-          <p>[Nombre del tutor]</p>
+          <p>Pablo Luis Esteban Sabatino</p>
         </div>
       </div>
       <div className="footer-legal">
-        <p>&copy; 2026 Jardín Cognitivo &middot; v1.0</p>
-        <p className="footer-heart">Hecho con <Heart size={13} aria-hidden="true" /> para acompañar procesos cognitivos</p>
+        <p>&copy; 2026 MenteActiva &middot; v1.0</p>
+        <p>Herramienta de acompañamiento en entrenamiento cognitivo</p>
       </div>
     </footer>
   );

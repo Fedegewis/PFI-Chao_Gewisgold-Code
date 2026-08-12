@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, ShieldCheck, Sparkles, Stethoscope, UserRound } from "lucide-react";
+import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserRound } from "lucide-react";
 import { useRef, useState } from "react";
 import { LOGIN_CREDENTIALS, MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 
@@ -41,9 +41,9 @@ export function LoginScreen({ loginError, onLogin }) {
     <section className="login-layout" aria-label="Inicio de sesión">
       <div className="login-copy">
         <p className="eyebrow"></p>
-        <h1>Jardín Cognitivo</h1>
-        <p>El jardín se alimenta y crece según los desafíos completados. El paciente ve juegos cotidianos; el psicólogo configura preguntas, límites y seguimiento.</p>
-        <div className="motivation-banner"><Sparkles size={24} aria-hidden="true" /> Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
+        <h1>MenteActiva</h1>
+        <p>Actividades cognitivas guiadas para el paciente. Configuración, seguimiento y límites para el profesional.</p>
+        <div className="motivation-banner">Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
       </div>
       <form className="panel login-panel" onSubmit={handleSubmit} noValidate>
         <div className="login-tabs" role="tablist" aria-label="Tipo de usuario">

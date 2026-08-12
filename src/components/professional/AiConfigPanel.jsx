@@ -60,7 +60,7 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
   }
 
   function sendPatientLink() {
-    const subject = encodeURIComponent(`Acceso a MenteActiva Jardin para ${selectedPatient.name}`);
+    const subject = encodeURIComponent(`Acceso a MenteActiva para ${selectedPatient.name}`);
     const body = encodeURIComponent(`Hola, te comparto tu acceso demo: ${selectedPatient.link}`);
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
     setLinkFeedback("Se preparó un correo con el link.");
