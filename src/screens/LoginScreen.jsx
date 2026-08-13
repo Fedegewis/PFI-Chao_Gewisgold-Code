@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, ShieldCheck, Sparkles, Stethoscope, UserRound } from "lucide-react";
+import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserRound } from "lucide-react";
 import { useRef, useState } from "react";
 import { LOGIN_CREDENTIALS, MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 
@@ -38,12 +38,12 @@ export function LoginScreen({ loginError, onLogin }) {
   }
 
   return (
-    <section className="login-layout" aria-label="Inicio de sesion">
+    <section className="login-layout" aria-label="Inicio de sesión">
       <div className="login-copy">
         <p className="eyebrow"></p>
-        <h1>Jardin Cognitivo</h1>
-        <p>El jardin se alimenta y crece segun los desafios completados. El paciente ve juegos cotidianos; el psicologo configura preguntas, limites y seguimiento.</p>
-        <div className="motivation-banner"><Sparkles size={24} aria-hidden="true" /> Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
+        <h1>MenteActiva</h1>
+        <p>Actividades cognitivas guiadas para el paciente. Configuración, seguimiento y límites para el profesional.</p>
+        <div className="motivation-banner">Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
       </div>
       <form className="panel login-panel" onSubmit={handleSubmit} noValidate>
         <div className="login-tabs" role="tablist" aria-label="Tipo de usuario">
@@ -73,11 +73,11 @@ export function LoginScreen({ loginError, onLogin }) {
             onClick={() => switchMode("professional")}
             onKeyDown={handleTabKeyDown}
           >
-            <Stethoscope size={20} aria-hidden="true" /> Psicologo
+            <Stethoscope size={20} aria-hidden="true" /> Psicólogo
           </button>
         </div>
         <div id="tabpanel-login" role="tabpanel" aria-labelledby={mode === "patient" ? "tab-patient" : "tab-professional"}>
-          <div className="login-title"><ShieldCheck size={34} aria-hidden="true" /><div><h2>Inicio de sesion</h2><p>Usa las credenciales demo del README.</p></div></div>
+          <div className="login-title"><ShieldCheck size={34} aria-hidden="true" /><div><h2>Inicio de sesión</h2><p>Usá las credenciales demo del README.</p></div></div>
           <label htmlFor={emailId}>Email</label>
           <input
             id={emailId}
@@ -103,7 +103,7 @@ export function LoginScreen({ loginError, onLogin }) {
           </div>
         )}
         <button type="submit" className="primary">
-          Entrar como {mode === "patient" ? "paciente" : "psicologo"} <ChevronRight size={22} aria-hidden="true" />
+          Entrar como {mode === "patient" ? "paciente" : "psicólogo"} <ChevronRight size={22} aria-hidden="true" />
         </button>
       </form>
     </section>

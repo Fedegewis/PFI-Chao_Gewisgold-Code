@@ -23,7 +23,7 @@ describe("MenteActiva critical flows", () => {
   test("renders the main login page", () => {
     renderApp();
 
-    expect(screen.getByRole("heading", { name: /jardin cognitivo/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /menteactiva/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /entrar como paciente/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("elena.rios@demo.com")).toBeInTheDocument();
   });
@@ -32,6 +32,7 @@ describe("MenteActiva critical flows", () => {
     const user = userEvent.setup();
     renderApp();
 
+    await user.clear(screen.getByLabelText(/email/i));
     await user.type(screen.getByLabelText(/email/i), "wrong@demo.com");
     await user.clear(screen.getByLabelText(/clave/i));
     await user.type(screen.getByLabelText(/clave/i), "bad-pass");
@@ -39,12 +40,12 @@ describe("MenteActiva critical flows", () => {
 
     expect(screen.getByText(/credenciales incorrectas/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /psicologo/i }));
-    await user.click(screen.getByRole("button", { name: /entrar como psicologo/i }));
+    await user.click(screen.getByRole("tab", { name: /psic[oó]logo/i }));
+    await user.click(screen.getByRole("button", { name: /entrar como psic[oó]logo/i }));
 
     expect(await screen.findByRole("heading", { name: /seguimiento/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^paciente$/i }));
-    expect(await screen.findByRole("heading", { name: /todos los desafios del jardin/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
   });
 
   test("restores the professional route from direct URL and persisted session", async () => {
@@ -54,7 +55,7 @@ describe("MenteActiva critical flows", () => {
     renderApp();
 
     expect(await screen.findByRole("heading", { name: /seguimiento/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /precision por sesion/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /precisi[oó]n por sesi[oó]n/i })).toBeInTheDocument();
   });
 
   test("completes the main patient activity flow and updates the dashboard state", async () => {
@@ -74,7 +75,7 @@ describe("MenteActiva critical flows", () => {
 
     for (const answer of answers) {
       await user.click(await screen.findByRole("button", { name: answer }));
-      await user.click(screen.getByRole("button", { name: /siguiente|finalizar sesion/i }));
+      await user.click(screen.getByRole("button", { name: /siguiente|finalizar sesi[oó]n/i }));
     }
 
     expect(await screen.findByText(/1 de 10 actividades hechas hoy/i)).toBeInTheDocument();
@@ -106,8 +107,9 @@ describe("MenteActiva critical flows", () => {
     window.location.hash = "#/professional";
     renderApp();
 
+    await user.click(screen.getByRole("button", { name: /agregar paciente/i }));
     await user.click(screen.getByRole("button", { name: /crear paciente/i }));
-    expect(await screen.findByText(/ingresa un nombre/i)).toBeInTheDocument();
+    expect(await screen.findByText(/ingres[aá] un nombre/i)).toBeInTheDocument();
 
     const nameInput = screen.getByLabelText(/nombre del paciente/i);
     const ageInput = screen.getByLabelText(/^edad$/i);
@@ -115,7 +117,7 @@ describe("MenteActiva critical flows", () => {
     await user.clear(ageInput);
     await user.type(ageInput, "300");
     await user.click(screen.getByRole("button", { name: /crear paciente/i }));
-    expect(await screen.findByText(/la edad debe ser un numero entero entre 1 y 120/i)).toBeInTheDocument();
+    expect(await screen.findByText(/la edad debe ser un n[uú]mero entero entre 1 y 120/i)).toBeInTheDocument();
 
     await user.clear(ageInput);
     await user.type(ageInput, "74");
@@ -152,13 +154,13 @@ describe("MenteActiva critical flows", () => {
 
     renderApp();
 
-    await user.click(screen.getByRole("button", { name: /generar observacion/i }));
+    await user.click(screen.getByRole("button", { name: /generar observaci[oó]n/i }));
     expect(screen.getByRole("button", { name: /generando/i })).toBeDisabled();
 
     pending.reject(new Error("network down"));
 
-    expect(await screen.findByText(/sintesis local/i)).toBeInTheDocument();
-    expect(screen.getByText(/precision promedio 80%/i)).toBeInTheDocument();
+    expect(await screen.findByText(/s[ií]ntesis local/i)).toBeInTheDocument();
+    expect(screen.getByText(/precisi[oó]n promedio 80%/i)).toBeInTheDocument();
   });
 
   test("validates AI configuration inputs before saving", async () => {
@@ -167,18 +169,18 @@ describe("MenteActiva critical flows", () => {
     window.location.hash = "#/professional";
     renderApp();
 
-    const textarea = screen.getByLabelText(/como se mide y que tipo de preguntas debe hacer/i);
-    const numberInput = screen.getByLabelText(/cantidad maxima de preguntas/i);
+    const textarea = screen.getByLabelText(/c[oó]mo se mide y qu[eé] tipo de preguntas debe hacer/i);
+    const numberInput = screen.getByLabelText(/cantidad m[aá]xima de preguntas/i);
 
     await user.clear(textarea);
     await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
-    expect(await screen.findByText(/describe al menos una indicacion/i)).toBeInTheDocument();
+    expect(await screen.findByText(/describ[eí] al menos una indicaci[oó]n/i)).toBeInTheDocument();
 
     await user.type(textarea, "Indicaciones nuevas");
     await user.clear(numberInput);
     await user.type(numberInput, "11");
     await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
-    expect(await screen.findByText(/la cantidad maxima debe estar entre 1 y 10 preguntas/i)).toBeInTheDocument();
+    expect(await screen.findByText(/la cantidad m[aá]xima debe estar entre 1 y 10 preguntas/i)).toBeInTheDocument();
 
     await user.clear(numberInput);
     await user.type(numberInput, "6");

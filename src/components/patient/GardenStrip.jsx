@@ -1,16 +1,18 @@
-import { Flower2, Leaf, Sprout } from "lucide-react";
+import { CheckCircle2, Circle, CircleDot } from "lucide-react";
 import { cx } from "../../lib/cx.js";
 
 export function GardenStrip({ activities, completedIds }) {
+  const doneCount = completedIds.length;
+
   return (
-    <div className="garden-strip" role="group" aria-label="Progreso del jardin">
-      <div><p className="eyebrow">Idea jardin</p><h2>Regamos una actividad por dia</h2></div>
+    <div className="garden-strip" role="group" aria-label="Progreso del día">
+      <div><p className="eyebrow">Progreso</p><h2>Una actividad por día</h2></div>
       <div className="plant-row">
-        {activities.map((activity, index) => {
-          const done = completedIds.includes(activity.id);
-          const today = !done && index === completedIds.length;
-          const PlantIcon = done ? Flower2 : today ? Sprout : Leaf;
-          return <div key={activity.id} className={cx("plant-pot", done && "plant-done", today && "plant-today")}><PlantIcon size={32} aria-hidden="true" /><span>{done ? "Pintado" : today ? "Regar hoy" : "Pendiente"}</span></div>;
+        {activities.map((_activity, index) => {
+          const done = index < doneCount;
+          const next = index === doneCount;
+          const StepIcon = done ? CheckCircle2 : next ? CircleDot : Circle;
+          return <div key={index} className={cx("plant-pot", done && "plant-done", next && "plant-today")}><StepIcon size={32} aria-hidden="true" /><span>{done ? "Completada" : next ? "Hoy" : "Pendiente"}</span></div>;
         })}
       </div>
     </div>

@@ -12,3 +12,20 @@ Revisar tema de preguntas, ir cambiando las preguntas, no poner todas las pregun
 Que aparezcan directamente los usuarios
 Revisar si se agrega un usuario
 Que la vista cuand 
+
+
+En el usuario:
+Ver si se puede poner una simulacion de charla con una IA
+Que cuando tocas como te sentis cambie y ponga una cara en base a la respuesta y de forma linda
+El progreso semanal no me convence como esta quedando y se pinta de rojo y no queda bien
+
+En ambas vistas
+Siento que esta todo muy compacto en ambas pantallas, me gustaria ver si se puede expandir un poco mas a los costados
+
+Tambien el gitigone poner el .claude porque no quiero que se vea en el repo
+
+
+
+ATENDER A LOS ADULTOS MAYORES COMO NIÑOS, HAGAMOS JUEGOS TODO ESO ES INFANTILIZARLO
+ESTA MAL VISTO
+CUESTIONES DE ENTRENAMIENTO NO ENTRETENIMIENTO

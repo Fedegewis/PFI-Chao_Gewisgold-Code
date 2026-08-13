@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_PROFESSIONAL_ID, LOGIN_CREDENTIALS, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
+import { DEFAULT_PROFESSIONAL_ID, LOGIN_CREDENTIALS, MOTIVATION_MESSAGES, PATIENT_LOGINS, SCREEN_NAMES } from "../constants/appConfig.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
+  DEMO_PROFILES,
   buildInitialPatients,
   normalizePatient,
   refreshDailyPatientState
 } from "../services/patientService.js";
-import { buildCompletedActivityState } from "../services/sessionService.js";
+import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
   clearAppSession,
@@ -23,7 +24,19 @@ import { LOGIN_ERROR_MESSAGE } from "../constants/content.js";
 
 function loadAppPatients() {
   const initialPatients = buildInitialPatients();
-  return loadPatients(initialPatients, normalizePatient).map((patient) => refreshDailyPatientState(patient));
+  const stored = loadPatients(initialPatients, normalizePatient);
+  const storedIds = new Set(stored.map((p) => p.id));
+
+  // Enriquecer pacientes demo cuyos datos quedaron sin perfil (score 0 y sin actividad).
+  const enriched = stored.map((patient) => {
+    const profile = DEMO_PROFILES[patient.id];
+    const looksEmpty = (patient.score ?? 0) === 0 && (patient.completed?.length ?? 0) === 0;
+    return profile && looksEmpty ? { ...patient, ...profile } : patient;
+  });
+
+  // Sumar pacientes iniciales que faltan en storage (demo nuevos).
+  const missing = initialPatients.filter((p) => !storedIds.has(p.id));
+  return [...enriched, ...missing].map((patient) => refreshDailyPatientState(patient));
 }
 
 export function useAppController() {
@@ -48,7 +61,10 @@ export function useAppController() {
   });
   const [professionalId, setProfessionalId] = useState(() => init.session?.professionalId || DEFAULT_PROFESSIONAL_ID);
   const [patients, setPatients] = useState(() => init.patients);
-  const [sessions, setSessions] = useState(loadSessions);
+  const [sessions, setSessions] = useState(() => {
+    const stored = loadSessions();
+    return stored.length ? stored : buildInitialSessions();
+  });
   const [selectedPatientId, setSelectedPatientId] = useState(() => init.patients[0].id);
   const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(init.hash.activityId));
   const [loginError, setLoginError] = useState("");
@@ -71,6 +87,29 @@ export function useAppController() {
     if (isAuthenticated) saveAppSession({ role, professionalId });
     else clearAppSession();
   }, [isAuthenticated, professionalId, role]);
+
+  // Live-sync entre pestañas: si otra pestaña actualiza patients o sessions
+  // en localStorage (ej: el paciente completa una actividad), esta pestaña
+  // (ej: el psicólogo) refleja el cambio sin recargar.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    function handleStorage(event) {
+      if (event.key === "ma_patients_v1" && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue);
+          if (Array.isArray(parsed)) setPatients(parsed.map(normalizePatient));
+        } catch { /* payload inválido, se ignora */ }
+      }
+      if (event.key === "ma_sessions_v1" && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue);
+          if (Array.isArray(parsed)) setSessions(parsed);
+        } catch { /* payload inválido, se ignora */ }
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -107,6 +146,22 @@ export function useAppController() {
   }, [isAuthenticated, role]);
 
   function login(nextRole, email, password) {
+    if (nextRole === SCREEN_NAMES.patient) {
+      const match = PATIENT_LOGINS.find((p) => p.email === email && p.password === password);
+      if (match) {
+        setRole(nextRole);
+        setIsAuthenticated(true);
+        setSelectedPatientId(match.patientId);
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
+        }
+        setScreen(SCREEN_NAMES.patient);
+        setLoginError("");
+        return;
+      }
+      setLoginError(LOGIN_ERROR_MESSAGE);
+      return;
+    }
     if (email === LOGIN_CREDENTIALS[nextRole].email && password === LOGIN_CREDENTIALS[nextRole].password) {
       setRole(nextRole);
       setIsAuthenticated(true);
@@ -161,7 +216,7 @@ export function useAppController() {
     clearStorage();
     const initialPatients = buildInitialPatients();
     setPatients(initialPatients);
-    setSessions([]);
+    setSessions(buildInitialSessions());
     setSelectedPatientId(initialPatients[0].id);
   }
 

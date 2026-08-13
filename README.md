@@ -1,6 +1,6 @@
-﻿# MenteActiva - 
+﻿# MenteActiva 
 
-App funcional para la tesis. Incluye inicio de sesion, vista paciente, vista psicologo, jardin que crece por desafios, rendimiento, creacion de pacientes, configuracion de preguntas por IA y envio de link demo.
+App funcional para la tesis. Incluye inicio de sesion, vista paciente, vista psicologo, progreso diario, rendimiento, creacion de pacientes, configuracion de preguntas por IA y envio de link demo.
 
 ## Como correrlo
 
@@ -27,19 +27,31 @@ La integracion opcional con Ollama usa la URL local fija `http://localhost:11434
 
 ## Accesos demo
 
-Paciente:
+Paciente (Elena):
 - Email: `elena.rios@demo.com`
 - Clave: `menteactiva`
+
+Paciente (Lucía):
+- Email: `lucia.herrera@demo.com`
+- Clave: `jardin`
+
+Paciente (Héctor):
+- Email: `hector.ramos@demo.com`
+- Clave: `jardin`
 
 Psicologo:
 - Email: `psicologa@demo.com`
 - Clave: `jardin2`
 
-## Juegos incluidos
+## Actividades incluidas
 
-- Lista del supermercado
-- Pagar el boleto
-- Ordenar una receta
-- Agenda de turnos
-- Caras y nombres
-- Como me siento hoy
+- Lista del supermercado (memoria de trabajo)
+- Pagar el boleto (atencion y calculo)
+- Ordenar una receta (funciones ejecutivas)
+- Agenda de turnos (orientacion temporal)
+- Caras y nombres (memoria asociativa)
+- Como me siento hoy (metacognicion)
+- Tomar la medicacion (memoria prospectiva)
+- Objetos de la casa (atencion visual)
+- Mensajes y llamadas (comprension funcional)
+- Camino al barrio (orientacion y decision)

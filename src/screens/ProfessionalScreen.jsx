@@ -1,14 +1,29 @@
-import { Activity, BarChart3, CalendarDays, CheckCircle2, Timer, TrendingUp } from "lucide-react";
 import { useMemo } from "react";
 import { activities } from "../data/activities.js";
 import { createNewProfessionalPatient, generatePatientId } from "../services/patientService.js";
 import { computeStats, getPatientSessions } from "../services/sessionService.js";
-import { AiConfigPanel } from "../components/professional/AiConfigPanel.jsx";
-import { AiObservation } from "../components/professional/AiObservation.jsx";
-import { EvolutionChart } from "../components/professional/EvolutionChart.jsx";
-import { PatientSidebar } from "../components/professional/PatientSidebar.jsx";
-import { SessionTable } from "../components/professional/SessionTable.jsx";
-import { MetricCard } from "../components/common/MetricCard.jsx";
+import { PatientDetail } from "../components/professional/PatientDetail.jsx";
+import { PatientGrid } from "../components/professional/PatientGrid.jsx";
+
+function buildQuestionSample() {
+  const seen = new Set();
+  const sample = [];
+  for (const activity of activities) {
+    if (seen.has(activity.skill)) continue;
+    seen.add(activity.skill);
+    const first = activity.questions[0];
+    if (!first) continue;
+    sample.push(
+      <article key={activity.id}>
+        <strong>{activity.title}</strong>
+        <p>{first.prompt}</p>
+        <small>{activity.skill} · {first.clinician}</small>
+      </article>
+    );
+    if (sample.length >= 5) break;
+  }
+  return sample;
+}
 
 export function ProfessionalScreen({
   patients,
@@ -25,18 +40,7 @@ export function ProfessionalScreen({
     [sessions, selectedPatient.id]
   );
   const stats = useMemo(() => computeStats(patientSessions), [patientSessions]);
-  const questionBank = useMemo(
-    () => activities.flatMap((activity) =>
-      activity.questions.map((question, index) => (
-        <article key={`${activity.id}-${index}`}>
-          <strong>{activity.title}</strong>
-          <p>{question.prompt}</p>
-          <small>{question.clinician}</small>
-        </article>
-      ))
-    ),
-    []
-  );
+  const questionSample = useMemo(buildQuestionSample, []);
 
   function handleSelectPatient(patient) {
     setSelectedPatientId(patient.id);
@@ -60,47 +64,22 @@ export function ProfessionalScreen({
 
   return (
     <div className="professional-layout">
-      <PatientSidebar
+      <PatientGrid
         patients={patients}
         professionalId={professionalId}
         selectedPatient={selectedPatient}
         onSelectPatient={handleSelectPatient}
         onCreatePatient={handleCreatePatient}
+      />
+      <PatientDetail
+        selectedPatient={selectedPatient}
+        patientSessions={patientSessions}
+        sessions={sessions}
+        stats={stats}
+        questionSample={questionSample}
+        onSaveAiConfig={handleSaveAiConfig}
         onResetDemo={resetDemo}
       />
-      <section className="professional-stack" aria-label={`Datos de ${selectedPatient.name}`}>
-        <div className="metric-grid">
-          <MetricCard icon={CheckCircle2} label="Aciertos" value={stats.count ? `${stats.avgAccuracy}%` : `${selectedPatient.score}%`} detail={selectedPatient.trend} />
-          <MetricCard icon={Timer} label="Tiempo medio" value={stats.count ? `${stats.avgLatencySec} s` : selectedPatient.responseTime} detail="respuesta" />
-          <MetricCard icon={Activity} label="Riesgo" value={selectedPatient.risk} detail="preventivo" />
-          <MetricCard icon={CalendarDays} label="Sesiones" value={`${stats.count}`} detail={`${stats.weekCount} esta semana`} />
-        </div>
-        <div className="panel">
-          <div className="section-head compact">
-            <div>
-              <p className="eyebrow">Evolucion del rendimiento</p>
-              <h2>Precision por sesion</h2>
-            </div>
-            <TrendingUp size={30} aria-hidden="true" />
-          </div>
-          <EvolutionChart sessions={patientSessions} />
-          <SessionTable sessions={patientSessions} />
-        </div>
-        <AiObservation patient={selectedPatient} sessions={sessions} />
-        <AiConfigPanel selectedPatient={selectedPatient} onSave={handleSaveAiConfig} />
-        <div className="panel">
-          <div className="section-head compact">
-            <div>
-              <p className="eyebrow">Dentro de cada paciente</p>
-              <h2>Preguntas que se hacen</h2>
-            </div>
-            <BarChart3 size={30} aria-hidden="true" />
-          </div>
-          <div className="question-bank" role="feed" aria-label="Banco de preguntas">
-            {questionBank}
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
