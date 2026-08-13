@@ -15,8 +15,12 @@ export function AiObservation({ patient, sessions }) {
 
   async function run() {
     setState({ loading: true, text: "", sections: null, source: null });
-    const result = await generateObservation(patient, sessions);
-    setState({ loading: false, text: result.text, sections: result.sections ?? null, source: result.source });
+    try {
+      const result = await generateObservation(patient, sessions);
+      setState({ loading: false, text: result.text, sections: result.sections ?? null, source: result.source });
+    } catch {
+      setState({ loading: false, text: "No se pudo generar la observación. Intentá nuevamente.", sections: null, source: null });
+    }
   }
 
   const buttonLabel = state.loading

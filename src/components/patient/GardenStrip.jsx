@@ -2,7 +2,6 @@ import { CheckCircle2, Circle, CircleDot } from "lucide-react";
 import { cx } from "../../lib/cx.js";
 
 export function GardenStrip({ activities, completedIds }) {
-  const total = activities.length;
   const doneCount = completedIds.length;
 
   return (

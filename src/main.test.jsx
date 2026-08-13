@@ -23,7 +23,7 @@ describe("MenteActiva critical flows", () => {
   test("renders the main login page", () => {
     renderApp();
 
-    expect(screen.getByRole("heading", { name: /jard[ií]n cognitivo/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /menteactiva/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /entrar como paciente/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("elena.rios@demo.com")).toBeInTheDocument();
   });
@@ -32,6 +32,7 @@ describe("MenteActiva critical flows", () => {
     const user = userEvent.setup();
     renderApp();
 
+    await user.clear(screen.getByLabelText(/email/i));
     await user.type(screen.getByLabelText(/email/i), "wrong@demo.com");
     await user.clear(screen.getByLabelText(/clave/i));
     await user.type(screen.getByLabelText(/clave/i), "bad-pass");
@@ -44,7 +45,7 @@ describe("MenteActiva critical flows", () => {
 
     expect(await screen.findByRole("heading", { name: /seguimiento/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^paciente$/i }));
-    expect(await screen.findByRole("heading", { name: /todos los desaf[ií]os del jard[ií]n/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
   });
 
   test("restores the professional route from direct URL and persisted session", async () => {
@@ -106,6 +107,7 @@ describe("MenteActiva critical flows", () => {
     window.location.hash = "#/professional";
     renderApp();
 
+    await user.click(screen.getByRole("button", { name: /agregar paciente/i }));
     await user.click(screen.getByRole("button", { name: /crear paciente/i }));
     expect(await screen.findByText(/ingres[aá] un nombre/i)).toBeInTheDocument();
 

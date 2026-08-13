@@ -36,7 +36,7 @@ p, label, small { color: #52624d; font-weight: 760; line-height: 1.45; }
 input, textarea { width: 100%; min-height: 56px; border: 2px solid #d5decf; border-radius: 8px; background: white; padding: 12px 14px; color: #172114; font-weight: 850; }
 textarea { min-height: 150px; resize: vertical; }
 .primary { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 62px; border: 2px solid #617a58; border-radius: 8px; background: #617a58; padding: 12px 18px; color: white; font-weight: 950; }
-.primary:disabled, .secondary-action:disabled { cursor: not-allowed; background: #cbd5c4; color: #64745d; }
+.primary:disabled, .secondary-action:disabled { cursor: not-allowed; background: #cbd5c4; color: #3d4f38; }
 .error-box { display: flex; gap: 10px; border: 2px solid #f1b5a7; border-radius: 8px; background: #fff2ef; padding: 12px; color: #9a3412; font-weight: 900; }
 .patient-layout, .professional-layout, .activity-layout { display: grid; gap: 28px; }
 .patient-layout { grid-template-columns: minmax(0, 1fr) 360px; }
@@ -124,7 +124,7 @@ textarea { min-height: 150px; resize: vertical; }
 .ai-chat-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .ai-chat-form input { min-height: 44px; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 850; }
 .ai-chat-send { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 8px; background: #3f7d68; color: white; }
-.ai-chat-send:disabled { background: #cbd5c4; color: #64745d; }
+.ai-chat-send:disabled { background: #cbd5c4; color: #3d4f38; }
 @media (prefers-reduced-motion: reduce) { .ai-bubble, .ai-dot, .ai-chat-chevron { animation: none !important; transition: none !important; } }
 .activity-layout { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
 .back-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-bottom: 20px; color: #617a58; font-weight: 950; }

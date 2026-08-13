@@ -25,7 +25,6 @@ import { LOGIN_ERROR_MESSAGE } from "../constants/content.js";
 function loadAppPatients() {
   const initialPatients = buildInitialPatients();
   const stored = loadPatients(initialPatients, normalizePatient);
-  const initialById = new Map(initialPatients.map((p) => [p.id, p]));
   const storedIds = new Set(stored.map((p) => p.id));
 
   // Enriquecer pacientes demo cuyos datos quedaron sin perfil (score 0 y sin actividad).

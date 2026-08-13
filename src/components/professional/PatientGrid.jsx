@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Plus, Search, UserPlus, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Search, UserPlus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { MAX_PATIENT_AGE } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";
