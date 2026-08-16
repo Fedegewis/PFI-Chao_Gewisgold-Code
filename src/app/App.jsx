@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { SCREEN_NAMES } from "../constants/appConfig.js";
 import { ErrorBoundary } from "../components/common/ErrorBoundary.jsx";
 import { Footer } from "../components/common/Footer.jsx";
@@ -20,7 +21,6 @@ export function App() {
     openActivity,
     patients,
     professionalId,
-    resetDemo,
     role,
     screen,
     selectedActivity,
@@ -31,6 +31,17 @@ export function App() {
     setSelectedPatientId,
     updatePatient
   } = useAppController();
+
+  useEffect(() => {
+    const titles = {
+      [SCREEN_NAMES.login]: "Login — MenteActiva",
+      [SCREEN_NAMES.patient]: "Actividades — MenteActiva",
+      [SCREEN_NAMES.professional]: "Panel Profesional — MenteActiva",
+    };
+    document.title = screen === SCREEN_NAMES.activity
+      ? `${selectedActivity.title} — MenteActiva`
+      : titles[screen] || "MenteActiva";
+  }, [screen, selectedActivity]);
 
   return (
     <main className="app-shell">
@@ -46,7 +57,6 @@ export function App() {
               <ProfessionalScreen
                 patients={patients}
                 professionalId={professionalId}
-                resetDemo={resetDemo}
                 selectedPatient={selectedPatient}
                 sessions={sessions}
                 setPatients={setPatients}
