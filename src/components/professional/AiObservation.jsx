@@ -34,7 +34,7 @@ export function AiObservation({ patient, sessions }) {
       <div className="section-head compact">
         <div>
           <p className="eyebrow">Observaciones por IA</p>
-          <h2>Síntesis clínica</h2>
+          <h3>Síntesis clínica</h3>
         </div>
         <NotebookPen size={26} aria-hidden="true" />
       </div>

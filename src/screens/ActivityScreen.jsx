@@ -95,7 +95,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
       <div className="activity-layout">
         <div className="activity-prompt">
           <p>{activity.skill}</p>
-          <h2 id="activity-title">{activity.title}</h2>
+          <h1 id="activity-title">{activity.title}</h1>
           <div className="session-progress">
             <span>Pregunta {step + 1} de {sessionLength}</span>
             <div role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={sessionLength} aria-label="Progreso de la sesión"><span className="progress-fill" style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
@@ -112,7 +112,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           </div>
         </div>
         <div className="question-panel">
-          <div className="question-header"><h3>Pregunta {step + 1}</h3><span aria-hidden="true">{answeredCount}/{sessionLength}</span></div>
+          <div className="question-header"><h2>Pregunta {step + 1}</h2><span aria-hidden="true">{answeredCount}/{sessionLength}</span></div>
           <p className="question-text" id="current-question">{current.prompt}</p>
           <div className="answer-grid" role="group" aria-labelledby="current-question">
             {current.options.map((answer, index) => (

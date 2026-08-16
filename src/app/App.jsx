@@ -44,12 +44,12 @@ export function App() {
   }, [screen, selectedActivity]);
 
   return (
-    <main className="app-shell">
+    <div className="app-shell">
       <a href="#main-content" className="skip-link">Saltar al contenido principal</a>
       <div className="app-inner">
         <GlobalHeader screen={screen} role={role} onLogout={logout} onNavigate={setScreen} />
         <ErrorBoundary>
-          <div id="main-content">
+          <main id="main-content">
             {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} />}
             {screen === SCREEN_NAMES.patient && isAuthenticated && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
             {screen === SCREEN_NAMES.activity && isAuthenticated && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
@@ -64,10 +64,10 @@ export function App() {
                 updatePatient={updatePatient}
               />
             )}
-          </div>
+          </main>
         </ErrorBoundary>
         <Footer />
       </div>
-    </main>
+    </div>
   );
 }
