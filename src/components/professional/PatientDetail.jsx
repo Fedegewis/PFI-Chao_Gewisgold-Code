@@ -1,4 +1,4 @@
-import { Activity, BarChart3, CalendarDays, Clock3, RotateCcw, Target, Timer, TrendingUp, User } from "lucide-react";
+import { Activity, BarChart3, CalendarDays, Clock3, Target, Timer, TrendingUp, User } from "lucide-react";
 import { MetricCard } from "../common/MetricCard.jsx";
 import { AiConfigPanel } from "./AiConfigPanel.jsx";
 import { AiObservation } from "./AiObservation.jsx";
@@ -12,8 +12,7 @@ export function PatientDetail({
   sessions,
   stats,
   questionSample,
-  onSaveAiConfig,
-  onResetDemo
+  onSaveAiConfig
 }) {
   const precisionValue = stats.count ? `${stats.avgAccuracy}%` : `${selectedPatient.score}%`;
   const latencyValue = stats.count ? `${stats.avgLatencySec} s` : selectedPatient.responseTime;
@@ -26,9 +25,6 @@ export function PatientDetail({
           <h2>{selectedPatient.name}</h2>
           <small>{selectedPatient.age} años · {selectedPatient.note}</small>
         </div>
-        <button className="secondary-action reset-demo" type="button" onClick={onResetDemo}>
-          <RotateCcw size={16} aria-hidden="true" /> Reiniciar datos demo
-        </button>
       </header>
 
       <div className="metric-grid">
@@ -45,7 +41,7 @@ export function PatientDetail({
             <div className="section-head compact">
               <div>
                 <p className="eyebrow">Evolucion del rendimiento</p>
-                <h2>Precisión por sesión</h2>
+                <h3>Precisión por sesión</h3>
               </div>
               <TrendingUp size={26} aria-hidden="true" />
             </div>
@@ -56,7 +52,7 @@ export function PatientDetail({
             <div className="section-head compact">
               <div>
                 <p className="eyebrow">Últimas actividades</p>
-                <h2>Línea de tiempo</h2>
+                <h3>Línea de tiempo</h3>
               </div>
               <Clock3 size={22} aria-hidden="true" />
             </div>
@@ -71,7 +67,7 @@ export function PatientDetail({
             <div className="section-head compact">
               <div>
                 <p className="eyebrow">Muestra de preguntas</p>
-                <h2>Ejemplos por dominio</h2>
+                <h3>Ejemplos por dominio</h3>
               </div>
               <BarChart3 size={26} aria-hidden="true" />
             </div>

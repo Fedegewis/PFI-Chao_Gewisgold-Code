@@ -71,7 +71,7 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
       <div className="section-head compact">
         <div>
           <p className="eyebrow">Instrucciones para IA</p>
-          <h2>{selectedPatient.name}</h2>
+          <h3>{selectedPatient.name}</h3>
         </div>
         <Brain size={30} aria-hidden="true" />
       </div>
