@@ -72,7 +72,7 @@ export function PatientDetail({
               <BarChart3 size={26} aria-hidden="true" />
             </div>
             <p className="questions-note">
-              Muestra representativa de los dominios que trabaja el paciente. Próximamente cada usuario tendrá preguntas generadas por IA a partir de su perfil.
+              Muestra representativa de los dominios que trabaja el paciente. Próximamente cada usuario tendrá las preguntas que ha respondido.
             </p>
             <div className="question-bank" role="feed" aria-label="Muestra de preguntas por dominio">
               {questionSample}

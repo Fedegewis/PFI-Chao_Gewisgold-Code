@@ -33,19 +33,19 @@ export function AiObservation({ patient, sessions }) {
     <div className="panel ai-observation">
       <div className="section-head compact">
         <div>
-          <p className="eyebrow">Observaciones por IA</p>
+          <p className="eyebrow">Observaciones</p>
           <h3>Síntesis clínica</h3>
         </div>
         <NotebookPen size={26} aria-hidden="true" />
       </div>
-      <p className="ai-hint">Lectura de patrones a partir de las métricas reales del paciente. Usa Ollama local si está disponible; si no, una síntesis heurística.</p>
+      <p className="ai-hint">Lectura de patrones a partir de las métricas reales del paciente.</p>
       <button className="primary ai-observation-button" type="button" onClick={run} disabled={state.loading} aria-busy={state.loading}>
         {buttonLabel}
       </button>
       {state.text && (
         <div className="ai-output" role="status" aria-live="polite">
-          <span className={cx("ai-badge", state.source === "ollama" ? "ai-badge-ollama" : "ai-badge-local")}>
-            {state.source === "ollama" ? "Generado con Ollama" : "Síntesis local"}
+          <span className={cx("ai-badge", "ai-badge-local")}>
+            Síntesis local
           </span>
           {state.sections
             ? (

@@ -23,7 +23,7 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
     const trimmedInstructions = instructions.trim();
     const parsedMaxQuestions = Number(maxQuestions);
     if (!trimmedInstructions) {
-      setConfigFeedback({ text: "Describí al menos una indicación para la IA.", type: "error" });
+      setConfigFeedback({ text: "Describí al menos una indicación.", type: "error" });
       return;
     }
     if (!Number.isInteger(parsedMaxQuestions) || parsedMaxQuestions < MIN_AI_QUESTIONS || parsedMaxQuestions > MAX_AI_QUESTIONS) {
@@ -70,7 +70,7 @@ export function AiConfigPanel({ selectedPatient, onSave }) {
     <div className="panel">
       <div className="section-head compact">
         <div>
-          <p className="eyebrow">Instrucciones para IA</p>
+          <p className="eyebrow">Instrucciones</p>
           <h3>{selectedPatient.name}</h3>
         </div>
         <Brain size={30} aria-hidden="true" />

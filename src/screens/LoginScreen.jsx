@@ -43,7 +43,7 @@ export function LoginScreen({ loginError, onLogin }) {
         <p className="eyebrow"></p>
         <h1>MenteActiva</h1>
         <p>Actividades cognitivas guiadas para el paciente. Configuración, seguimiento y límites para el profesional.</p>
-        <div className="motivation-banner">Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
+        <div className="motivation-banner">{MOTIVATION_MESSAGES[0]}</div>
       </div>
       <form className="panel login-panel" onSubmit={handleSubmit} noValidate>
         <div className="login-tabs" role="tablist" aria-label="Tipo de usuario">

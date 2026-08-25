@@ -103,7 +103,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           <p className="prompt-copy">{activity.intro}</p>
           <div className="chip-row">
             <StatusChip icon={Clock3} text="Sin límite estricto" />
-            <StatusChip icon={Bot} text="IA adaptativa" />
+            <StatusChip icon={Bot} text="Dificultad adaptativa" />
           </div>
           <div className="session-card">
             <p>{ACTIVITY_DRAFT_MESSAGE}</p>
