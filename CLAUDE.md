@@ -85,13 +85,19 @@ Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las pr
 ### Backend (`/backend`)
 
 - Node.js + Express + Knex + PostgreSQL
-- **Tablas:** `sections`, `questions`
+- **Tablas:** `sections`, `questions`, `users`, `sessions`, `session_sections`, `session_questions`
 - **Seed:** 10 secciones cognitivas, 45 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`)
-- **Endpoints:** `GET /api/health`, `GET /api/sections`, `GET /api/sections/:id/questions`
-- **Tests:** 5 pasando (node:test + supertest)
+- **Endpoints:**
+  - `GET /api/health`
+  - `GET /api/sections`, `GET /api/sections/:id/questions`
+  - `POST /api/users`, `GET /api/users/:id`
+  - `POST /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions/:id/start`
+- **Tests:** 28 pasando (node:test + supertest)
 - **Config:** `.env.example` con placeholders, `.env` excluido de git
 
 Las 10 secciones actuales son un mapeo provisional de las actividades legacy. Pueden revisarse.
+
+Las 45 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones. Los tests usan fixtures propias con preguntas validadas.
 
 ### Frontend (`/src`)
 
@@ -113,11 +119,12 @@ Implementado: `multiple_choice` objetiva con scoring automático.
 
 Preparado en schema: `likert`, `open_short` — sin scoring automático hasta definir comportamiento.
 
-Variables numéricas en evaluación para el modelo de sesión (aún no cerradas):
-- total_questions, answered_questions
-- correct_count, incorrect_count
-- accuracy, completion_rate
-- mean_latency_ms, min_latency_ms, max_latency_ms, latency_std_ms
+Variables numéricas definidas para el modelo de sesión:
+- total_questions, answered_questions, correct_count, incorrect_count, unanswered_count
+- accuracy = correct_count / answered_questions (NULL si answered_questions = 0)
+- completion_rate = answered_questions / total_questions
+- mean_latency_ms, min_latency_ms, max_latency_ms, latency_std_ms (STDDEV_POP)
+- Métricas por sección + globales (accuracy global ponderada por respuestas, no promedio de secciones)
 
 Node.js calcula las operaciones determinísticas. NO interpretar automáticamente estos números de forma clínica.
 
@@ -149,12 +156,17 @@ Node.js calcula las operaciones determinísticas. NO interpretar automáticament
 - [x] Seed: 10 secciones, 45 preguntas legacy
 - [x] Endpoints: health, sections, sections/:id/questions
 - [x] Tests: 5 pasando
+- [x] Modelo de datos: users, sessions, session_sections, session_questions
+- [x] Endpoints: users CRUD, sessions (crear, obtener, iniciar)
+- [x] Snapshot de preguntas asignadas (prompt, options, correct_answer, response_type)
+- [x] Ciclo de vida: created → in_progress (start explícito) → completed/abandoned
+- [x] Tests: 28 pasando
 
 ### Siguiente
 
-- [ ] Modelo de datos: User, Session, SessionSection, Answer, SessionResult
-- [ ] Definir variables numéricas que serán input de Llama
-- [ ] Endpoints de sesión y respuestas
+- [ ] Tablas: answers, session_results
+- [ ] Endpoints: registrar respuesta, completar sesión, obtener resultados
+- [ ] Cálculo de métricas determinísticas (accuracy, completion_rate, latencia)
 - [ ] Tests correspondientes
 
 ### Posterior
@@ -189,7 +201,7 @@ Node.js calcula las operaciones determinísticas. NO interpretar automáticament
 
 ## Git
 
-**Branch actual:** `feature/backend-first-step`
+**Branch actual:** `feature/session-results` (parte de `feature/backend-first-step`)
 
 **Archivos preexistentes modificados** (no relacionados con el backend):
 - `package-lock.json` (raíz)
