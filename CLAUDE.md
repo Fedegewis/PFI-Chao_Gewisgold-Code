@@ -85,14 +85,16 @@ Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las pr
 ### Backend (`/backend`)
 
 - Node.js + Express + Knex + PostgreSQL
-- **Tablas:** `sections`, `questions`, `users`, `sessions`, `session_sections`, `session_questions`
+- **Tablas:** `sections`, `questions`, `users`, `sessions`, `session_sections`, `session_questions`, `answers`, `session_results`
 - **Seed:** 10 secciones cognitivas, 45 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`)
 - **Endpoints:**
   - `GET /api/health`
   - `GET /api/sections`, `GET /api/sections/:id/questions`
   - `POST /api/users`, `GET /api/users/:id`
   - `POST /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions/:id/start`
-- **Tests:** 28 pasando (node:test + supertest)
+  - `POST /api/sessions/:id/answers`, `POST /api/sessions/:id/complete`, `POST /api/sessions/:id/abandon`
+  - `GET /api/sessions/:id/results`
+- **Tests:** 57 pasando (node:test + supertest, `--test-concurrency=1`)
 - **Config:** `.env.example` con placeholders, `.env` excluido de git
 
 Las 10 secciones actuales son un mapeo provisional de las actividades legacy. Pueden revisarse.
@@ -115,18 +117,19 @@ SPA React 19 + Vite + Tailwind v4 existente. Funciona con localStorage y datos h
 
 ## Scoring y variables
 
-Implementado: `multiple_choice` objetiva con scoring automático.
+Implementado: `multiple_choice` objetiva con scoring automático. `is_correct` se calcula usando `correct_answer_snapshot`, no la pregunta original.
 
-Preparado en schema: `likert`, `open_short` — sin scoring automático hasta definir comportamiento.
+Preparado en schema: `likert`, `open_short` — sin scoring automático hasta definir comportamiento. Las consultas de accuracy filtran por `is_correct IS NOT NULL` para excluir futuras respuestas no puntuables.
 
-Variables numéricas definidas para el modelo de sesión:
+Variables numéricas implementadas en `session_results` (persistidas al completar sesión):
 - total_questions, answered_questions, correct_count, incorrect_count, unanswered_count
-- accuracy = correct_count / answered_questions (NULL si answered_questions = 0)
+- accuracy = correct_count / scored_answers (NULL si scored_answers = 0, donde scored_answers = count de answers con is_correct IS NOT NULL)
 - completion_rate = answered_questions / total_questions
-- mean_latency_ms, min_latency_ms, max_latency_ms, latency_std_ms (STDDEV_POP)
+- mean_latency_ms, min_latency_ms, max_latency_ms, latency_std_ms (STDDEV_POP, N=1 → std=0, N=0 → NULL)
 - Métricas por sección + globales (accuracy global ponderada por respuestas, no promedio de secciones)
+- Tipos PostgreSQL: accuracy/completion_rate → NUMERIC(5,4), latencias → NUMERIC(10,2)/INTEGER
 
-Node.js calcula las operaciones determinísticas. NO interpretar automáticamente estos números de forma clínica.
+Node.js calcula las operaciones determinísticas. NO interpretar automáticamente estos números de forma clínica. Llama NO calcula métricas.
 
 ## Estrategia ML
 
@@ -161,15 +164,14 @@ Node.js calcula las operaciones determinísticas. NO interpretar automáticament
 - [x] Snapshot de preguntas asignadas (prompt, options, correct_answer, response_type)
 - [x] Ciclo de vida: created → in_progress (start explícito) → completed/abandoned
 - [x] Tests: 28 pasando
+- [x] Tablas: answers, session_results
+- [x] Endpoints: registrar respuesta, completar sesión, abandonar sesión, obtener resultados
+- [x] Cálculo de métricas determinísticas (accuracy, completion_rate, latencia)
+- [x] Ciclo completo: created → in_progress → completed/abandoned
+- [x] Completar sesión en transacción atómica (session_results + status)
+- [x] Tests: 57 pasando
 
 ### Siguiente
-
-- [ ] Tablas: answers, session_results
-- [ ] Endpoints: registrar respuesta, completar sesión, obtener resultados
-- [ ] Cálculo de métricas determinísticas (accuracy, completion_rate, latencia)
-- [ ] Tests correspondientes
-
-### Posterior
 
 - [ ] Selección pseudoaleatoria de preguntas con exclusión de recientes
 - [ ] Configuración profesional → paciente (secciones, cantidad)
