@@ -78,6 +78,15 @@ Llama tiene UNA responsabilidad principal: recibir información estructurada de 
 
 Banco controlado por sección en PostgreSQL. El profesional selecciona usuario, sección/es y cantidad. El backend toma preguntas activas+validadas, evita recientes cuando sea posible, selecciona pseudoaleatoriamente, y registra exactamente qué preguntas se asignaron.
 
+Selección implementada en `POST /api/sessions`:
+- Elegibles: `is_active = true AND is_validated = true`
+- Historial: últimas 3 sesiones del paciente para esa sección (status IN `in_progress`, `completed`, `abandoned`; `created` no cuenta)
+- Prioridad: primero no recientes (pseudoaleatorio), fallback a recientes si no alcanzan
+- Error si `eligible < requested` (no reduce silenciosamente)
+- Constante: `RECENT_SESSION_WINDOW = 3`
+- Shuffle: Fisher-Yates con `rng` inyectable para tests
+- Creación de sesión en transacción atómica
+
 Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las preguntas generadas con IA durante desarrollo ingresan como `is_validated=false`. Solo `is_active=true AND is_validated=true` se usan en sesiones reales.
 
 ## Estado actual implementado
@@ -94,7 +103,7 @@ Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las pr
   - `POST /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions/:id/start`
   - `POST /api/sessions/:id/answers`, `POST /api/sessions/:id/complete`, `POST /api/sessions/:id/abandon`
   - `GET /api/sessions/:id/results`
-- **Tests:** 57 pasando (node:test + supertest, `--test-concurrency=1`)
+- **Tests:** 76 pasando (node:test + supertest, `--test-concurrency=1`)
 - **Config:** `.env.example` con placeholders, `.env` excluido de git
 
 Las 10 secciones actuales son un mapeo provisional de las actividades legacy. Pueden revisarse.
@@ -170,10 +179,13 @@ Node.js calcula las operaciones determinísticas. NO interpretar automáticament
 - [x] Ciclo completo: created → in_progress → completed/abandoned
 - [x] Completar sesión en transacción atómica (session_results + status)
 - [x] Tests: 57 pasando
+- [x] Selección pseudoaleatoria de preguntas con exclusión de recientes
+- [x] Creación de sesión en transacción atómica
+- [x] Tests: 76 pasando
 
 ### Siguiente
 
-- [ ] Selección pseudoaleatoria de preguntas con exclusión de recientes
+- [ ] Banco ampliado de preguntas (~30-50 por sección)
 - [ ] Configuración profesional → paciente (secciones, cantidad)
 - [ ] Autenticación (JWT u otra alternativa — sin decidir todavía)
 - [ ] Contrato INPUT/OUTPUT de Llama definido formalmente

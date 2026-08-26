@@ -56,6 +56,73 @@ function calculateMetrics(sessionQuestions, answers) {
   };
 }
 
+const RECENT_SESSION_WINDOW = 3;
+
+function shuffleArray(arr, rng = Math.random) {
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+async function getRecentQuestionIds(trx, patientId, sectionId) {
+  const recentSessions = await trx("sessions as s")
+    .join("session_sections as ss", "s.id", "ss.session_id")
+    .where("s.patient_id", patientId)
+    .where("ss.section_id", sectionId)
+    .whereIn("s.status", ["in_progress", "completed", "abandoned"])
+    .orderBy("s.created_at", "desc")
+    .limit(RECENT_SESSION_WINDOW)
+    .select("s.id");
+
+  if (recentSessions.length === 0) return new Set();
+
+  const rows = await trx("session_questions as sq")
+    .join("session_sections as ss", "sq.session_section_id", "ss.id")
+    .whereIn("ss.session_id", recentSessions.map((s) => s.id))
+    .where("ss.section_id", sectionId)
+    .select("sq.question_id");
+
+  return new Set(rows.map((r) => r.question_id));
+}
+
+async function selectQuestionsForSection(
+  trx,
+  patientId,
+  sectionId,
+  requestedCount,
+  rng = Math.random
+) {
+  const eligible = await trx("questions")
+    .where({ section_id: sectionId, is_active: true, is_validated: true })
+    .select("id", "prompt", "response_type", "options", "correct_answer");
+
+  if (eligible.length < requestedCount) {
+    return { error: true, available: eligible.length };
+  }
+
+  const recentIds = await getRecentQuestionIds(trx, patientId, sectionId);
+
+  const preferred = eligible.filter((q) => !recentIds.has(q.id));
+  const recent = eligible.filter((q) => recentIds.has(q.id));
+
+  let selected;
+  if (preferred.length >= requestedCount) {
+    selected = shuffleArray(preferred, rng).slice(0, requestedCount);
+  } else {
+    const fromPreferred = shuffleArray(preferred, rng);
+    const fromRecent = shuffleArray(recent, rng).slice(
+      0,
+      requestedCount - fromPreferred.length
+    );
+    selected = [...fromPreferred, ...fromRecent];
+  }
+
+  return { error: false, questions: selected };
+}
+
 function parseNumericFields(row) {
   if (!row) return null;
   return {
@@ -120,59 +187,63 @@ router.post("/sessions", async (req, res, next) => {
       }
     }
 
-    const [session] = await db("sessions")
-      .insert({ patient_id, professional_id })
-      .returning("*");
-
-    const sessionSectionsData = [];
-    const sessionQuestionsData = [];
-
-    for (let i = 0; i < sections.length; i++) {
-      const entry = sections[i];
-
-      const [sessionSection] = await db("session_sections")
-        .insert({
-          session_id: session.id,
-          section_id: entry.section_id,
-          requested_count: entry.question_count,
-          display_order: i + 1,
-        })
+    const result = await db.transaction(async (trx) => {
+      const [session] = await trx("sessions")
+        .insert({ patient_id, professional_id })
         .returning("*");
 
-      const questions = await db("questions")
-        .where({ section_id: entry.section_id, is_active: true, is_validated: true })
-        .orderBy("id")
-        .limit(entry.question_count)
-        .select("id", "prompt", "response_type", "options", "correct_answer");
+      const sessionSectionsData = [];
 
-      for (let j = 0; j < questions.length; j++) {
-        const q = questions[j];
-        const [sq] = await db("session_questions")
+      for (let i = 0; i < sections.length; i++) {
+        const entry = sections[i];
+
+        const selection = await selectQuestionsForSection(
+          trx, patient_id, entry.section_id, entry.question_count
+        );
+
+        if (selection.error) {
+          throw new Error(
+            `Insufficient eligible questions for section ${entry.section_id}: ` +
+            `${selection.available} available, ${entry.question_count} requested`
+          );
+        }
+
+        const [sessionSection] = await trx("session_sections")
           .insert({
-            session_section_id: sessionSection.id,
-            question_id: q.id,
-            display_order: j + 1,
-            prompt_snapshot: q.prompt,
-            options_snapshot: JSON.stringify(q.options),
-            correct_answer_snapshot: q.correct_answer,
-            response_type: q.response_type,
+            session_id: session.id,
+            section_id: entry.section_id,
+            requested_count: entry.question_count,
+            display_order: i + 1,
           })
           .returning("*");
-        sessionQuestionsData.push(sq);
+
+        const sessionQuestionsData = [];
+        for (let j = 0; j < selection.questions.length; j++) {
+          const q = selection.questions[j];
+          const [sq] = await trx("session_questions")
+            .insert({
+              session_section_id: sessionSection.id,
+              question_id: q.id,
+              display_order: j + 1,
+              prompt_snapshot: q.prompt,
+              options_snapshot: JSON.stringify(q.options),
+              correct_answer_snapshot: q.correct_answer,
+              response_type: q.response_type,
+            })
+            .returning("*");
+          sessionQuestionsData.push(sq);
+        }
+
+        sessionSectionsData.push({
+          ...sessionSection,
+          questions: sessionQuestionsData,
+        });
       }
 
-      sessionSectionsData.push({
-        ...sessionSection,
-        questions: sessionQuestionsData.filter(
-          (sq) => sq.session_section_id === sessionSection.id
-        ),
-      });
-    }
-
-    res.status(201).json({
-      ...session,
-      sections: sessionSectionsData,
+      return { ...session, sections: sessionSectionsData };
     });
+
+    res.status(201).json(result);
   } catch (err) {
     next(err);
   }
@@ -464,4 +535,5 @@ router.get("/sessions/:id/results", async (req, res, next) => {
   }
 });
 
+export { selectQuestionsForSection, RECENT_SESSION_WINDOW };
 export default router;

@@ -371,9 +371,7 @@ describe("Users API", () => {
   describe("Snapshot verification", () => {
     it("snapshots match original question data", async () => {
       const questions = await db("questions")
-        .where({ section_id: testSectionId, is_active: true, is_validated: true })
-        .orderBy("id")
-        .limit(2);
+        .where({ section_id: testSectionId, is_active: true, is_validated: true });
 
       const createRes = await request(app).post("/api/sessions").send({
         patient_id: patient.id,
@@ -382,15 +380,15 @@ describe("Users API", () => {
       });
 
       const assignedQuestions = createRes.body.sections[0].questions;
+      assert.equal(assignedQuestions.length, 2);
 
-      for (let i = 0; i < assignedQuestions.length; i++) {
-        const sq = assignedQuestions[i];
-        const original = questions[i];
+      for (const sq of assignedQuestions) {
+        const original = questions.find((q) => q.id === sq.question_id);
+        assert.ok(original, `Question ${sq.question_id} should be in eligible pool`);
         assert.equal(sq.prompt_snapshot, original.prompt);
         assert.deepEqual(sq.options_snapshot, original.options);
         assert.equal(sq.correct_answer_snapshot, original.correct_answer);
         assert.equal(sq.response_type, original.response_type);
-        assert.equal(sq.question_id, original.id);
       }
     });
   });
