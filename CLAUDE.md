@@ -40,8 +40,23 @@ Node.js → HTTP → Ollama → modelo Llama → Node.js → validación → Pos
 - Backend: Node.js + Express. NO migrar a FastAPI.
 - Base de datos: PostgreSQL. NO migrar a SQLite.
 - Query builder: Knex (con migraciones explícitas).
+- Frontend: React 19 + Vite + Tailwind v4.
+- Frontend y backend todavía NO están integrados. La integración será en Etapa 9.
 - Ollama es el servidor/entorno de inferencia, NO el modelo.
 - Pipeline ML en Python, separado del backend Node.js.
+- Los mocks/localStorage del frontend todavía NO deben eliminarse. Se reemplazarán progresivamente durante frontend integration (Etapa 9).
+- Las 45 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones.
+- Los tests usan fixtures propias con preguntas validadas; no dependen del seed.
+- Llama NO seleccionará preguntas. La selección es responsabilidad del backend.
+- Llama NO calculará métricas determinísticas. Accuracy, completion rate, latencias y métricas matemáticas son responsabilidad de Node.js.
+- Llama se utilizará para interpretación/contextualización destinada al profesional. Siempre en lenguaje descriptivo, no diagnóstico.
+- Llama NO debe diagnosticar, recomendar tratamiento, reemplazar al profesional, conversar con el paciente, ni inventar datos.
+- No habrá interacción conversacional Llama ↔ paciente en el diseño final. El chat IA simulado actual (`AiChatPanel.jsx`) no representa la arquitectura final.
+- Los pacientes y métricas mock del frontend se reemplazarán posteriormente durante frontend integration.
+- Un profesional gestiona solamente sus propios pacientes. Professional A NO accede a datos de Professional B.
+- La autorización de ownership se resolverá en backend cuando se implemente auth (Etapa 5).
+- NO se confiará en `professional_id` enviado libremente por frontend una vez implementada autenticación.
+- No se reescribirá el frontend desde cero; la integración será incremental (Etapa 9).
 
 ## Hardware del desarrollador
 
@@ -106,7 +121,7 @@ Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las pr
 - **Tests:** 76 pasando (node:test + supertest, `--test-concurrency=1`)
 - **Config:** `.env.example` con placeholders, `.env` excluido de git
 
-Las 10 secciones actuales son un mapeo provisional de las actividades legacy. Pueden revisarse.
+Las 10 secciones actuales son un mapeo provisional de las actividades legacy. NO son definitivas; se revisarán en Etapa 4.
 
 Las 45 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones. Los tests usan fixtures propias con preguntas validadas.
 
@@ -156,48 +171,139 @@ Node.js calcula las operaciones determinísticas. NO interpretar automáticament
 
 **Evaluación:** JSON válido, estructura, cobertura de secciones, fidelidad a input, ausencia de alucinaciones, lenguaje no diagnóstico, seguridad, utilidad para profesional. Métricas textuales (ROUGE, BERTScore) solo como secundarias.
 
+## Relación profesional-paciente
+
+La aplicación funciona por profesional. Cada profesional registra y gestiona únicamente sus pacientes. Professional A NO accede a datos de Professional B.
+
+La autorización se resuelve en backend. Una vez que exista autenticación, NO se debe confiar en `professional_id` enviado desde frontend.
+
+## Conceptos UI pendientes de decisión
+
+La UI actual del frontend contiene conceptos como "riesgo bajo/medio/alto", "rendimiento óptimo" y clasificaciones similares. Estos conceptos NO deben asumirse como definitivos para producción:
+
+- NO queremos que Llama invente o determine automáticamente un riesgo clínico.
+- NO queremos crear thresholds arbitrarios en Node.js sin justificación metodológica/bibliográfica.
+- Durante Etapa 6 (feature/ai-contract) se decidirá si estos conceptos se eliminan, se renombran, o se reemplazan por descripciones no diagnósticas (ej: "aspectos a revisar", "variaciones observadas", "evolución respecto de sesiones anteriores").
+
+## Decisiones pendientes por etapa
+
+Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están cerradas:
+
+**Etapa 4 (question-bank):**
+- Secciones cognitivas definitivas (las 10 actuales son provisionales)
+- Scoring de futuros `response_type` no objetivos (`likert`, `open_short`)
+- Uso futuro del campo `difficulty` en questions
+
+**Etapa 5 (auth-patient-management):**
+- Mecanismo exacto de acceso/autenticación del paciente
+- Campos definitivos del perfil profesional (matrícula, especialidad, etc.)
+
+**Etapa 6 (ai-contract):**
+- Persistencia y modelo exacto de mood/estado emocional
+- Estructura definitiva de notas/instrucciones del profesional
+- Estructura definitiva de AI Input v1
+- Estructura definitiva de AI Output v1
+- Cantidad de sesiones históricas que recibirá Llama
+- Estructura definitiva del informe IA
+- Thresholds o clasificación de riesgo (ver "Conceptos UI pendientes de decisión")
+
+**Etapa 7 (ml-pipeline):**
+- Estructura definitiva del dataset QLoRA
+
+## Deuda técnica
+
+### PRIORITARIA — resolver en feature/question-bank (Etapa 4)
+
+- **Seed destructivo:** `backend/src/db/seeds/001_sections_and_questions.js` ejecuta `knex("questions").del()` y `knex("sections").del()` al inicio, borrando todas las preguntas y secciones existentes. Esto destruiría preguntas validadas/creadas posteriormente. La Etapa 4 debe diseñar una estrategia segura de seed/importación que no borre datos existentes.
+
+### Para feature/auth-patient-management (Etapa 5)
+
+- **`sessions.js` concentra toda la lógica:** un solo archivo de 539 líneas con `calculateMetrics`, selección pseudoaleatoria y todos los handlers. Funcional con tests pasando, pero se complicará al agregar auth middleware. Considerar refactor incremental antes o durante auth.
+
+### Para feature/frontend-integration (Etapa 9)
+
+- **Sin CORS:** el backend no tiene middleware CORS. Configurar cuando frontend intente conectarse al backend.
+
+### Limpieza general
+
+- **`cambios.txt` trackeado:** archivo suelto en raíz del repo. Revisar si tiene contenido útil; si no, eliminar y agregar a `.gitignore`.
+
 ## Roadmap
 
-### Completado
+### ETAPA 1 — Frontend base
+Estado: implementado, con mocks/localStorage.
 
-- [x] Análisis completo del repositorio existente
-- [x] Diseño arquitectónico y decisiones cerradas
-- [x] Análisis de hardware e infraestructura
-- [x] Backend foundation: Express + PostgreSQL + Knex
-- [x] Migración: tablas sections + questions
-- [x] Seed: 10 secciones, 45 preguntas legacy
-- [x] Endpoints: health, sections, sections/:id/questions
-- [x] Tests: 5 pasando
-- [x] Modelo de datos: users, sessions, session_sections, session_questions
-- [x] Endpoints: users CRUD, sessions (crear, obtener, iniciar)
-- [x] Snapshot de preguntas asignadas (prompt, options, correct_answer, response_type)
-- [x] Ciclo de vida: created → in_progress (start explícito) → completed/abandoned
-- [x] Tests: 28 pasando
-- [x] Tablas: answers, session_results
-- [x] Endpoints: registrar respuesta, completar sesión, abandonar sesión, obtener resultados
-- [x] Cálculo de métricas determinísticas (accuracy, completion_rate, latencia)
-- [x] Ciclo completo: created → in_progress → completed/abandoned
-- [x] Completar sesión en transacción atómica (session_results + status)
-- [x] Tests: 57 pasando
-- [x] Selección pseudoaleatoria de preguntas con exclusión de recientes
-- [x] Creación de sesión en transacción atómica
-- [x] Tests: 76 pasando
+### ETAPA 2 — Backend foundation
+Estado: implementado (Node.js, Express, PostgreSQL, Knex, sections, questions).
 
-### Siguiente
+### ETAPA 3 — feature/session-results
+Estado: **CERRADA.**
 
-- [ ] Banco ampliado de preguntas (~30-50 por sección)
-- [ ] Configuración profesional → paciente (secciones, cantidad)
-- [ ] Autenticación (JWT u otra alternativa — sin decidir todavía)
-- [ ] Contrato INPUT/OUTPUT de Llama definido formalmente
-- [ ] Informe IA bajo demanda del profesional
-- [ ] Postprocesamiento y validación de output de Llama
-- [ ] Dataset v0
-- [ ] Baseline Llama + prompt
-- [ ] Entrenamiento QLoRA
-- [ ] Evaluación baseline vs adaptado
-- [ ] Integración Ollama ↔ backend
-- [ ] Migración del frontend al backend (consumir API)
-- [ ] Chat del paciente → convertir a panel de ánimo/notas
+**Commit A:** users, sessions, session_sections, session_questions, ciclo de vida (created → in_progress), snapshots de preguntas.
+
+**Commit B:** answers, session_results, métricas determinísticas (accuracy, completion_rate, latencias con STDDEV_POP), complete, abandon, results. Transacción atómica al completar.
+
+**Commit C:** selección pseudoaleatoria (Fisher-Yates con rng inyectable), filtro `is_active=true AND is_validated=true`, prevención de preguntas recientes (ventana de últimas 3 sesiones relevantes por paciente y sección), fallback cuando no alcanzan preguntas no recientes, aislamiento por paciente, aislamiento por sección, `created` excluida del historial de preguntas vistas, creación atómica mediante transacción.
+
+Tests: 76 pasando (0 fail).
+
+### ETAPA 4 — feature/question-bank
+Estado: **SIGUIENTE.**
+
+Primera tarea: auditoría del banco existente (NO generar preguntas inmediatamente).
+
+1. Inspeccionar las 10 secciones actuales
+2. Inspeccionar las 45 preguntas legacy
+3. Analizar solapamientos entre secciones
+4. Revisar nombres/slugs/domains
+5. Detectar preguntas duplicadas o demasiado similares
+6. Analizar los response_type actuales
+7. Determinar qué metadatos necesita el banco
+8. Proponer la estructura definitiva del banco
+9. Presentar dudas/decisiones
+10. Esperar aprobación
+
+Las 10 secciones actuales NO son definitivas.
+
+Después de aprobar la auditoría se ampliará el banco (~30-50 preguntas por sección).
+
+Incluye también: diseñar estrategia segura de seed/importación que NO borre preguntas existentes/validadas (reemplazar seed destructivo actual).
+
+### CHECKPOINT GIT
+
+Después de finalizar Etapa 4 (question-bank) se realizará el primer gran merge:
+
+1. `feature/backend-first-step` → `main`
+2. `feature/session-results` → `main`
+3. `feature/question-bank` → `main`
+
+Respetando dependencias y orden de PRs.
+
+Después de ese checkpoint, las siguientes features se crearán desde `main` actualizado, salvo dependencia que justifique otra estrategia.
+
+### ETAPA 5 — feature/auth-patient-management
+
+Incluye: registro de profesionales, login, autenticación, relación Professional → Patient, alta/gestión de pacientes, ownership, autorización, aislamiento entre profesionales, adaptar endpoints para no confiar en IDs manipulables desde frontend.
+
+### ETAPA 6 — feature/ai-contract
+
+Incluye: auditoría del panel profesional, clasificación de cada dato visible (DB / Node.js / Llama / eliminar / decidir), definir AI Input v1, definir AI Output v1, definir guardrails, definir qué información histórica recibe Llama, resolver conceptos UI pendientes (riesgo, status, etc.).
+
+### ETAPA 7 — feature/ml-pipeline
+
+Incluye: baseline Llama sin adaptación, dataset, ejemplos sintéticos/controlados, QLoRA, evaluación baseline vs adaptado, exportación/merge/conversión para Ollama.
+
+### ETAPA 8 — feature/ai-backend
+
+Incluye: Node.js → Ollama → Llama adaptado → validación estructurada → AiReport → PostgreSQL.
+
+### ETAPA 9 — feature/frontend-integration
+
+Incluye: conectar frontend con backend, reemplazo de pacientes mock, reemplazo de métricas mock cuando exista equivalente real, reemplazo progresivo de localStorage, pacientes/sesiones/resultados reales, informes IA reales, panel profesional alimentado por backend.
+
+### ETAPA 10 — End-to-end / hardening
+
+Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
 
 ## Reglas de trabajo
 
@@ -215,10 +321,23 @@ Node.js calcula las operaciones determinísticas. NO interpretar automáticament
 
 ## Git
 
-**Branch actual:** `feature/session-results` (parte de `feature/backend-first-step`)
+**Branch actual:** `feature/session-results`
 
-**Archivos preexistentes modificados** (no relacionados con el backend):
-- `package-lock.json` (raíz)
-- `src/styles.css`
+**Estado:** rama funcionalmente cerrada. Documentación actualizada.
 
-No mezclar con commits del backend.
+**Estrategia de branches:**
+
+```
+main
+└── feature/backend-first-step
+      └── feature/session-results  ← CERRADA
+            └── feature/question-bank  ← SIGUIENTE (se creará desde session-results)
+```
+
+Los PRs actuales permanecen sin mergear. El primer gran merge será después de completar `feature/question-bank`:
+
+1. `feature/backend-first-step` → `main`
+2. `feature/session-results` → `main`
+3. `feature/question-bank` → `main`
+
+NO hacer merges prematuros. Después del checkpoint, nuevas features desde `main` actualizado.
