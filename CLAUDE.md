@@ -89,6 +89,22 @@ Llama tiene UNA responsabilidad principal: recibir información estructurada de 
 - Conversar libremente con el paciente
 - Inventar datos ni resultados
 
+## Dominios cognitivos
+
+El frontend expone 5 dominios cognitivos que el profesional puede activar/desactivar por paciente:
+
+| Dominio (frontend)       | Secciones backend que agrupa                                    |
+|--------------------------|-----------------------------------------------------------------|
+| Memoria                  | Memoria de trabajo, Memoria asociativa, Memoria prospectiva     |
+| Atención                 | Atención y cálculo, Atención visual                             |
+| Funciones ejecutivas     | Funciones ejecutivas                                            |
+| Orientación              | Orientación temporal, Orientación espacial                      |
+| Comprensión y lenguaje   | Comprensión funcional, Metacognición y autorreporte              |
+
+Las preguntas del banco deben cubrir los 5 dominios. Cada dominio agrupa una o más secciones del backend. Al crear preguntas nuevas, asignarlas a la sección backend correspondiente; el frontend las agrupará automáticamente por dominio.
+
+El profesional configura qué dominios trabaja cada paciente desde el panel de instrucciones. En la Etapa 9 (frontend integration), la selección de dominios activos filtrará qué secciones se incluyen al crear una sesión.
+
 ## Estrategia de preguntas
 
 Banco controlado por sección en PostgreSQL. El profesional selecciona usuario, sección/es y cantidad. El backend toma preguntas activas+validadas, evita recientes cuando sea posible, selecciona pseudoaleatoriamente, y registra exactamente qué preguntas se asignaron.
