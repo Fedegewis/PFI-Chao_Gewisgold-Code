@@ -57,8 +57,8 @@ export function ProfessionalScreen({
     setSelectedPatientId(nextPatient.id);
   }
 
-  function handleSaveAiConfig(instructions, maxQuestions) {
-    updatePatient(selectedPatient.id, { aiInstructions: instructions, maxQuestions });
+  function handleSaveAiConfig(instructions, maxQuestions, activeDomains) {
+    updatePatient(selectedPatient.id, { aiInstructions: instructions, maxQuestions, activeDomains });
   }
 
   return (

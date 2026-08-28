@@ -63,21 +63,22 @@ export function PatientDetail({
         <div className="detail-col">
           <AiObservation patient={selectedPatient} sessions={sessions} />
           <AiConfigPanel selectedPatient={selectedPatient} onSave={onSaveAiConfig} />
-          <div className="panel">
-            <div className="section-head compact">
-              <div>
-                <p className="eyebrow">Muestra de preguntas</p>
-                <h3>Ejemplos por dominio</h3>
-              </div>
-              <BarChart3 size={26} aria-hidden="true" />
-            </div>
-            <p className="questions-note">
-              Muestra representativa de los dominios que trabaja el paciente. Próximamente cada usuario tendrá las preguntas que ha respondido.
-            </p>
-            <div className="question-bank" role="feed" aria-label="Muestra de preguntas por dominio">
-              {questionSample}
-            </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="section-head compact">
+          <div>
+            <p className="eyebrow">Muestra de preguntas</p>
+            <h3>Ejemplos por dominio</h3>
           </div>
+          <BarChart3 size={26} aria-hidden="true" />
+        </div>
+        <p className="questions-note">
+          Muestra representativa de los dominios que trabaja el paciente. Próximamente cada usuario tendrá las preguntas que ha respondido.
+        </p>
+        <div className="question-bank question-bank-horizontal" role="feed" aria-label="Muestra de preguntas por dominio">
+          {questionSample}
         </div>
       </div>
     </section>

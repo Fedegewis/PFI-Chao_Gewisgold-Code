@@ -1,4 +1,4 @@
-import { DEFAULT_PROFESSIONAL_ID, LOGIN_CREDENTIALS } from "../constants/appConfig.js";
+import { COGNITIVE_DOMAINS, DEFAULT_PROFESSIONAL_ID, LOGIN_CREDENTIALS } from "../constants/appConfig.js";
 import { PATIENT_DEFAULTS, PROFESSIONAL_DEFAULT_INSTRUCTIONS } from "../constants/content.js";
 
 export function createWeeklyProgress() {
@@ -33,6 +33,7 @@ export function createPatient({
     completed: [],
     answers: 0,
     maxQuestions,
+    activeDomains: [...COGNITIVE_DOMAINS],
     weeklyProgress: createWeeklyProgress(),
     lastSessionAt: null
   };

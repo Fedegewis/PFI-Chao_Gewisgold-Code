@@ -1,9 +1,6 @@
-import { useState } from "react";
-import { ChevronDown, Clock3 } from "lucide-react";
+import { Clock3 } from "lucide-react";
 import { formatShortDate } from "../../lib/format.js";
 import { cx } from "../../lib/cx.js";
-
-const PREVIEW = 5;
 
 function scoreTone(accuracy) {
   if (accuracy >= 75) return "timeline-score--good";
@@ -12,7 +9,6 @@ function scoreTone(accuracy) {
 }
 
 export function SessionTimeline({ sessions }) {
-  const [expanded, setExpanded] = useState(false);
   if (!sessions.length) {
     return (
       <div className="timeline-empty">
@@ -22,13 +18,11 @@ export function SessionTimeline({ sessions }) {
     );
   }
   const ordered = [...sessions].sort((a, b) => new Date(b.date) - new Date(a.date));
-  const visible = expanded ? ordered : ordered.slice(0, PREVIEW);
-  const hidden = ordered.length - visible.length;
 
   return (
     <div className="timeline">
-      <ol className="timeline-list" aria-label="Línea de tiempo de sesiones">
-        {visible.map((session) => (
+      <ol className="timeline-list timeline-list--capped" aria-label="Línea de tiempo de sesiones">
+        {ordered.map((session) => (
           <li key={session.id} className="timeline-item">
             <span className="timeline-dot" aria-hidden="true" />
             <div className="timeline-content">
@@ -47,17 +41,6 @@ export function SessionTimeline({ sessions }) {
           </li>
         ))}
       </ol>
-      {ordered.length > PREVIEW && (
-        <button
-          type="button"
-          className="timeline-toggle"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-        >
-          {expanded ? "Ver menos" : `Ver todos (${hidden} más)`}
-          <ChevronDown size={16} aria-hidden="true" className={cx("timeline-chevron", expanded && "timeline-chevron--open")} />
-        </button>
-      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { ArrowLeft, Bot, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { heuristicDifficulty } from "../ai.js";
+import { COMPLETION_MESSAGES } from "../constants/appConfig.js";
 import { ACTIVITY_DRAFT_MESSAGE } from "../constants/content.js";
 import { clearActivityDraft, loadActivityDraft, saveActivityDraft } from "../storage/appStorage.js";
 import { summarizeAnswers } from "../services/sessionService.js";
@@ -126,6 +127,12 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
               <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
                 {isCorrect ? <CheckCircle2 size={24} aria-hidden="true" /> : <RefreshCw size={24} aria-hidden="true" />}
                 <p>{isCorrect ? current.patientGood : current.patientTry}</p>
+              </div>
+            )}
+            {isLast && selectedEntry && (
+              <div className="feedback-box completion-message">
+                <CheckCircle2 size={24} aria-hidden="true" />
+                <p>{COMPLETION_MESSAGES[new Date().getDay() % COMPLETION_MESSAGES.length]}</p>
               </div>
             )}
           </div>
