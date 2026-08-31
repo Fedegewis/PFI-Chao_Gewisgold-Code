@@ -63,7 +63,7 @@ export function PatientGrid({
       <div className="patient-grid-head">
         <div>
           <p className="eyebrow">Panel de pacientes</p>
-          <h2>Seguimiento</h2>
+          <h1>Seguimiento</h1>
           <small className="patient-grid-count">
             {professionalPatients.length} usuarios · {activeCount} con actividad
           </small>
@@ -90,7 +90,7 @@ export function PatientGrid({
           <UserPlus size={18} aria-hidden="true" /> Agregar paciente
         </button>
       ) : (
-        <div className="new-patient-form">
+        <form className="new-patient-form" onSubmit={(e) => { e.preventDefault(); handleCreate(); }}>
           <div className="new-patient-form-head">
             <strong>Nuevo paciente</strong>
             <button
@@ -125,7 +125,7 @@ export function PatientGrid({
                 placeholder="Edad"
               />
             </div>
-            <button className="primary" type="button" onClick={handleCreate}>
+            <button className="primary" type="submit">
               <UserPlus size={18} aria-hidden="true" /> Crear paciente
             </button>
           </div>
@@ -138,7 +138,7 @@ export function PatientGrid({
               {" "}{feedback.text}
             </p>
           )}
-        </div>
+        </form>
       )}
 
       <div className="patient-grid" role="list" aria-label="Lista de pacientes">

@@ -32,8 +32,7 @@ export function ProfessionalScreen({
   sessions,
   setPatients,
   setSelectedPatientId,
-  updatePatient,
-  resetDemo
+  updatePatient
 }) {
   const patientSessions = useMemo(
     () => getPatientSessions(sessions, selectedPatient.id).sort((a, b) => new Date(a.date) - new Date(b.date)),
@@ -58,8 +57,8 @@ export function ProfessionalScreen({
     setSelectedPatientId(nextPatient.id);
   }
 
-  function handleSaveAiConfig(instructions, maxQuestions) {
-    updatePatient(selectedPatient.id, { aiInstructions: instructions, maxQuestions });
+  function handleSaveAiConfig(instructions, maxQuestions, activeDomains) {
+    updatePatient(selectedPatient.id, { aiInstructions: instructions, maxQuestions, activeDomains });
   }
 
   return (
@@ -78,7 +77,6 @@ export function ProfessionalScreen({
         stats={stats}
         questionSample={questionSample}
         onSaveAiConfig={handleSaveAiConfig}
-        onResetDemo={resetDemo}
       />
     </div>
   );

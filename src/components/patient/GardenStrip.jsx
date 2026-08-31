@@ -6,7 +6,7 @@ export function GardenStrip({ activities, completedIds }) {
 
   return (
     <div className="garden-strip" role="group" aria-label="Progreso del día">
-      <div><p className="eyebrow">Progreso</p><h2>Una actividad por día</h2></div>
+      <div><p className="eyebrow">Progreso</p><h1>Una actividad por día</h1></div>
       <div className="plant-row">
         {activities.map((_activity, index) => {
           const done = index < doneCount;

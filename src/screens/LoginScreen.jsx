@@ -1,8 +1,13 @@
 import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserRound } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { LOGIN_CREDENTIALS, MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 
 export function LoginScreen({ loginError, onLogin }) {
+  const loginMotivation = useMemo(() => {
+    const day = new Date().getDay();
+    const offset = Math.floor(MOTIVATION_MESSAGES.length / 2);
+    return MOTIVATION_MESSAGES[(day + offset) % MOTIVATION_MESSAGES.length];
+  }, []);
   const [mode, setMode] = useState("patient");
   const [email, setEmail] = useState(LOGIN_CREDENTIALS.patient.email);
   const [password, setPassword] = useState(LOGIN_CREDENTIALS.patient.password);
@@ -43,7 +48,7 @@ export function LoginScreen({ loginError, onLogin }) {
         <p className="eyebrow"></p>
         <h1>MenteActiva</h1>
         <p>Actividades cognitivas guiadas para el paciente. Configuración, seguimiento y límites para el profesional.</p>
-        <div className="motivation-banner">Bienvenida IA: {MOTIVATION_MESSAGES[0]}</div>
+        <div className="motivation-banner">{loginMotivation}</div>
       </div>
       <form className="panel login-panel" onSubmit={handleSubmit} noValidate>
         <div className="login-tabs" role="tablist" aria-label="Tipo de usuario">
