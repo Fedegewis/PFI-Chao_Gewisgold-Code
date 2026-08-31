@@ -45,7 +45,7 @@ Node.js → HTTP → Ollama → modelo Llama → Node.js → validación → Pos
 - Ollama es el servidor/entorno de inferencia, NO el modelo.
 - Pipeline ML en Python, separado del backend Node.js.
 - Los mocks/localStorage del frontend todavía NO deben eliminarse. Se reemplazarán progresivamente durante frontend integration (Etapa 9).
-- Las 45 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones.
+- Las 43 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones.
 - Los tests usan fixtures propias con preguntas validadas; no dependen del seed.
 - Llama NO seleccionará preguntas. La selección es responsabilidad del backend.
 - Llama NO calculará métricas determinísticas. Accuracy, completion rate, latencias y métricas matemáticas son responsabilidad de Node.js.
@@ -89,21 +89,110 @@ Llama tiene UNA responsabilidad principal: recibir información estructurada de 
 - Conversar libremente con el paciente
 - Inventar datos ni resultados
 
-## Dominios cognitivos
+## ⚠ WIP — ESTADO DE QUESTION-BANK (2026-08-31)
 
-El frontend expone 5 dominios cognitivos que el profesional puede activar/desactivar por paciente:
+**ATENCIÓN: hay cambios WIP no commiteados que fueron creados bajo una interpretación conceptual incorrecta. NO tomarlos como fuente de verdad. Leer esta sección completa antes de continuar.**
 
-| Dominio (frontend)       | Secciones backend que agrupa                                    |
-|--------------------------|-----------------------------------------------------------------|
-| Memoria                  | Memoria de trabajo, Memoria asociativa, Memoria prospectiva     |
-| Atención                 | Atención y cálculo, Atención visual                             |
-| Funciones ejecutivas     | Funciones ejecutivas                                            |
-| Orientación              | Orientación temporal, Orientación espacial                      |
-| Comprensión y lenguaje   | Comprensión funcional, Metacognición y autorreporte              |
+### Contexto
 
-Las preguntas del banco deben cubrir los 5 dominios. Cada dominio agrupa una o más secciones del backend. Al crear preguntas nuevas, asignarlas a la sección backend correspondiente; el frontend las agrupará automáticamente por dominio.
+`feature/question-bank` ya integró `origin/main`. La rama contiene:
+- Backend heredado de `feature/session-results`
+- Frontend actualizado de `main` (incluye `COGNITIVE_DOMAINS`, `activeDomains`, `AiConfigPanel` con chips toggle)
 
-El profesional configura qué dominios trabaja cada paciente desde el panel de instrucciones. En la Etapa 9 (frontend integration), la selección de dominios activos filtrará qué secciones se incluyen al crear una sesión.
+### Interpretación incorrecta (OBSOLETA)
+
+Se asumió erróneamente que la jerarquía era: DOMINIO → SECCIÓN → PREGUNTA (las secciones como subdivisiones de los dominios). Esto generó una migración 005 que renombró secciones, desactivó `atencion_visual`, y creó secciones nuevas (`atencion_selectiva`, `razonamiento_practico`). **Esa migración es incorrecta.**
+
+### Modelo conceptual CORRECTO (aprobado por el usuario)
+
+Las ACTIVIDADES/SECCIONES y los DOMINIOS COGNITIVOS son dimensiones diferentes:
+
+```
+ACTIVIDAD/SECCIÓN (contexto temático: "supermercado", "receta", etc.)
+  └── tiene muchas PREGUNTAS
+
+PREGUNTA
+  ├── pertenece a una ACTIVIDAD/SECCIÓN
+  └── trabaja uno o más DOMINIOS COGNITIVOS (relación N:M)
+
+PACIENTE
+  ├── activeDomains: subset de los 5 dominios (configura el psicólogo)
+  └── maxQuestions: cantidad total (configura el psicólogo)
+```
+
+**NO es:** DOMINIO → SECCIÓN → PREGUNTA.
+
+### Las 10 actividades/secciones del frontend
+
+| id | Título visible | skill (subtítulo) |
+|---|---|---|
+| `market` | Lista del supermercado | Memoria de trabajo |
+| `bus` | Pagar el boleto | Atención y cálculo |
+| `recipe` | Ordenar una receta | Funciones ejecutivas |
+| `calendar` | Agenda de turnos | Orientación temporal |
+| `names` | Caras y nombres | Memoria asociativa |
+| `wellbeing` | Cómo me siento hoy | Autorreporte y metacognición |
+| `medication` | Tomar la medicación | Rutina y memoria prospectiva |
+| `home` | Objetos de la casa | Atención visual |
+| `phone` | Mensajes y llamadas | Comprensión funcional |
+| `orientation` | Camino al barrio | Orientación y decisión |
+
+Definidas en `src/data/activities.js`. Son contextos temáticos cotidianos, NO categorías cognitivas.
+
+### Los 5 dominios cognitivos
+
+Definidos en `src/constants/appConfig.js:65-71` como `COGNITIVE_DOMAINS`: Memoria, Atención, Funciones ejecutivas, Orientación, Comprensión y lenguaje.
+
+Implementado en el frontend:
+- `AiConfigPanel.jsx`: chips toggle para activar/desactivar dominios por paciente
+- `patient.activeDomains`: array almacenado en localStorage, default = todos activos
+- `patient.maxQuestions`: cantidad total configurable (1-10)
+- Validación: `resolveActiveDomains()` requiere al menos 1 dominio
+
+Actualmente los dominios activos **no afectan** la selección de preguntas — son metadata almacenada para uso futuro en Etapa 9.
+
+### Modelo de datos pendiente de implementar
+
+Relación pregunta ↔ dominio: tabla normalizada `cognitive_domains` + tabla pivote `question_cognitive_domains`. Todavía NO implementado.
+
+`questions.subdimension VARCHAR(120) NULLABLE`: metadata interna útil, migración 004 creada y probablemente correcta.
+
+### Cambios WIP no commiteados — clasificación
+
+| Archivo | Estado | Acción próxima sesión |
+|---|---|---|
+| Migración 004 (`add_question_subdimension`) | Probablemente correcto | CONSERVAR |
+| Migración 005 (`reorganize_sections`) | **INCORRECTO** — basado en modelo obsoleto | DESCARTAR/REEMPLAZAR |
+| Seed (`001_sections_and_questions.js`) | Estrategia idempotente útil, pero tiene slugs renombrados incorrectos | MODIFICAR — volver a 10 secciones originales |
+| `sections.test.js` | Adaptado al modelo incorrecto | MODIFICAR — volver a 10 secciones originales |
+| `CLAUDE.md` | Este documento — marcado como WIP | MODIFICAR — actualizar después de corregir |
+
+### ⚠ Migración 005 ya ejecutada localmente
+
+La migración 005 incorrecta YA FUE EJECUTADA en la DB local de esta computadora. La próxima sesión debe:
+1. Inspeccionar `knex_migrations` para ver qué migraciones corrieron
+2. En otra computadora la DB local puede tener estado diferente
+3. Resolver el rollback o reemplazo de 005 antes de continuar
+
+### Próximos pasos (NO implementados)
+
+1. Corregir el checkpoint: descartar 005, restaurar secciones originales, crear migración correcta con `cognitive_domains` table + `question_cognitive_domains` pivote
+2. Diseñar matriz ACTIVIDAD × DOMINIO COGNITIVO para determinar qué combinaciones tienen sentido
+3. Recién entonces definir tamaño y contenido del banco de preguntas
+4. Las 43 preguntas legacy NO deben reclasificarse, reformularse, ni recibir dominios hasta resolver el modelo
+
+### Selección futura de preguntas (diseño conceptual, NO implementado)
+
+```
+Paciente elige actividad → banco de esa actividad
+  + dominios activos del paciente (activeDomains)
+  + cantidad (maxQuestions)
+  + is_active=true AND is_validated=true
+  + filtro: pregunta trabaja al menos un dominio activo
+  + prevención de repetición (ventana 3 sesiones)
+  + dificultad (futuro)
+  → N preguntas seleccionadas
+```
 
 ## Estrategia de preguntas
 
@@ -118,7 +207,7 @@ Selección implementada en `POST /api/sessions`:
 - Shuffle: Fisher-Yates con `rng` inyectable para tests
 - Creación de sesión en transacción atómica
 
-Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las preguntas generadas con IA durante desarrollo ingresan como `is_validated=false`. Solo `is_active=true AND is_validated=true` se usan en sesiones reales.
+Objetivo futuro: banco amplio por actividad/sección (cantidad por definir después de la matriz ACTIVIDAD × DOMINIO). Las preguntas generadas con IA durante desarrollo ingresan como `is_validated=false, source='ai_assisted_v1'`. Solo `is_active=true AND is_validated=true` se usan en sesiones reales.
 
 ## Estado actual implementado
 
@@ -126,7 +215,7 @@ Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las pr
 
 - Node.js + Express + Knex + PostgreSQL
 - **Tablas:** `sections`, `questions`, `users`, `sessions`, `session_sections`, `session_questions`, `answers`, `session_results`
-- **Seed:** 10 secciones cognitivas, 45 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`)
+- **Seed:** ⚠ WIP — actualmente modificado con secciones incorrectas (ver sección WIP arriba). Originalmente: 10 secciones, 43 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`). La estrategia idempotente del WIP es correcta en concepto pero debe restaurar las 10 secciones originales.
 - **Endpoints:**
   - `GET /api/health`
   - `GET /api/sections`, `GET /api/sections/:id/questions`
@@ -137,9 +226,7 @@ Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las pr
 - **Tests:** 76 pasando (node:test + supertest, `--test-concurrency=1`)
 - **Config:** `.env.example` con placeholders, `.env` excluido de git
 
-Las 10 secciones actuales son un mapeo provisional de las actividades legacy. NO son definitivas; se revisarán en Etapa 4.
-
-Las 45 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones. Los tests usan fixtures propias con preguntas validadas.
+Las 43 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones. Los tests usan fixtures propias con preguntas validadas.
 
 ### Frontend (`/src`)
 
@@ -147,7 +234,7 @@ SPA React 19 + Vite + Tailwind v4 existente. Funciona con localStorage y datos h
 
 ### Código legacy reutilizable
 
-- `src/data/activities.js` — 10 actividades, 45 preguntas (seed del backend)
+- `src/data/activities.js` — 10 actividades, 43 preguntas (fuente original del seed del backend)
 - `src/services/sessionService.js` — lógica de accuracy, latencia, estadísticas (referencia para backend)
 - `src/services/patientService.js` — estructura de pacientes (referencia para modelo User)
 - `src/ai.js` — integración Ollama anterior + heurísticas de fallback. `recommendDifficulty()` es código muerto (exportado pero nunca importado)
@@ -206,9 +293,11 @@ La UI actual del frontend contiene conceptos como "riesgo bajo/medio/alto", "ren
 Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están cerradas:
 
 **Etapa 4 (question-bank):**
-- Secciones cognitivas definitivas (las 10 actuales son provisionales)
+- Actividades/secciones: las 10 del frontend se mantienen como unidad de actividad
+- Relación pregunta ↔ dominio cognitivo (N:M): pendiente de implementar
+- Matriz ACTIVIDAD × DOMINIO: pendiente de diseñar
 - Scoring de futuros `response_type` no objetivos (`likert`, `open_short`)
-- Uso futuro del campo `difficulty` en questions
+- Dificultad: 1=fácil, 2=media, 3=difícil (interna a MenteActiva, no validada clínicamente)
 
 **Etapa 5 (auth-patient-management):**
 - Mecanismo exacto de acceso/autenticación del paciente
@@ -230,7 +319,7 @@ Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están ce
 
 ### PRIORITARIA — resolver en feature/question-bank (Etapa 4)
 
-- **Seed destructivo:** `backend/src/db/seeds/001_sections_and_questions.js` ejecuta `knex("questions").del()` y `knex("sections").del()` al inicio, borrando todas las preguntas y secciones existentes. Esto destruiría preguntas validadas/creadas posteriormente. La Etapa 4 debe diseñar una estrategia segura de seed/importación que no borre datos existentes.
+- **Seed destructivo:** ⚠ WIP parcial. Se diseñó una estrategia idempotente (secciones por slug, preguntas por source count) pero el seed WIP tiene secciones renombradas incorrectamente. Debe restaurarse a las 10 secciones originales con la estrategia idempotente. El seed commiteado (`HEAD`) todavía es destructivo.
 
 ### Para feature/auth-patient-management (Etapa 5)
 
@@ -264,26 +353,25 @@ Estado: **CERRADA.**
 Tests: 76 pasando (0 fail).
 
 ### ETAPA 4 — feature/question-bank
-Estado: **SIGUIENTE.**
+Estado: **EN PROGRESO — con cambios WIP pendientes de corrección.**
 
-Primera tarea: auditoría del banco existente (NO generar preguntas inmediatamente).
+**Completado:**
+- Auditoría del banco existente (43 preguntas legacy, 10 actividades/secciones)
+- Descubrimiento: actividades y dominios son dimensiones ortogonales (no jerárquicas)
+- Identificación del modelo correcto: pregunta ↔ dominio es N:M
+- Migración 004: `questions.subdimension` columna (probablemente correcta)
 
-1. Inspeccionar las 10 secciones actuales
-2. Inspeccionar las 45 preguntas legacy
-3. Analizar solapamientos entre secciones
-4. Revisar nombres/slugs/domains
-5. Detectar preguntas duplicadas o demasiado similares
-6. Analizar los response_type actuales
-7. Determinar qué metadatos necesita el banco
-8. Proponer la estructura definitiva del banco
-9. Presentar dudas/decisiones
-10. Esperar aprobación
+**WIP incorrecto (ver sección ⚠ WIP arriba):**
+- Migración 005: reorganización basada en modelo DOMINIO→SECCIÓN incorrecto — DESCARTAR
+- Seed: tiene secciones renombradas incorrectamente — RESTAURAR a originales
+- Tests: adaptados al modelo incorrecto — RESTAURAR
 
-Las 10 secciones actuales NO son definitivas.
-
-Después de aprobar la auditoría se ampliará el banco (~30-50 preguntas por sección).
-
-Incluye también: diseñar estrategia segura de seed/importación que NO borre preguntas existentes/validadas (reemplazar seed destructivo actual).
+**Siguiente (después de corregir WIP):**
+- Implementar relación N:M pregunta ↔ dominio (`cognitive_domains` + `question_cognitive_domains`)
+- Diseñar matriz ACTIVIDAD × DOMINIO
+- Definir tamaño del banco de preguntas
+- Generar preguntas piloto
+- Reclasificación de legacy: KEEP/REFORMULATE/MOVE/DISCARD
 
 ### CHECKPOINT GIT
 
@@ -337,9 +425,9 @@ Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, acces
 
 ## Git
 
-**Branch actual:** `feature/session-results`
+**Branch actual:** `feature/question-bank`
 
-**Estado:** rama funcionalmente cerrada. Documentación actualizada.
+**Estado:** ⚠ WIP con cambios no commiteados que requieren corrección. Ver sección "⚠ WIP — ESTADO DE QUESTION-BANK" arriba. La migración 005 es incorrecta y debe descartarse. `origin/main` ya fue integrado en esta rama.
 
 **Estrategia de branches:**
 
@@ -347,7 +435,7 @@ Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, acces
 main
 └── feature/backend-first-step
       └── feature/session-results  ← CERRADA
-            └── feature/question-bank  ← SIGUIENTE (se creará desde session-results)
+            └── feature/question-bank  ← EN PROGRESO
 ```
 
 Los PRs actuales permanecen sin mergear. El primer gran merge será después de completar `feature/question-bank`:
