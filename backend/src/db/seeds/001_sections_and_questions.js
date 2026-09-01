@@ -2,7 +2,7 @@
 //
 // Sections: ON CONFLICT (slug) DO NOTHING — existing sections are never overwritten.
 // Questions: only inserted if zero legacy_seed_v1 questions exist in the database.
-//            Re-running after initial population is a no-op for questions.
+// Cognitive domains: ON CONFLICT (slug) DO NOTHING — existing domains are never overwritten.
 
 const SECTIONS = [
   {
@@ -10,114 +10,91 @@ const SECTIONS = [
     name: "Memoria de trabajo",
     description:
       "Mantenimiento, actualización y reconocimiento de ítems en memoria a corto plazo.",
-    cognitive_domain: "Memoria",
     is_active: true,
     display_order: 1,
-  },
-  {
-    slug: "memoria_asociativa",
-    name: "Memoria asociativa",
-    description:
-      "Asociación nombre-atributo, recuperación contextual y discriminación entre pares.",
-    cognitive_domain: "Memoria",
-    is_active: true,
-    display_order: 2,
-  },
-  {
-    slug: "memoria_prospectiva",
-    name: "Memoria prospectiva",
-    description:
-      "Recordar realizar acciones futuras, seguimiento de instrucciones y rutinas.",
-    cognitive_domain: "Memoria",
-    is_active: true,
-    display_order: 3,
   },
   {
     slug: "atencion_y_calculo",
     name: "Atención y cálculo",
     description:
       "Cálculo funcional, atención selectiva y toma de decisión numérica.",
-    cognitive_domain: "Atención",
     is_active: true,
-    display_order: 4,
+    display_order: 2,
   },
   {
-    slug: "atencion_selectiva",
-    name: "Atención selectiva y sostenida",
+    slug: "funciones_ejecutivas",
+    name: "Funciones ejecutivas",
     description:
-      "Focalización, sostenimiento de la atención, filtrado de distractores en contextos cotidianos.",
-    cognitive_domain: "Atención",
+      "Planificación, secuenciación, flexibilidad cognitiva y resolución de problemas.",
     is_active: true,
-    display_order: 5,
-  },
-  {
-    slug: "planificacion_y_secuenciacion",
-    name: "Planificación y secuenciación",
-    description:
-      "Planificación de pasos, secuenciación temporal, organización de tareas cotidianas y resolución de problemas.",
-    cognitive_domain: "Funciones ejecutivas",
-    is_active: true,
-    display_order: 6,
-  },
-  {
-    slug: "razonamiento_practico",
-    name: "Razonamiento práctico y juicio",
-    description:
-      "Juicio práctico, evaluación de riesgo, toma de decisiones y flexibilidad cognitiva en situaciones cotidianas.",
-    cognitive_domain: "Funciones ejecutivas",
-    is_active: true,
-    display_order: 7,
+    display_order: 3,
   },
   {
     slug: "orientacion_temporal",
     name: "Orientación temporal",
     description:
       "Manejo de fechas, horarios, orientación en el tiempo y memoria prospectiva temporal.",
-    cognitive_domain: "Orientación",
     is_active: true,
-    display_order: 8,
+    display_order: 4,
   },
   {
-    slug: "orientacion_espacial",
-    name: "Orientación espacial",
+    slug: "memoria_asociativa",
+    name: "Memoria asociativa",
     description:
-      "Orientación espacial básica, lectura de señalética y navegación en entornos conocidos.",
-    cognitive_domain: "Orientación",
+      "Asociación nombre-atributo, recuperación contextual y discriminación entre pares.",
     is_active: true,
-    display_order: 9,
+    display_order: 5,
   },
   {
-    slug: "comprension_funcional",
-    name: "Comprensión funcional",
+    slug: "metacognicion",
+    name: "Metacognición",
     description:
-      "Comprensión de mensajes breves, extracción de información y toma de decisión comunicacional.",
-    cognitive_domain: "Comprensión y lenguaje",
+      "Autorreporte subjetivo, autorregulación, reconocimiento de fatiga y adherencia.",
     is_active: true,
-    display_order: 10,
+    display_order: 6,
   },
   {
-    slug: "autorreporte",
-    name: "Autorreporte y bienestar",
+    slug: "memoria_prospectiva",
+    name: "Memoria prospectiva",
     description:
-      "Autorreporte subjetivo, autorregulación, reconocimiento de fatiga y estado emocional.",
-    cognitive_domain: null,
+      "Recordar realizar acciones futuras, seguimiento de instrucciones y rutinas.",
     is_active: true,
-    display_order: 11,
+    display_order: 7,
   },
   {
     slug: "atencion_visual",
     name: "Atención visual",
     description:
       "Atención selectiva visual, reconocimiento funcional de objetos y asociación objeto-lugar.",
-    cognitive_domain: "Atención",
-    is_active: false,
-    display_order: 99,
+    is_active: true,
+    display_order: 8,
+  },
+  {
+    slug: "comprension_funcional",
+    name: "Comprensión funcional",
+    description:
+      "Comprensión de mensajes breves, extracción de información y toma de decisión comunicacional.",
+    is_active: true,
+    display_order: 9,
+  },
+  {
+    slug: "orientacion_espacial",
+    name: "Orientación espacial",
+    description:
+      "Orientación espacial básica, lectura de señalética y navegación en entornos conocidos.",
+    is_active: true,
+    display_order: 10,
   },
 ];
 
-// Legacy questions mapped to post-reorganization slugs.
-// funciones_ejecutivas → planificacion_y_secuenciacion
-// metacognicion → autorreporte
+const COGNITIVE_DOMAINS = [
+  { slug: "memoria", name: "Memoria" },
+  { slug: "atencion", name: "Atención" },
+  { slug: "funciones_ejecutivas", name: "Funciones ejecutivas" },
+  { slug: "orientacion", name: "Orientación" },
+  { slug: "comprension_lenguaje", name: "Comprensión y lenguaje" },
+];
+
 // [section_slug, prompt, options, correct_answer, feedback_correct, feedback_incorrect, clinician_note]
 const QUESTIONS = [
   // --- memoria_de_trabajo (5) ---
@@ -134,12 +111,12 @@ const QUESTIONS = [
   ["atencion_y_calculo", "Línea 15 al centro y línea 21 al hospital. ¿Cuál toma para ir al hospital?", ["Línea 15", "Cualquiera de las dos", "Línea 21"], 2, "Correcto. Elegiste usando la información importante.", "Había que buscar la palabra hospital.", "Atención selectiva guiada por destino."],
   ["atencion_y_calculo", "El chofer pide apoyar la tarjeta una vez. ¿Qué acción corresponde?", ["Apoyar la tarjeta una vez", "Apoyarla tres veces", "Guardar la tarjeta sin usarla"], 0, "Correcto. Seguiste una instrucción simple.", "Estas consignas practican acciones cotidianas.", "Comprensión instruccional y control de respuesta."],
 
-  // --- planificacion_y_secuenciacion (was funciones_ejecutivas) (5) ---
-  ["planificacion_y_secuenciacion", "Para preparar té, ¿cuál paso va primero?", ["Servir el té en la taza", "Calentar agua", "Guardar la taza"], 1, "Correcto. Identificaste el primer paso.", "Pensemos qué acción necesita ocurrir antes.", "Inicio de secuencia y planificación básica."],
-  ["planificacion_y_secuenciacion", "Ya calentaste agua y pusiste el saquito. ¿Qué sigue?", ["Esperar unos minutos", "Comprar una tetera", "Lavar la ropa"], 0, "Correcto. Mantuviste la continuidad.", "La clave es elegir el paso que continúa.", "Continuidad secuencial y descarte de distractores."],
-  ["planificacion_y_secuenciacion", "Si falta leche para la receta, ¿qué decisión ayuda más?", ["Apagar la luz", "Cambiar de canal", "Anotarla para comprar"], 2, "Correcto. Elegiste una acción útil.", "La pregunta buscaba una solución práctica.", "Resolución de problemas cotidianos."],
-  ["planificacion_y_secuenciacion", "La receta dice mezclar, hornear y dejar enfriar. ¿Qué va último?", ["Mezclar", "Dejar enfriar", "Hornear"], 1, "Correcto. Ubicaste el cierre.", "Puede ayudar imaginar la acción completa.", "Ordenamiento temporal y cierre de tarea."],
-  ["planificacion_y_secuenciacion", "Si el horno está muy caliente, ¿qué conviene hacer?", ["Tocarlo con la mano", "Dejar la puerta abierta todo el día", "Usar agarradera o pedir ayuda"], 2, "Correcto. Elegiste una acción segura.", "La prioridad era elegir la opción más segura.", "Juicio práctico y seguridad doméstica."],
+  // --- funciones_ejecutivas (5) ---
+  ["funciones_ejecutivas", "Para preparar té, ¿cuál paso va primero?", ["Servir el té en la taza", "Calentar agua", "Guardar la taza"], 1, "Correcto. Identificaste el primer paso.", "Pensemos qué acción necesita ocurrir antes.", "Inicio de secuencia y planificación básica."],
+  ["funciones_ejecutivas", "Ya calentaste agua y pusiste el saquito. ¿Qué sigue?", ["Esperar unos minutos", "Comprar una tetera", "Lavar la ropa"], 0, "Correcto. Mantuviste la continuidad.", "La clave es elegir el paso que continúa.", "Continuidad secuencial y descarte de distractores."],
+  ["funciones_ejecutivas", "Si falta leche para la receta, ¿qué decisión ayuda más?", ["Apagar la luz", "Cambiar de canal", "Anotarla para comprar"], 2, "Correcto. Elegiste una acción útil.", "La pregunta buscaba una solución práctica.", "Resolución de problemas cotidianos."],
+  ["funciones_ejecutivas", "La receta dice mezclar, hornear y dejar enfriar. ¿Qué va último?", ["Mezclar", "Dejar enfriar", "Hornear"], 1, "Correcto. Ubicaste el cierre.", "Puede ayudar imaginar la acción completa.", "Ordenamiento temporal y cierre de tarea."],
+  ["funciones_ejecutivas", "Si el horno está muy caliente, ¿qué conviene hacer?", ["Tocarlo con la mano", "Dejar la puerta abierta todo el día", "Usar agarradera o pedir ayuda"], 2, "Correcto. Elegiste una acción segura.", "La prioridad era elegir la opción más segura.", "Juicio práctico y seguridad doméstica."],
 
   // --- orientacion_temporal (4) ---
   ["orientacion_temporal", "El turno con la doctora es el martes a las 16:00. ¿Qué dato es importante recordar?", ["Jueves a las 10:00", "Domingo a la noche", "Martes a las 16:00"], 2, "Correcto. Recordaste día y horario juntos.", "En la agenda conviene unir siempre día y hora.", "Memoria prospectiva con asociación día-horario."],
@@ -153,11 +130,11 @@ const QUESTIONS = [
   ["memoria_asociativa", "Marta pidió té y Ana pidió café. ¿Quién pidió café?", ["Marta", "Ana", "Luis"], 1, "Correcto. Diferenciaste asociaciones parecidas.", "Estas consignas entrenan comparación de pares.", "Discriminación entre asociaciones competidoras."],
   ["memoria_asociativa", "Rosa vive en el piso 2, Pedro en el 5 y Ana en el 3. ¿Quién vive más alto?", ["Ana", "Rosa", "Pedro"], 2, "Correcto. Comparaste números asociados a personas.", "El piso más alto era el número mayor.", "Comparación numérica en memoria asociativa."],
 
-  // --- autorreporte (was metacognicion) (4) ---
-  ["autorreporte", "Si hoy sentís poca energía, ¿qué opción ayuda a continuar?", ["Abandonar toda la semana", "Elegir una actividad breve", "Hacer todo más rápido"], 1, "Correcto. Adaptar la rutina también es avanzar.", "La idea es encontrar una forma amable de continuar.", "Autorregulación y selección de carga apropiada."],
-  ["autorreporte", "Después de una pregunta difícil, ¿qué conviene hacer?", ["Respirar y probar la siguiente", "Pensar que ya no sirve", "Cerrar sin registrar nada"], 0, "Correcto. Mantener la participación es parte del entrenamiento.", "Una pregunta difícil no define toda la sesión.", "Tolerancia a frustración y persistencia."],
-  ["autorreporte", "¿Qué dato puede ayudar al profesional a acompañarte mejor?", ["El color de la pared", "La marca del teléfono", "Cómo te sentiste durante la actividad"], 2, "Correcto. Ese registro ayuda a ajustar sesiones.", "El profesional necesita saber cómo viviste la actividad.", "Metacognición y reporte subjetivo."],
-  ["autorreporte", "Si notás que te fue mejor al principio que al final, ¿qué podría estar apareciendo?", ["Cansancio o fatiga", "Mejora del clima", "Un error del calendario"], 0, "Correcto. Identificaste una posible señal de fatiga.", "Cambiar al final puede relacionarse con cansancio.", "Reconocimiento subjetivo de fatiga cognitiva."],
+  // --- metacognicion (4) ---
+  ["metacognicion", "Si hoy sentís poca energía, ¿qué opción ayuda a continuar?", ["Abandonar toda la semana", "Elegir una actividad breve", "Hacer todo más rápido"], 1, "Correcto. Adaptar la rutina también es avanzar.", "La idea es encontrar una forma amable de continuar.", "Autorregulación y selección de carga apropiada."],
+  ["metacognicion", "Después de una pregunta difícil, ¿qué conviene hacer?", ["Respirar y probar la siguiente", "Pensar que ya no sirve", "Cerrar sin registrar nada"], 0, "Correcto. Mantener la participación es parte del entrenamiento.", "Una pregunta difícil no define toda la sesión.", "Tolerancia a frustración y persistencia."],
+  ["metacognicion", "¿Qué dato puede ayudar al profesional a acompañarte mejor?", ["El color de la pared", "La marca del teléfono", "Cómo te sentiste durante la actividad"], 2, "Correcto. Ese registro ayuda a ajustar sesiones.", "El profesional necesita saber cómo viviste la actividad.", "Metacognición y reporte subjetivo."],
+  ["metacognicion", "Si notás que te fue mejor al principio que al final, ¿qué podría estar apareciendo?", ["Cansancio o fatiga", "Mejora del clima", "Un error del calendario"], 0, "Correcto. Identificaste una posible señal de fatiga.", "Cambiar al final puede relacionarse con cansancio.", "Reconocimiento subjetivo de fatiga cognitiva."],
 
   // --- memoria_prospectiva (4) ---
   ["memoria_prospectiva", "La pastilla azul se toma después del desayuno. ¿Cuándo conviene tomarla?", ["Después del desayuno", "Antes de dormir", "En cualquier momento"], 0, "Correcto. Ubicaste el momento correcto.", "La clave era mirar en qué parte del día aparece la toma.", "Memoria prospectiva ligada a rutina diaria."],
@@ -165,7 +142,7 @@ const QUESTIONS = [
   ["memoria_prospectiva", "El médico indicó agua y no jugo para una toma. ¿Qué corresponde hacer?", ["Tomarla con cualquier bebida", "Esperar una semana", "Tomarla con agua"], 2, "Correcto. Seguiste la indicación principal.", "Había que elegir la opción más cercana a la consigna.", "Comprensión de instrucción funcional."],
   ["memoria_prospectiva", "Si se termina una caja y quedan dos comprimidos sueltos, ¿qué conviene anotar?", ["Que hace falta pedir una nueva caja", "El color de la mesa", "Nada porque ya alcanza"], 0, "Correcto. Pensaste en la continuidad del tratamiento.", "La idea era anticiparse a la falta del medicamento.", "Planificación y continuidad de tratamiento."],
 
-  // --- atencion_visual (inactive section, 4 legacy questions) ---
+  // --- atencion_visual (4) ---
   ["atencion_visual", "¿Cuál de estos objetos se usa para barrer el piso?", ["Almohada", "Escoba", "Toalla"], 1, "Correcto. Identificaste el objeto correcto.", "Pensemos para qué sirve cada elemento en la vida diaria.", "Reconocimiento funcional de objetos."],
   ["atencion_visual", "Si querés guardar comida en la heladera, ¿qué conviene usar?", ["Una revista", "Un control remoto", "Un recipiente con tapa"], 2, "Correcto. Elegiste la opción más útil.", "La consigna buscaba una solución práctica y segura.", "Decisión funcional en contexto doméstico."],
   ["atencion_visual", "¿Qué objeto suele estar en el baño para secarse las manos?", ["Toalla", "Lámpara", "Cuaderno"], 0, "Correcto. Recuperaste una asociación cotidiana.", "Estas preguntas entrenan atención a contextos conocidos.", "Asociación objeto-lugar."],
@@ -185,6 +162,14 @@ const QUESTIONS = [
 ];
 
 export async function seed(knex) {
+  // --- Cognitive domains: insert only if slug does not exist ---
+  for (const domain of COGNITIVE_DOMAINS) {
+    const exists = await knex("cognitive_domains").where("slug", domain.slug).first();
+    if (!exists) {
+      await knex("cognitive_domains").insert(domain);
+    }
+  }
+
   // --- Sections: insert only if slug does not exist ---
   for (const section of SECTIONS) {
     const exists = await knex("sections").where("slug", section.slug).first();

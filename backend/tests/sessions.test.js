@@ -22,7 +22,7 @@ async function cleanTestData() {
   ).del();
   await db("sessions").del();
   await db("questions").where("source", "test_fixture").del();
-  await db("sections").where("cognitive_domain", "Test").del();
+  await db("sections").where("slug", "like", "test_%").del();
   await db("users").where("email", "like", "%@test.com").del();
 }
 
@@ -48,7 +48,7 @@ async function createTestFixtures() {
       slug: `test_section_${Date.now()}`,
       name: "Sección de test",
       description: "Sección para tests",
-      cognitive_domain: "Test",
+
       is_active: true,
       display_order: 100,
     })
@@ -178,7 +178,7 @@ describe("Users API", () => {
           slug: `test_section2_${Date.now()}`,
           name: "Sección de test 2",
           description: "Segunda sección",
-          cognitive_domain: "Test",
+    
           is_active: true,
           display_order: 101,
         })
@@ -273,7 +273,7 @@ describe("Users API", () => {
           slug: `test_unvalidated_${Date.now()}`,
           name: "Sección sin validar",
           description: "Solo preguntas no validadas",
-          cognitive_domain: "Test",
+    
           is_active: true,
           display_order: 102,
         })

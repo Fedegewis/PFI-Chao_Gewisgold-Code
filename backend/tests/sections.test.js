@@ -19,11 +19,11 @@ describe("API", () => {
   });
 
   describe("GET /api/sections", () => {
-    it("returns all active sections ordered by display_order", async () => {
+    it("returns all 10 active sections ordered by display_order", async () => {
       const res = await request(app).get("/api/sections");
       assert.equal(res.status, 200);
       assert.ok(Array.isArray(res.body));
-      assert.equal(res.body.length, 11);
+      assert.equal(res.body.length, 10);
 
       for (const section of res.body) {
         assert.ok(section.id);
@@ -31,50 +31,154 @@ describe("API", () => {
         assert.ok(section.slug);
       }
 
-      const slugs = res.body.map((s) => s.slug);
-      assert.ok(
-        !slugs.includes("atencion_visual"),
-        "atencion_visual should not appear among active sections"
-      );
+      const orders = res.body.map((s) => s.display_order);
+      const sorted = [...orders].sort((a, b) => a - b);
+      assert.deepEqual(orders, sorted, "Sections should be ordered by display_order");
     });
 
-    it("returns correct cognitive domain groupings", async () => {
-      const res = await request(app).get("/api/sections");
-      const byDomain = {};
-      for (const s of res.body) {
-        const domain = s.cognitive_domain || "__none__";
-        byDomain[domain] = (byDomain[domain] || 0) + 1;
-      }
-
-      assert.equal(byDomain["Memoria"], 3);
-      assert.equal(byDomain["Atención"], 2);
-      assert.equal(byDomain["Funciones ejecutivas"], 2);
-      assert.equal(byDomain["Orientación"], 2);
-      assert.equal(byDomain["Comprensión y lenguaje"], 1);
-      assert.equal(byDomain["__none__"], 1, "Autorreporte has no cognitive_domain");
-    });
-
-    it("includes expected section slugs", async () => {
+    it("includes all 10 expected section slugs", async () => {
       const res = await request(app).get("/api/sections");
       const slugs = res.body.map((s) => s.slug);
 
       const expected = [
         "memoria_de_trabajo",
-        "memoria_asociativa",
-        "memoria_prospectiva",
         "atencion_y_calculo",
-        "atencion_selectiva",
-        "planificacion_y_secuenciacion",
-        "razonamiento_practico",
+        "funciones_ejecutivas",
         "orientacion_temporal",
-        "orientacion_espacial",
+        "memoria_asociativa",
+        "metacognicion",
+        "memoria_prospectiva",
+        "atencion_visual",
         "comprension_funcional",
-        "autorreporte",
+        "orientacion_espacial",
       ];
 
       for (const slug of expected) {
         assert.ok(slugs.includes(slug), `Missing expected section: ${slug}`);
       }
+    });
+
+    it("does not include cognitive_domain in response", async () => {
+      const res = await request(app).get("/api/sections");
+      for (const section of res.body) {
+        assert.equal(
+          section.cognitive_domain,
+          undefined,
+          "cognitive_domain column should not be in response"
+        );
+      }
+    });
+  });
+
+  describe("cognitive_domains table", () => {
+    it("contains exactly 5 cognitive domains", async () => {
+      const domains = await db("cognitive_domains").select("*").orderBy("id");
+      assert.equal(domains.length, 5);
+
+      const slugs = domains.map((d) => d.slug);
+      assert.deepEqual(slugs, [
+        "memoria",
+        "atencion",
+        "funciones_ejecutivas",
+        "orientacion",
+        "comprension_lenguaje",
+      ]);
+    });
+
+    it("has correct display names", async () => {
+      const domains = await db("cognitive_domains").select("*").orderBy("id");
+      const names = domains.map((d) => d.name);
+      assert.deepEqual(names, [
+        "Memoria",
+        "Atención",
+        "Funciones ejecutivas",
+        "Orientación",
+        "Comprensión y lenguaje",
+      ]);
+    });
+  });
+
+  describe("question_cognitive_domains table", () => {
+    it("exists and accepts inserts with valid FKs", async () => {
+      const [domain] = await db("cognitive_domains").where("slug", "memoria").select("id");
+      const [question] = await db("questions").where("source", "legacy_seed_v1").limit(1).select("id");
+
+      await db("question_cognitive_domains")
+        .insert({ question_id: question.id, cognitive_domain_id: domain.id })
+        .onConflict(["question_id", "cognitive_domain_id"])
+        .ignore();
+
+      const row = await db("question_cognitive_domains")
+        .where({ question_id: question.id, cognitive_domain_id: domain.id })
+        .first();
+      assert.ok(row);
+
+      await db("question_cognitive_domains")
+        .where({ question_id: question.id, cognitive_domain_id: domain.id })
+        .del();
+    });
+
+    it("enforces unique constraint on (question_id, cognitive_domain_id)", async () => {
+      const [domain] = await db("cognitive_domains").where("slug", "atencion").select("id");
+      const [question] = await db("questions").where("source", "legacy_seed_v1").limit(1).select("id");
+
+      await db("question_cognitive_domains")
+        .insert({ question_id: question.id, cognitive_domain_id: domain.id });
+
+      await assert.rejects(
+        () => db("question_cognitive_domains")
+          .insert({ question_id: question.id, cognitive_domain_id: domain.id }),
+        (err) => err.code === "23505"
+      );
+
+      await db("question_cognitive_domains")
+        .where({ question_id: question.id, cognitive_domain_id: domain.id })
+        .del();
+    });
+
+    it("allows a question to have multiple domains", async () => {
+      const domains = await db("cognitive_domains").select("id").limit(2);
+      const [question] = await db("questions").where("source", "legacy_seed_v1").limit(1).select("id");
+
+      await db("question_cognitive_domains").insert([
+        { question_id: question.id, cognitive_domain_id: domains[0].id },
+        { question_id: question.id, cognitive_domain_id: domains[1].id },
+      ]);
+
+      const rows = await db("question_cognitive_domains")
+        .where("question_id", question.id)
+        .select("*");
+      assert.equal(rows.length, 2);
+
+      await db("question_cognitive_domains")
+        .where("question_id", question.id)
+        .del();
+    });
+  });
+
+  describe("questions", () => {
+    it("has 43 legacy questions", async () => {
+      const [{ count }] = await db("questions")
+        .where("source", "legacy_seed_v1")
+        .count("id as count");
+      assert.equal(Number(count), 43);
+    });
+
+    it("has subdimension column", async () => {
+      const [question] = await db("questions").limit(1).select("*");
+      assert.ok("subdimension" in question, "subdimension column should exist");
+    });
+
+    it("legacy questions have is_validated=false", async () => {
+      const validated = await db("questions")
+        .where({ source: "legacy_seed_v1", is_validated: true })
+        .count("id as count");
+      assert.equal(Number(validated[0].count), 0);
+    });
+
+    it("no question was deleted", async () => {
+      const [{ count }] = await db("questions").count("id as count");
+      assert.ok(Number(count) >= 43, "Should have at least 43 questions");
     });
   });
 

@@ -89,61 +89,56 @@ Llama tiene UNA responsabilidad principal: recibir información estructurada de 
 - Conversar libremente con el paciente
 - Inventar datos ni resultados
 
-## ⚠ WIP — ESTADO DE QUESTION-BANK (2026-08-31)
+## Modelo de actividades, preguntas y dominios cognitivos
 
-**ATENCIÓN: hay cambios WIP no commiteados que fueron creados bajo una interpretación conceptual incorrecta. NO tomarlos como fuente de verdad. Leer esta sección completa antes de continuar.**
-
-### Contexto
-
-`feature/question-bank` ya integró `origin/main`. La rama contiene:
-- Backend heredado de `feature/session-results`
-- Frontend actualizado de `main` (incluye `COGNITIVE_DOMAINS`, `activeDomains`, `AiConfigPanel` con chips toggle)
-
-### Interpretación incorrecta (OBSOLETA)
-
-Se asumió erróneamente que la jerarquía era: DOMINIO → SECCIÓN → PREGUNTA (las secciones como subdivisiones de los dominios). Esto generó una migración 005 que renombró secciones, desactivó `atencion_visual`, y creó secciones nuevas (`atencion_selectiva`, `razonamiento_practico`). **Esa migración es incorrecta.**
-
-### Modelo conceptual CORRECTO (aprobado por el usuario)
+### Arquitectura conceptual
 
 Las ACTIVIDADES/SECCIONES y los DOMINIOS COGNITIVOS son dimensiones diferentes:
 
 ```
-ACTIVIDAD/SECCIÓN (contexto temático: "supermercado", "receta", etc.)
-  └── tiene muchas PREGUNTAS
-
-PREGUNTA
-  ├── pertenece a una ACTIVIDAD/SECCIÓN
-  └── trabaja uno o más DOMINIOS COGNITIVOS (relación N:M)
+ACTIVIDAD/SECCIÓN (contexto temático cotidiano)
+        ↓
+     PREGUNTA
+        ↕ N:M
+DOMINIO COGNITIVO
 
 PACIENTE
   ├── activeDomains: subset de los 5 dominios (configura el psicólogo)
   └── maxQuestions: cantidad total (configura el psicólogo)
 ```
 
-**NO es:** DOMINIO → SECCIÓN → PREGUNTA.
+**NO es:** DOMINIO → SECCIÓN → PREGUNTA. Las secciones NO son subdivisiones jerárquicas de los dominios.
 
-### Las 10 actividades/secciones del frontend
+### Las 10 actividades/secciones
 
-| id | Título visible | skill (subtítulo) |
+| slug (backend) | id (frontend) | Título visible |
 |---|---|---|
-| `market` | Lista del supermercado | Memoria de trabajo |
-| `bus` | Pagar el boleto | Atención y cálculo |
-| `recipe` | Ordenar una receta | Funciones ejecutivas |
-| `calendar` | Agenda de turnos | Orientación temporal |
-| `names` | Caras y nombres | Memoria asociativa |
-| `wellbeing` | Cómo me siento hoy | Autorreporte y metacognición |
-| `medication` | Tomar la medicación | Rutina y memoria prospectiva |
-| `home` | Objetos de la casa | Atención visual |
-| `phone` | Mensajes y llamadas | Comprensión funcional |
-| `orientation` | Camino al barrio | Orientación y decisión |
+| `memoria_de_trabajo` | `market` | Lista del supermercado |
+| `atencion_y_calculo` | `bus` | Pagar el boleto |
+| `funciones_ejecutivas` | `recipe` | Ordenar una receta |
+| `orientacion_temporal` | `calendar` | Agenda de turnos |
+| `memoria_asociativa` | `names` | Caras y nombres |
+| `metacognicion` | `wellbeing` | Cómo me siento hoy |
+| `memoria_prospectiva` | `medication` | Tomar la medicación |
+| `atencion_visual` | `home` | Objetos de la casa |
+| `comprension_funcional` | `phone` | Mensajes y llamadas |
+| `orientacion_espacial` | `orientation` | Camino al barrio |
 
-Definidas en `src/data/activities.js`. Son contextos temáticos cotidianos, NO categorías cognitivas.
+Frontend: `src/data/activities.js`. Backend: tabla `sections`. Son contextos temáticos cotidianos, NO categorías cognitivas.
 
 ### Los 5 dominios cognitivos
 
-Definidos en `src/constants/appConfig.js:65-71` como `COGNITIVE_DOMAINS`: Memoria, Atención, Funciones ejecutivas, Orientación, Comprensión y lenguaje.
+| slug | name |
+|---|---|
+| `memoria` | Memoria |
+| `atencion` | Atención |
+| `funciones_ejecutivas` | Funciones ejecutivas |
+| `orientacion` | Orientación |
+| `comprension_lenguaje` | Comprensión y lenguaje |
 
-Implementado en el frontend:
+Backend: tabla `cognitive_domains` (fuente de verdad). Frontend: `src/constants/appConfig.js:65-71` como `COGNITIVE_DOMAINS`.
+
+Frontend implementado:
 - `AiConfigPanel.jsx`: chips toggle para activar/desactivar dominios por paciente
 - `patient.activeDomains`: array almacenado en localStorage, default = todos activos
 - `patient.maxQuestions`: cantidad total configurable (1-10)
@@ -151,48 +146,32 @@ Implementado en el frontend:
 
 Actualmente los dominios activos **no afectan** la selección de preguntas — son metadata almacenada para uso futuro en Etapa 9.
 
-### Modelo de datos pendiente de implementar
+### Relación pregunta ↔ dominio (N:M)
 
-Relación pregunta ↔ dominio: tabla normalizada `cognitive_domains` + tabla pivote `question_cognitive_domains`. Todavía NO implementado.
+Implementado mediante tabla pivote `question_cognitive_domains` con FK a `questions` y `cognitive_domains`, PK compuesta `(question_id, cognitive_domain_id)`.
 
-`questions.subdimension VARCHAR(120) NULLABLE`: metadata interna útil, migración 004 creada y probablemente correcta.
+Una pregunta puede trabajar múltiples dominios. Temporalmente las 43 preguntas legacy no tienen dominios asignados — serán auditadas y asignadas en el próximo paso.
 
-### Cambios WIP no commiteados — clasificación
+### Subdimension
 
-| Archivo | Estado | Acción próxima sesión |
-|---|---|---|
-| Migración 004 (`add_question_subdimension`) | Probablemente correcto | CONSERVAR |
-| Migración 005 (`reorganize_sections`) | **INCORRECTO** — basado en modelo obsoleto | DESCARTAR/REEMPLAZAR |
-| Seed (`001_sections_and_questions.js`) | Estrategia idempotente útil, pero tiene slugs renombrados incorrectos | MODIFICAR — volver a 10 secciones originales |
-| `sections.test.js` | Adaptado al modelo incorrecto | MODIFICAR — volver a 10 secciones originales |
-| `CLAUDE.md` | Este documento — marcado como WIP | MODIFICAR — actualizar después de corregir |
-
-### ⚠ Migración 005 ya ejecutada localmente
-
-La migración 005 incorrecta YA FUE EJECUTADA en la DB local de esta computadora. La próxima sesión debe:
-1. Inspeccionar `knex_migrations` para ver qué migraciones corrieron
-2. En otra computadora la DB local puede tener estado diferente
-3. Resolver el rollback o reemplazo de 005 antes de continuar
-
-### Próximos pasos (NO implementados)
-
-1. Corregir el checkpoint: descartar 005, restaurar secciones originales, crear migración correcta con `cognitive_domains` table + `question_cognitive_domains` pivote
-2. Diseñar matriz ACTIVIDAD × DOMINIO COGNITIVO para determinar qué combinaciones tienen sentido
-3. Recién entonces definir tamaño y contenido del banco de preguntas
-4. Las 43 preguntas legacy NO deben reclasificarse, reformularse, ni recibir dominios hasta resolver el modelo
+`questions.subdimension VARCHAR(120) NULLABLE`: metadata interna de la pregunta, no configurable por el psicólogo inicialmente.
 
 ### Selección futura de preguntas (diseño conceptual, NO implementado)
 
 ```
 Paciente elige actividad → banco de esa actividad
-  + dominios activos del paciente (activeDomains)
-  + cantidad (maxQuestions)
+  + section_id
+  + activeDomains del paciente
+  + maxQuestions
   + is_active=true AND is_validated=true
   + filtro: pregunta trabaja al menos un dominio activo
   + prevención de repetición (ventana 3 sesiones)
   + dificultad (futuro)
+  + balanceo suave de dominios cuando sea posible
   → N preguntas seleccionadas
 ```
+
+NO implementado todavía. `sessions.js` no se modificará hasta que se decida el alcance completo.
 
 ## Estrategia de preguntas
 
@@ -214,8 +193,8 @@ Objetivo futuro: banco amplio por actividad/sección (cantidad por definir despu
 ### Backend (`/backend`)
 
 - Node.js + Express + Knex + PostgreSQL
-- **Tablas:** `sections`, `questions`, `users`, `sessions`, `session_sections`, `session_questions`, `answers`, `session_results`
-- **Seed:** ⚠ WIP — actualmente modificado con secciones incorrectas (ver sección WIP arriba). Originalmente: 10 secciones, 43 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`). La estrategia idempotente del WIP es correcta en concepto pero debe restaurar las 10 secciones originales.
+- **Tablas:** `sections`, `questions`, `cognitive_domains`, `question_cognitive_domains`, `users`, `sessions`, `session_sections`, `session_questions`, `answers`, `session_results`
+- **Seed:** idempotente y no destructivo. 10 secciones originales, 5 dominios cognitivos, 43 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`). Re-ejecutar no borra ni sobrescribe datos existentes.
 - **Endpoints:**
   - `GET /api/health`
   - `GET /api/sections`, `GET /api/sections/:id/questions`
@@ -293,9 +272,12 @@ La UI actual del frontend contiene conceptos como "riesgo bajo/medio/alto", "ren
 Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están cerradas:
 
 **Etapa 4 (question-bank):**
-- Actividades/secciones: las 10 del frontend se mantienen como unidad de actividad
-- Relación pregunta ↔ dominio cognitivo (N:M): pendiente de implementar
+- Actividades/secciones: las 10 del frontend se mantienen como unidad de actividad ✓
+- Relación pregunta ↔ dominio cognitivo (N:M): implementada (`cognitive_domains` + `question_cognitive_domains`) ✓
+- Tabla `sections.cognitive_domain` eliminada (era incorrecta — una sección no pertenece a un solo dominio) ✓
 - Matriz ACTIVIDAD × DOMINIO: pendiente de diseñar
+- Asignación de dominios a las 43 preguntas legacy: pendiente
+- Tamaño y contenido del banco ampliado: pendiente (cantidad por definir después de la matriz)
 - Scoring de futuros `response_type` no objetivos (`likert`, `open_short`)
 - Dificultad: 1=fácil, 2=media, 3=difícil (interna a MenteActiva, no validada clínicamente)
 
@@ -316,10 +298,6 @@ Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están ce
 - Estructura definitiva del dataset QLoRA
 
 ## Deuda técnica
-
-### PRIORITARIA — resolver en feature/question-bank (Etapa 4)
-
-- **Seed destructivo:** ⚠ WIP parcial. Se diseñó una estrategia idempotente (secciones por slug, preguntas por source count) pero el seed WIP tiene secciones renombradas incorrectamente. Debe restaurarse a las 10 secciones originales con la estrategia idempotente. El seed commiteado (`HEAD`) todavía es destructivo.
 
 ### Para feature/auth-patient-management (Etapa 5)
 
@@ -353,22 +331,22 @@ Estado: **CERRADA.**
 Tests: 76 pasando (0 fail).
 
 ### ETAPA 4 — feature/question-bank
-Estado: **EN PROGRESO — con cambios WIP pendientes de corrección.**
+Estado: **EN PROGRESO.**
 
 **Completado:**
 - Auditoría del banco existente (43 preguntas legacy, 10 actividades/secciones)
 - Descubrimiento: actividades y dominios son dimensiones ortogonales (no jerárquicas)
 - Identificación del modelo correcto: pregunta ↔ dominio es N:M
-- Migración 004: `questions.subdimension` columna (probablemente correcta)
+- Migración 004: `questions.subdimension` columna
+- Migración 005: tabla `cognitive_domains` (5 dominios) + tabla pivote `question_cognitive_domains` (N:M)
+- Migración 006: eliminación de `sections.cognitive_domain` (columna incorrecta del modelo anterior)
+- Corrección del checkpoint WIP anterior (migración 005 incorrecta eliminada, secciones restauradas)
+- Seed idempotente no destructivo con 10 secciones originales y 5 dominios cognitivos
+- Tests actualizados para modelo correcto
 
-**WIP incorrecto (ver sección ⚠ WIP arriba):**
-- Migración 005: reorganización basada en modelo DOMINIO→SECCIÓN incorrecto — DESCARTAR
-- Seed: tiene secciones renombradas incorrectamente — RESTAURAR a originales
-- Tests: adaptados al modelo incorrecto — RESTAURAR
-
-**Siguiente (después de corregir WIP):**
-- Implementar relación N:M pregunta ↔ dominio (`cognitive_domains` + `question_cognitive_domains`)
-- Diseñar matriz ACTIVIDAD × DOMINIO
+**Siguiente:**
+- Diseñar matriz ACTIVIDAD × DOMINIO COGNITIVO
+- Asignar dominios a las 43 preguntas legacy
 - Definir tamaño del banco de preguntas
 - Generar preguntas piloto
 - Reclasificación de legacy: KEEP/REFORMULATE/MOVE/DISCARD
@@ -427,7 +405,7 @@ Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, acces
 
 **Branch actual:** `feature/question-bank`
 
-**Estado:** ⚠ WIP con cambios no commiteados que requieren corrección. Ver sección "⚠ WIP — ESTADO DE QUESTION-BANK" arriba. La migración 005 es incorrecta y debe descartarse. `origin/main` ya fue integrado en esta rama.
+**Estado:** EN PROGRESO. Modelo de datos corregido. `origin/main` ya fue integrado en esta rama.
 
 **Estrategia de branches:**
 
