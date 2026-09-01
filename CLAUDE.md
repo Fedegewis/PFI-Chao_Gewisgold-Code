@@ -462,3 +462,58 @@ Los PRs actuales permanecen sin mergear. El primer gran merge será después de 
 3. `feature/question-bank` → `main`
 
 NO hacer merges prematuros. Después del checkpoint, nuevas features desde `main` actualizado.
+
+## Roadmap inmediato · Question Bank e IA
+
+1. **Terminar y auditar las 34 preguntas piloto de "Objetos de la casa".**
+   - Adaptar las de Memoria al formato stimulus → prompt.
+   - Dificultad exacta 12/14/8.
+   - Mejorar balance Memoria/Atención.
+   - Mantener 4 opciones y distractores plausibles.
+
+2. **Probar stimulus end-to-end con preguntas reales del piloto.**
+
+3. **Congelar el estándar de calidad del banco.**
+
+4. **Generar progresivamente el banco completo:**
+   - ~291 preguntas cognitivas.
+   - ~15 de autorreporte.
+   - Reutilizando las legacy que finalmente sean aprobadas.
+   - No generar todo de una sola vez sin auditoría.
+
+5. **Auditar el banco completo:**
+   - Duplicados.
+   - Dificultad.
+   - Dominios.
+   - Subdimensiones.
+   - Distractores.
+   - Ambigüedad.
+   - Lenguaje adulto.
+   - Seguridad.
+
+6. **Cargar preguntas aprobadas en PostgreSQL.**
+   - Source apropiado.
+   - Nuevas AI-assisted inicialmente `is_validated=false`.
+   - Stimulus cuando corresponda.
+   - Asociaciones N:M con `cognitive_domains`.
+
+7. **Implementar selección real utilizando:**
+   - Actividad elegida.
+   - `activeDomains` del paciente.
+   - `maxQuestions`.
+   - `is_active=true AND is_validated=true`.
+   - Prevención de repetición reciente.
+   - Diversidad de dominio/subdimensión.
+   - Dificultad.
+   - Selección pseudoaleatoria.
+
+8. **Probar sesiones completas end-to-end.**
+
+9. **Integrar Ollama + Llama para generar el reporte contextual destinado al profesional.**
+   La IA NO selecciona preguntas, NO calcula scoring y NO diagnostica.
+
+10. **Integración final, tests, revisión y merges.**
+
+---
+
+**PRÓXIMO PASO AL RETOMAR:** Corregir y cerrar las 34 preguntas piloto de Objetos de la casa.
