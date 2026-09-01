@@ -40,10 +40,12 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
   const [sequence, setSequence] = useState(initialState.sequence);
   const [answers, setAnswers] = useState(initialState.answers);
   const [level, setLevel] = useState(initialState.level);
+  const [showingStimulus, setShowingStimulus] = useState(false);
   const shownAt = useRef(typeof performance !== "undefined" ? performance.now() : Date.now());
 
   const step = sequence.length - 1;
   const current = pool[sequence[step]];
+  const hasStimulus = Boolean(current.stimulus);
   const selectedEntry = answers[step];
   const selected = selectedEntry ? selectedEntry.option : undefined;
   const isCorrect = selectedEntry ? selectedEntry.correct : false;
@@ -51,8 +53,18 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
   const isLast = step >= sessionLength - 1;
 
   useEffect(() => {
+    if (hasStimulus) {
+      setShowingStimulus(true);
+    } else {
+      setShowingStimulus(false);
+      shownAt.current = typeof performance !== "undefined" ? performance.now() : Date.now();
+    }
+  }, [step, hasStimulus]);
+
+  function dismissStimulus() {
+    setShowingStimulus(false);
     shownAt.current = typeof performance !== "undefined" ? performance.now() : Date.now();
-  }, [step]);
+  }
 
   useEffect(() => {
     saveActivityDraft({
@@ -114,33 +126,45 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
         </div>
         <div className="question-panel">
           <div className="question-header"><h2>Pregunta {step + 1}</h2><span aria-hidden="true">{answeredCount}/{sessionLength}</span></div>
-          <p className="question-text" id="current-question">{current.prompt}</p>
-          <div className="answer-grid" role="group" aria-labelledby="current-question">
-            {current.options.map((answer, index) => (
-              <button key={answer} type="button" aria-pressed={selected === index} onClick={() => chooseAnswer(index)} className={cx("answer-button", selected === index && (isCorrect ? "answer-good" : "answer-review"))}>
-                <span aria-hidden="true">{String.fromCharCode(65 + index)}</span>{answer}{selected === index && <CheckCircle2 size={24} aria-hidden="true" />}
-              </button>
-            ))}
-          </div>
-          <div aria-live="polite" aria-atomic="true">
-            {selectedEntry && (
-              <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
-                {isCorrect ? <CheckCircle2 size={24} aria-hidden="true" /> : <RefreshCw size={24} aria-hidden="true" />}
-                <p>{isCorrect ? current.patientGood : current.patientTry}</p>
+          {showingStimulus ? (
+            <div className="stimulus-phase">
+              <p className="stimulus-instruction">Leé la siguiente información con atención.</p>
+              <p className="question-text">{current.stimulus}</p>
+              <div className="activity-actions single">
+                <button type="button" onClick={dismissStimulus} className="primary">Continuar</button>
               </div>
-            )}
-            {isLast && selectedEntry && (
-              <div className="feedback-box completion-message">
-                <CheckCircle2 size={24} aria-hidden="true" />
-                <p>{COMPLETION_MESSAGES[new Date().getDay() % COMPLETION_MESSAGES.length]}</p>
+            </div>
+          ) : (
+            <>
+              <p className="question-text" id="current-question">{current.prompt}</p>
+              <div className="answer-grid" role="group" aria-labelledby="current-question">
+                {current.options.map((answer, index) => (
+                  <button key={answer} type="button" aria-pressed={selected === index} onClick={() => chooseAnswer(index)} className={cx("answer-button", selected === index && (isCorrect ? "answer-good" : "answer-review"))}>
+                    <span aria-hidden="true">{String.fromCharCode(65 + index)}</span>{answer}{selected === index && <CheckCircle2 size={24} aria-hidden="true" />}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-          <div className="activity-actions single">
-            <button type="button" onClick={goNext} className="primary" disabled={selected === undefined}>
-              {isLast ? "Finalizar sesión" : "Siguiente"}
-            </button>
-          </div>
+              <div aria-live="polite" aria-atomic="true">
+                {selectedEntry && (
+                  <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
+                    {isCorrect ? <CheckCircle2 size={24} aria-hidden="true" /> : <RefreshCw size={24} aria-hidden="true" />}
+                    <p>{isCorrect ? current.patientGood : current.patientTry}</p>
+                  </div>
+                )}
+                {isLast && selectedEntry && (
+                  <div className="feedback-box completion-message">
+                    <CheckCircle2 size={24} aria-hidden="true" />
+                    <p>{COMPLETION_MESSAGES[new Date().getDay() % COMPLETION_MESSAGES.length]}</p>
+                  </div>
+                )}
+              </div>
+              <div className="activity-actions single">
+                <button type="button" onClick={goNext} className="primary" disabled={selected === undefined}>
+                  {isLast ? "Finalizar sesión" : "Siguiente"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </section>

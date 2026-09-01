@@ -156,6 +156,20 @@ Una pregunta puede trabajar múltiples dominios. Temporalmente las 43 preguntas 
 
 `questions.subdimension VARCHAR(120) NULLABLE`: metadata interna de la pregunta, no configurable por el psicólogo inicialmente.
 
+### Stimulus (fase de presentación previa)
+
+`questions.stimulus TEXT NULLABLE`: información que se muestra al paciente antes de la pregunta y que luego se oculta. Permite que las preguntas de Memoria exijan retención real y no simple relectura.
+
+`session_questions.stimulus_snapshot TEXT NULLABLE`: copia inmutable del stimulus al momento de crear la sesión. La sesión usa el snapshot, no el campo original.
+
+**Flujo frontend (ActivityScreen.jsx):**
+- `stimulus = null` → comportamiento actual (prompt + opciones simultáneos).
+- `stimulus` con contenido → Fase 1: muestra stimulus + "Continuar". Fase 2: oculta stimulus, muestra prompt + opciones.
+
+**Latencia:** se mide desde que aparecen prompt + opciones (Fase 2), no desde el stimulus. El tiempo de lectura del stimulus no se incluye en la latencia de respuesta.
+
+**Retrocompatibilidad:** las 43 preguntas legacy tienen `stimulus = null` y funcionan idénticamente a antes. El banco candidato de 34 preguntas todavía NO está cargado.
+
 ### Selección futura de preguntas (diseño conceptual, NO implementado)
 
 ```
@@ -202,7 +216,7 @@ Objetivo futuro: banco amplio por actividad/sección (cantidad por definir despu
   - `POST /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions/:id/start`
   - `POST /api/sessions/:id/answers`, `POST /api/sessions/:id/complete`, `POST /api/sessions/:id/abandon`
   - `GET /api/sessions/:id/results`
-- **Tests:** 76 pasando (node:test + supertest, `--test-concurrency=1`)
+- **Tests:** 95 pasando (node:test + supertest, `--test-concurrency=1`)
 - **Config:** `.env.example` con placeholders, `.env` excluido de git
 
 Las 43 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones. Los tests usan fixtures propias con preguntas validadas.
@@ -343,13 +357,38 @@ Estado: **EN PROGRESO.**
 - Corrección del checkpoint WIP anterior (migración 005 incorrecta eliminada, secciones restauradas)
 - Seed idempotente no destructivo con 10 secciones originales y 5 dominios cognitivos
 - Tests actualizados para modelo correcto
+- Migración 007: `questions.stimulus` (TEXT NULLABLE) + `session_questions.stimulus_snapshot` (TEXT NULLABLE)
+- Frontend: ActivityScreen con fase de stimulus (stimulus → Continuar → ocultar → prompt + opciones)
+- Latencia de respuesta comienza al mostrar prompt+opciones, no al mostrar stimulus
+- Snapshot de stimulus al crear sesión (inmutable, igual que prompt_snapshot)
+- Tests: 95 pasando (8 nuevos para stimulus)
+
+**Estado actual:**
+- Rama: `feature/question-bank`
+- Soporte stimulus implementado
+- `questions.stimulus` TEXT NULLABLE
+- `session_questions.stimulus_snapshot` TEXT NULLABLE
+- Flujo frontend: stimulus → Continuar → prompt + opciones
+- `stimulus=null` conserva comportamiento legacy
+- Latencia comienza cuando aparece prompt + opciones
+- 95 tests passing
+- Lint passing
+- Typecheck passing
+- Build passing
+- Las 34 candidatas de Objetos de la casa todavía NO están cargadas
+- Las 43 legacy todavía NO tienen asociaciones definitivas a `cognitive_domains`
+- No se generó todavía el resto del banco
+- Matriz ACTIVIDAD × DOMINIO congelada
+- Especificación cuantitativa congelada (~306 preguntas total)
 
 **Siguiente:**
-- Diseñar matriz ACTIVIDAD × DOMINIO COGNITIVO
-- Asignar dominios a las 43 preguntas legacy
-- Definir tamaño del banco de preguntas
-- Generar preguntas piloto
-- Reclasificación de legacy: KEEP/REFORMULATE/MOVE/DISCARD
+1. Revisar y regenerar/adaptar el piloto de 34 preguntas de Objetos de la casa usando stimulus cuando corresponda
+2. Corregir distribución exacta de dificultad a 12/14/8
+3. Mejorar balance Memoria/Atención
+4. Auditar nuevamente las 34
+5. Recién después usar ese estándar para generar las demás actividades
+6. Mantener las nuevas preguntas como `ai_assisted_v1` e `is_validated=false` hasta revisión
+7. No implementar todavía selección por `activeDomains` hasta tener el banco y asociaciones revisados
 
 ### CHECKPOINT GIT
 
