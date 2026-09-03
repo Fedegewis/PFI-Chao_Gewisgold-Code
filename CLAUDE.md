@@ -361,7 +361,14 @@ Estado: **EN PROGRESO.**
 - Frontend: ActivityScreen con fase de stimulus (stimulus → Continuar → ocultar → prompt + opciones)
 - Latencia de respuesta comienza al mostrar prompt+opciones, no al mostrar stimulus
 - Snapshot de stimulus al crear sesión (inmutable, igual que prompt_snapshot)
-- Tests: 95 pasando (8 nuevos para stimulus)
+- Banco piloto HOME (Objetos de la casa): 34 preguntas incorporadas al seed
+- Distribución de dificultad: 12 fácil / 14 media / 8 difícil
+- Distribución de correct_answer: 9/8/9/8 (índices 0/1/2/3)
+- Stimulus: 19 preguntas con stimulus, 15 sin stimulus
+- Dominios N:M: 39 asociaciones (20 atención, 19 memoria) vía `question_cognitive_domains`
+- 13 subdimensiones definidas (reconocimiento_funcional, asociacion_objeto_lugar, categorizacion_funcional, atencion_selectiva, discriminacion_funcional, deteccion_de_anomalia, atencion_sostenida, rastreo_de_atributos, retencion_de_escena, memoria_de_ubicacion, memoria_de_secuencia, deteccion_de_cambio, discriminacion_entre_similares)
+- Idempotencia del seed verificada (doble ejecución sin errores ni duplicados)
+- Tests backend: 95 pasando (0 fallos)
 
 **Estado actual:**
 - Rama: `feature/question-bank`
@@ -371,24 +378,23 @@ Estado: **EN PROGRESO.**
 - Flujo frontend: stimulus → Continuar → prompt + opciones
 - `stimulus=null` conserva comportamiento legacy
 - Latencia comienza cuando aparece prompt + opciones
-- 95 tests passing
-- Lint passing
-- Typecheck passing
-- Build passing
-- Las 34 candidatas de Objetos de la casa todavía NO están cargadas
+- 77 preguntas totales en PostgreSQL (43 legacy + 34 HOME piloto)
+- Las 43 legacy permanecen intactas (`source='legacy_seed_v1'`, `is_validated=false`)
+- Las 34 HOME están como `source='ai_assisted_v1'`, `is_active=true`, `is_validated=false`
 - Las 43 legacy todavía NO tienen asociaciones definitivas a `cognitive_domains`
+- 95 tests backend passing
 - No se generó todavía el resto del banco
 - Matriz ACTIVIDAD × DOMINIO congelada
 - Especificación cuantitativa congelada (~306 preguntas total)
 
 **Siguiente:**
-1. Revisar y regenerar/adaptar el piloto de 34 preguntas de Objetos de la casa usando stimulus cuando corresponda
-2. Corregir distribución exacta de dificultad a 12/14/8
-3. Mejorar balance Memoria/Atención
-4. Auditar nuevamente las 34
-5. Recién después usar ese estándar para generar las demás actividades
-6. Mantener las nuevas preguntas como `ai_assisted_v1` e `is_validated=false` hasta revisión
-7. No implementar todavía selección por `activeDomains` hasta tener el banco y asociaciones revisados
+1. Probar stimulus end-to-end con preguntas reales del piloto HOME
+2. Congelar el estándar de calidad del banco
+3. Generar progresivamente el banco para las 9 actividades restantes
+4. Auditar banco completo (duplicados, dificultad, dominios, subdimensiones, distractores, ambigüedad, lenguaje adulto, seguridad)
+5. Cargar preguntas aprobadas en PostgreSQL (nuevas como `ai_assisted_v1`, `is_validated=false`)
+6. Asignar dominios a las 43 preguntas legacy
+7. Implementar selección por `activeDomains` cuando el banco y asociaciones estén completos
 
 ### CHECKPOINT GIT
 
@@ -465,11 +471,9 @@ NO hacer merges prematuros. Después del checkpoint, nuevas features desde `main
 
 ## Roadmap inmediato · Question Bank e IA
 
-1. **Terminar y auditar las 34 preguntas piloto de "Objetos de la casa".**
-   - Adaptar las de Memoria al formato stimulus → prompt.
-   - Dificultad exacta 12/14/8.
-   - Mejorar balance Memoria/Atención.
-   - Mantener 4 opciones y distractores plausibles.
+1. ~~**Terminar y auditar las 34 preguntas piloto de "Objetos de la casa".**~~ ✓ COMPLETADO
+   - 34 preguntas HOME-001 a HOME-034 incorporadas al seed.
+   - Distribución 12/14/8, correct_answer 9/8/9/8, stimulus 19/15, dominios N:M 39 asociaciones.
 
 2. **Probar stimulus end-to-end con preguntas reales del piloto.**
 
@@ -516,4 +520,4 @@ NO hacer merges prematuros. Después del checkpoint, nuevas features desde `main
 
 ---
 
-**PRÓXIMO PASO AL RETOMAR:** Corregir y cerrar las 34 preguntas piloto de Objetos de la casa.
+**PRÓXIMO PASO AL RETOMAR:** Probar stimulus end-to-end con preguntas reales del piloto HOME; luego congelar estándar de calidad y generar banco para las 9 actividades restantes.
