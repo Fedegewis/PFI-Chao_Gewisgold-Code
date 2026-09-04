@@ -168,7 +168,9 @@ Una pregunta puede trabajar múltiples dominios. Temporalmente las 43 preguntas 
 
 **Latencia:** se mide desde que aparecen prompt + opciones (Fase 2), no desde el stimulus. El tiempo de lectura del stimulus no se incluye en la latencia de respuesta.
 
-**Retrocompatibilidad:** las 43 preguntas legacy tienen `stimulus = null` y funcionan idénticamente a antes. El banco candidato de 34 preguntas todavía NO está cargado.
+**Retrocompatibilidad:** las 43 preguntas legacy tienen `stimulus = null` y funcionan idénticamente a antes.
+
+**Banco piloto HOME:** 34 preguntas para `atencion_visual` cargadas en el seed (`source='ai_assisted_v1'`, `is_active=true`, `is_validated=false`). Incluyen stimulus cuando corresponde, subdimension, difficulty 1/2/3, 4 opciones y asociaciones N:M con `cognitive_domains`.
 
 ### Selección futura de preguntas (diseño conceptual, NO implementado)
 
@@ -208,7 +210,7 @@ Objetivo futuro: banco amplio por actividad/sección (cantidad por definir despu
 
 - Node.js + Express + Knex + PostgreSQL
 - **Tablas:** `sections`, `questions`, `cognitive_domains`, `question_cognitive_domains`, `users`, `sessions`, `session_sections`, `session_questions`, `answers`, `session_results`
-- **Seed:** idempotente y no destructivo. 10 secciones originales, 5 dominios cognitivos, 43 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`). Re-ejecutar no borra ni sobrescribe datos existentes.
+- **Seed:** idempotente y no destructivo. 10 secciones originales, 5 dominios cognitivos, 43 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`), 34 preguntas HOME piloto (`is_validated=false`, `source='ai_assisted_v1'`). 77 preguntas totales. Re-ejecutar no borra ni sobrescribe datos existentes.
 - **Endpoints:**
   - `GET /api/health`
   - `GET /api/sections`, `GET /api/sections/:id/questions`
@@ -370,31 +372,60 @@ Estado: **EN PROGRESO.**
 - Idempotencia del seed verificada (doble ejecución sin errores ni duplicados)
 - Tests backend: 95 pasando (0 fallos)
 
+**Piloto HOME — validación E2E completada:**
+- Las 34 HOME fueron probadas mediante el flujo real del backend (REST API)
+- Creación de sesión, inicio, respuestas, finalización: funcionaron correctamente
+- Snapshots (prompt, options, correct_answer, stimulus) verificados
+- Métricas (accuracy, completion_rate, latencias) verificadas
+- Datos temporales usados para la prueba fueron eliminados
+- Las HOME quedaron nuevamente como `is_validated=false`
+
+**43 legacy — diseño corregido congelado, implementación pendiente:**
+- Se realizó auditoría conceptual de las 43 preguntas legacy
+- Se diseñó una versión corregida completa, aprobada conceptualmente
+- La versión corregida TODAVÍA NO fue implementada en seed ni PostgreSQL
+- Decisiones de la versión congelada:
+  - 4 opciones por pregunta (eran 3)
+  - correct_answer 0-based
+  - difficulty 1/2/3
+  - stimulus cuando corresponde
+  - dominios N:M asignados
+  - subdimensiones normalizadas
+  - distractores plausibles (sin opciones absurdas)
+  - L-03 y L-42 reemplazadas completamente
+  - L-32 reemplazada para evitar duplicación con HOME-002
+  - Preguntas de medicación (L-28 a L-31) reformuladas: trabajan comprensión/retención de instrucciones previamente proporcionadas, no generan recomendaciones sanitarias
+  - Lenguaje adulto y respetuoso, sin infantilización ni gamificación
+  - Sin afirmaciones diagnósticas ni absolutas innecesarias
+  - `source = legacy_seed_v1` (sin cambio)
+  - `is_validated = false` (sin cambio)
+- Distribución final del diseño corregido: difficulty 17/21/5, correct_answer 11/11/11/10, stimulus 18 con / 25 sin
+- Estas cifras corresponden al DISEÑO congelado, no al estado actual de PostgreSQL
+
+**Vocabulario de subdimensiones consolidado (21 total):**
+- 13 de HOME: reconocimiento_funcional, asociacion_objeto_lugar, categorizacion_funcional, atencion_selectiva, discriminacion_funcional, deteccion_de_anomalia, atencion_sostenida, rastreo_de_atributos, retencion_de_escena, memoria_de_ubicacion, memoria_de_secuencia, deteccion_de_cambio, discriminacion_entre_similares
+- 8 nuevas para legacy: retencion_y_evocacion, calculo_funcional, comprension_funcional, planificacion_secuencial, juicio_y_resolucion, estrategia_y_autorregulacion, orientacion_temporal, orientacion_espacial
+
 **Estado actual:**
 - Rama: `feature/question-bank`
-- Soporte stimulus implementado
-- `questions.stimulus` TEXT NULLABLE
-- `session_questions.stimulus_snapshot` TEXT NULLABLE
-- Flujo frontend: stimulus → Continuar → prompt + opciones
-- `stimulus=null` conserva comportamiento legacy
-- Latencia comienza cuando aparece prompt + opciones
-- 77 preguntas totales en PostgreSQL (43 legacy + 34 HOME piloto)
-- Las 43 legacy permanecen intactas (`source='legacy_seed_v1'`, `is_validated=false`)
-- Las 34 HOME están como `source='ai_assisted_v1'`, `is_active=true`, `is_validated=false`
+- Infraestructura implementada: stimulus, subdimension, cognitive_domains, N:M pivot
+- 77 preguntas en PostgreSQL (43 legacy original + 34 HOME piloto)
+- Las 43 legacy permanecen con su versión original en seed/DB (`source='legacy_seed_v1'`, `is_validated=false`)
+- Las 34 HOME cargadas (`source='ai_assisted_v1'`, `is_active=true`, `is_validated=false`)
 - Las 43 legacy todavía NO tienen asociaciones definitivas a `cognitive_domains`
 - 95 tests backend passing
-- No se generó todavía el resto del banco
-- Matriz ACTIVIDAD × DOMINIO congelada
-- Especificación cuantitativa congelada (~306 preguntas total)
+- Matriz ACTIVIDAD × DOMINIO: pendiente de congelar
+- Banco grande (~306 preguntas): pendiente
 
 **Siguiente:**
-1. Probar stimulus end-to-end con preguntas reales del piloto HOME
-2. Congelar el estándar de calidad del banco
-3. Generar progresivamente el banco para las 9 actividades restantes
-4. Auditar banco completo (duplicados, dificultad, dominios, subdimensiones, distractores, ambigüedad, lenguaje adulto, seguridad)
-5. Cargar preguntas aprobadas en PostgreSQL (nuevas como `ai_assisted_v1`, `is_validated=false`)
-6. Asignar dominios a las 43 preguntas legacy
-7. Implementar selección por `activeDomains` cuando el banco y asociaciones estén completos
+1. Congelar matriz ACTIVIDAD × DOMINIO
+2. Definir distribución del banco final por actividad, dominio, subdimensión, dificultad y stimulus
+3. Construir banco final de ~306 preguntas
+4. Auditar banco completo (duplicados, ambigüedad, distractores, difficulty, dominios, subdimensiones, stimulus, balance de correct_answer, lenguaje adulto/respetuoso, seguridad)
+5. Implementar en seed/PostgreSQL únicamente el banco aprobado (incluye las 43 legacy corregidas)
+6. Verificar idempotencia
+7. Ejecutar tests y validaciones de distribución
+8. Cerrar Etapa 4
 
 ### CHECKPOINT GIT
 
@@ -431,6 +462,17 @@ Incluye: conectar frontend con backend, reemplazo de pacientes mock, reemplazo d
 ### ETAPA 10 — End-to-end / hardening
 
 Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
+
+## Posicionamiento de MenteActiva (decisión metodológica)
+
+MenteActiva es una herramienta de estimulación/entrenamiento cognitivo y seguimiento del desempeño.
+
+**NO debe presentarse como:**
+- Instrumento diagnóstico
+- Evaluación neuropsicológica validada
+- Sustituto de criterio profesional
+
+Evitar lenguaje infantilizante o gamificación dirigida a adultos mayores. En contenido de preguntas, feedbacks y notas internas: describir qué demanda cognitiva trabaja cada pregunta, sin afirmar capacidad diagnóstica. Las preguntas que involucran medicación deben trabajar sobre instrucciones previamente proporcionadas, no generar recomendaciones sanitarias propias.
 
 ## Reglas de trabajo
 
@@ -469,55 +511,41 @@ Los PRs actuales permanecen sin mergear. El primer gran merge será después de 
 
 NO hacer merges prematuros. Después del checkpoint, nuevas features desde `main` actualizado.
 
-## Roadmap inmediato · Question Bank e IA
+## Roadmap inmediato · Question Bank
 
-1. ~~**Terminar y auditar las 34 preguntas piloto de "Objetos de la casa".**~~ ✓ COMPLETADO
+1. ~~**Terminar y auditar las 34 preguntas piloto HOME.**~~ ✓ COMPLETADO
    - 34 preguntas HOME-001 a HOME-034 incorporadas al seed.
    - Distribución 12/14/8, correct_answer 9/8/9/8, stimulus 19/15, dominios N:M 39 asociaciones.
 
-2. **Probar stimulus end-to-end con preguntas reales del piloto.**
+2. ~~**Probar stimulus end-to-end con preguntas reales del piloto.**~~ ✓ COMPLETADO
+   - Validación E2E via REST API exitosa.
+   - Snapshots, métricas y ciclo de vida verificados.
 
-3. **Congelar el estándar de calidad del banco.**
+3. ~~**Auditar y corregir las 43 preguntas legacy.**~~ ✓ DISEÑO CONGELADO
+   - Auditoría conceptual completada.
+   - Versión corregida de las 43 aprobada (implementación pendiente).
+   - Vocabulario de subdimensiones consolidado: 21 totales.
 
-4. **Generar progresivamente el banco completo:**
-   - ~291 preguntas cognitivas.
-   - ~15 de autorreporte.
-   - Reutilizando las legacy que finalmente sean aprobadas.
-   - No generar todo de una sola vez sin auditoría.
+4. **Congelar matriz ACTIVIDAD × DOMINIO.**
 
-5. **Auditar el banco completo:**
-   - Duplicados.
-   - Dificultad.
-   - Dominios.
-   - Subdimensiones.
-   - Distractores.
-   - Ambigüedad.
-   - Lenguaje adulto.
-   - Seguridad.
+5. **Definir distribución del banco final** por actividad, dominio, subdimensión, dificultad y stimulus.
 
-6. **Cargar preguntas aprobadas en PostgreSQL.**
-   - Source apropiado.
-   - Nuevas AI-assisted inicialmente `is_validated=false`.
-   - Stimulus cuando corresponda.
-   - Asociaciones N:M con `cognitive_domains`.
+6. **Construir banco final de ~306 preguntas.**
 
-7. **Implementar selección real utilizando:**
-   - Actividad elegida.
-   - `activeDomains` del paciente.
-   - `maxQuestions`.
-   - `is_active=true AND is_validated=true`.
-   - Prevención de repetición reciente.
-   - Diversidad de dominio/subdimensión.
-   - Dificultad.
-   - Selección pseudoaleatoria.
+7. **Auditar banco completo:**
+   - Duplicados, ambigüedad, distractores.
+   - Difficulty, dominios, subdimensiones, stimulus.
+   - Balance de correct_answer.
+   - Lenguaje adulto/respetuoso, seguridad.
 
-8. **Probar sesiones completas end-to-end.**
+8. **Implementar en seed/PostgreSQL únicamente el banco aprobado** (incluye las 43 legacy corregidas).
 
-9. **Integrar Ollama + Llama para generar el reporte contextual destinado al profesional.**
-   La IA NO selecciona preguntas, NO calcula scoring y NO diagnostica.
+9. **Verificar idempotencia, ejecutar tests y validaciones de distribución.**
 
-10. **Integración final, tests, revisión y merges.**
+10. **Cerrar Etapa 4.**
+
+NO avanzar todavía a frontend integration. La integración React ↔ backend sigue correspondiendo a Etapa 9.
 
 ---
 
-**PRÓXIMO PASO AL RETOMAR:** Probar stimulus end-to-end con preguntas reales del piloto HOME; luego congelar estándar de calidad y generar banco para las 9 actividades restantes.
+**PRÓXIMO PASO AL RETOMAR:** Congelar la matriz ACTIVIDAD × DOMINIO y definir la distribución del banco final de ~306 preguntas.
