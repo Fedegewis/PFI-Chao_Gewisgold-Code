@@ -97,7 +97,7 @@ async function selectQuestionsForSection(
 ) {
   const eligible = await trx("questions")
     .where({ section_id: sectionId, is_active: true, is_validated: true })
-    .select("id", "prompt", "response_type", "options", "correct_answer");
+    .select("id", "prompt", "stimulus", "response_type", "options", "correct_answer");
 
   if (eligible.length < requestedCount) {
     return { error: true, available: eligible.length };
@@ -226,6 +226,7 @@ router.post("/sessions", async (req, res, next) => {
               question_id: q.id,
               display_order: j + 1,
               prompt_snapshot: q.prompt,
+              stimulus_snapshot: q.stimulus || null,
               options_snapshot: JSON.stringify(q.options),
               correct_answer_snapshot: q.correct_answer,
               response_type: q.response_type,

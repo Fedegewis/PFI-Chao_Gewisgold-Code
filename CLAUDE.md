@@ -45,7 +45,7 @@ Node.js → HTTP → Ollama → modelo Llama → Node.js → validación → Pos
 - Ollama es el servidor/entorno de inferencia, NO el modelo.
 - Pipeline ML en Python, separado del backend Node.js.
 - Los mocks/localStorage del frontend todavía NO deben eliminarse. Se reemplazarán progresivamente durante frontend integration (Etapa 9).
-- Las 45 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones.
+- Las 43 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones.
 - Los tests usan fixtures propias con preguntas validadas; no dependen del seed.
 - Llama NO seleccionará preguntas. La selección es responsabilidad del backend.
 - Llama NO calculará métricas determinísticas. Accuracy, completion rate, latencias y métricas matemáticas son responsabilidad de Node.js.
@@ -89,21 +89,105 @@ Llama tiene UNA responsabilidad principal: recibir información estructurada de 
 - Conversar libremente con el paciente
 - Inventar datos ni resultados
 
-## Dominios cognitivos
+## Modelo de actividades, preguntas y dominios cognitivos
 
-El frontend expone 5 dominios cognitivos que el profesional puede activar/desactivar por paciente:
+### Arquitectura conceptual
 
-| Dominio (frontend)       | Secciones backend que agrupa                                    |
-|--------------------------|-----------------------------------------------------------------|
-| Memoria                  | Memoria de trabajo, Memoria asociativa, Memoria prospectiva     |
-| Atención                 | Atención y cálculo, Atención visual                             |
-| Funciones ejecutivas     | Funciones ejecutivas                                            |
-| Orientación              | Orientación temporal, Orientación espacial                      |
-| Comprensión y lenguaje   | Comprensión funcional, Metacognición y autorreporte              |
+Las ACTIVIDADES/SECCIONES y los DOMINIOS COGNITIVOS son dimensiones diferentes:
 
-Las preguntas del banco deben cubrir los 5 dominios. Cada dominio agrupa una o más secciones del backend. Al crear preguntas nuevas, asignarlas a la sección backend correspondiente; el frontend las agrupará automáticamente por dominio.
+```
+ACTIVIDAD/SECCIÓN (contexto temático cotidiano)
+        ↓
+     PREGUNTA
+        ↕ N:M
+DOMINIO COGNITIVO
 
-El profesional configura qué dominios trabaja cada paciente desde el panel de instrucciones. En la Etapa 9 (frontend integration), la selección de dominios activos filtrará qué secciones se incluyen al crear una sesión.
+PACIENTE
+  ├── activeDomains: subset de los 5 dominios (configura el psicólogo)
+  └── maxQuestions: cantidad total (configura el psicólogo)
+```
+
+**NO es:** DOMINIO → SECCIÓN → PREGUNTA. Las secciones NO son subdivisiones jerárquicas de los dominios.
+
+### Las 10 actividades/secciones
+
+| slug (backend) | id (frontend) | Título visible |
+|---|---|---|
+| `memoria_de_trabajo` | `market` | Lista del supermercado |
+| `atencion_y_calculo` | `bus` | Pagar el boleto |
+| `funciones_ejecutivas` | `recipe` | Ordenar una receta |
+| `orientacion_temporal` | `calendar` | Agenda de turnos |
+| `memoria_asociativa` | `names` | Caras y nombres |
+| `metacognicion` | `wellbeing` | Cómo me siento hoy |
+| `memoria_prospectiva` | `medication` | Tomar la medicación |
+| `atencion_visual` | `home` | Objetos de la casa |
+| `comprension_funcional` | `phone` | Mensajes y llamadas |
+| `orientacion_espacial` | `orientation` | Camino al barrio |
+
+Frontend: `src/data/activities.js`. Backend: tabla `sections`. Son contextos temáticos cotidianos, NO categorías cognitivas.
+
+### Los 5 dominios cognitivos
+
+| slug | name |
+|---|---|
+| `memoria` | Memoria |
+| `atencion` | Atención |
+| `funciones_ejecutivas` | Funciones ejecutivas |
+| `orientacion` | Orientación |
+| `comprension_lenguaje` | Comprensión y lenguaje |
+
+Backend: tabla `cognitive_domains` (fuente de verdad). Frontend: `src/constants/appConfig.js:65-71` como `COGNITIVE_DOMAINS`.
+
+Frontend implementado:
+- `AiConfigPanel.jsx`: chips toggle para activar/desactivar dominios por paciente
+- `patient.activeDomains`: array almacenado en localStorage, default = todos activos
+- `patient.maxQuestions`: cantidad total configurable (1-10)
+- Validación: `resolveActiveDomains()` requiere al menos 1 dominio
+
+Actualmente los dominios activos **no afectan** la selección de preguntas — son metadata almacenada para uso futuro en Etapa 9.
+
+### Relación pregunta ↔ dominio (N:M)
+
+Implementado mediante tabla pivote `question_cognitive_domains` con FK a `questions` y `cognitive_domains`, PK compuesta `(question_id, cognitive_domain_id)`.
+
+Una pregunta puede trabajar múltiples dominios. Temporalmente las 43 preguntas legacy no tienen dominios asignados — serán auditadas y asignadas en el próximo paso.
+
+### Subdimension
+
+`questions.subdimension VARCHAR(120) NULLABLE`: metadata interna de la pregunta, no configurable por el psicólogo inicialmente.
+
+### Stimulus (fase de presentación previa)
+
+`questions.stimulus TEXT NULLABLE`: información que se muestra al paciente antes de la pregunta y que luego se oculta. Permite que las preguntas de Memoria exijan retención real y no simple relectura.
+
+`session_questions.stimulus_snapshot TEXT NULLABLE`: copia inmutable del stimulus al momento de crear la sesión. La sesión usa el snapshot, no el campo original.
+
+**Flujo frontend (ActivityScreen.jsx):**
+- `stimulus = null` → comportamiento actual (prompt + opciones simultáneos).
+- `stimulus` con contenido → Fase 1: muestra stimulus + "Continuar". Fase 2: oculta stimulus, muestra prompt + opciones.
+
+**Latencia:** se mide desde que aparecen prompt + opciones (Fase 2), no desde el stimulus. El tiempo de lectura del stimulus no se incluye en la latencia de respuesta.
+
+**Retrocompatibilidad:** las 43 preguntas legacy tienen `stimulus = null` y funcionan idénticamente a antes.
+
+**Banco piloto HOME:** 34 preguntas para `atencion_visual` cargadas en el seed (`source='ai_assisted_v1'`, `is_active=true`, `is_validated=false`). Incluyen stimulus cuando corresponde, subdimension, difficulty 1/2/3, 4 opciones y asociaciones N:M con `cognitive_domains`.
+
+### Selección futura de preguntas (diseño conceptual, NO implementado)
+
+```
+Paciente elige actividad → banco de esa actividad
+  + section_id
+  + activeDomains del paciente
+  + maxQuestions
+  + is_active=true AND is_validated=true
+  + filtro: pregunta trabaja al menos un dominio activo
+  + prevención de repetición (ventana 3 sesiones)
+  + dificultad (futuro)
+  + balanceo suave de dominios cuando sea posible
+  → N preguntas seleccionadas
+```
+
+NO implementado todavía. `sessions.js` no se modificará hasta que se decida el alcance completo.
 
 ## Estrategia de preguntas
 
@@ -118,15 +202,15 @@ Selección implementada en `POST /api/sessions`:
 - Shuffle: Fisher-Yates con `rng` inyectable para tests
 - Creación de sesión en transacción atómica
 
-Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las preguntas generadas con IA durante desarrollo ingresan como `is_validated=false`. Solo `is_active=true AND is_validated=true` se usan en sesiones reales.
+Objetivo futuro: banco amplio por actividad/sección (cantidad por definir después de la matriz ACTIVIDAD × DOMINIO). Las preguntas generadas con IA durante desarrollo ingresan como `is_validated=false, source='ai_assisted_v1'`. Solo `is_active=true AND is_validated=true` se usan en sesiones reales.
 
 ## Estado actual implementado
 
 ### Backend (`/backend`)
 
 - Node.js + Express + Knex + PostgreSQL
-- **Tablas:** `sections`, `questions`, `users`, `sessions`, `session_sections`, `session_questions`, `answers`, `session_results`
-- **Seed:** 10 secciones cognitivas, 45 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`)
+- **Tablas:** `sections`, `questions`, `cognitive_domains`, `question_cognitive_domains`, `users`, `sessions`, `session_sections`, `session_questions`, `answers`, `session_results`
+- **Seed:** idempotente y no destructivo. 10 secciones originales, 5 dominios cognitivos, 43 preguntas legacy (`is_validated=false`, `source='legacy_seed_v1'`), 34 preguntas HOME piloto (`is_validated=false`, `source='ai_assisted_v1'`). 77 preguntas totales. Re-ejecutar no borra ni sobrescribe datos existentes.
 - **Endpoints:**
   - `GET /api/health`
   - `GET /api/sections`, `GET /api/sections/:id/questions`
@@ -134,12 +218,10 @@ Objetivo futuro: ~30-50 preguntas por sección (no es requisito rígido). Las pr
   - `POST /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions/:id/start`
   - `POST /api/sessions/:id/answers`, `POST /api/sessions/:id/complete`, `POST /api/sessions/:id/abandon`
   - `GET /api/sessions/:id/results`
-- **Tests:** 76 pasando (node:test + supertest, `--test-concurrency=1`)
+- **Tests:** 95 pasando (node:test + supertest, `--test-concurrency=1`)
 - **Config:** `.env.example` con placeholders, `.env` excluido de git
 
-Las 10 secciones actuales son un mapeo provisional de las actividades legacy. NO son definitivas; se revisarán en Etapa 4.
-
-Las 45 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones. Los tests usan fixtures propias con preguntas validadas.
+Las 43 preguntas legacy permanecen como `is_validated=false`. Solo preguntas con `is_active=true AND is_validated=true` se asignan en sesiones. Los tests usan fixtures propias con preguntas validadas.
 
 ### Frontend (`/src`)
 
@@ -147,7 +229,7 @@ SPA React 19 + Vite + Tailwind v4 existente. Funciona con localStorage y datos h
 
 ### Código legacy reutilizable
 
-- `src/data/activities.js` — 10 actividades, 45 preguntas (seed del backend)
+- `src/data/activities.js` — 10 actividades, 43 preguntas (fuente original del seed del backend)
 - `src/services/sessionService.js` — lógica de accuracy, latencia, estadísticas (referencia para backend)
 - `src/services/patientService.js` — estructura de pacientes (referencia para modelo User)
 - `src/ai.js` — integración Ollama anterior + heurísticas de fallback. `recommendDifficulty()` es código muerto (exportado pero nunca importado)
@@ -206,9 +288,14 @@ La UI actual del frontend contiene conceptos como "riesgo bajo/medio/alto", "ren
 Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están cerradas:
 
 **Etapa 4 (question-bank):**
-- Secciones cognitivas definitivas (las 10 actuales son provisionales)
+- Actividades/secciones: las 10 del frontend se mantienen como unidad de actividad ✓
+- Relación pregunta ↔ dominio cognitivo (N:M): implementada (`cognitive_domains` + `question_cognitive_domains`) ✓
+- Tabla `sections.cognitive_domain` eliminada (era incorrecta — una sección no pertenece a un solo dominio) ✓
+- Matriz ACTIVIDAD × DOMINIO: pendiente de diseñar
+- Asignación de dominios a las 43 preguntas legacy: pendiente
+- Tamaño y contenido del banco ampliado: pendiente (cantidad por definir después de la matriz)
 - Scoring de futuros `response_type` no objetivos (`likert`, `open_short`)
-- Uso futuro del campo `difficulty` en questions
+- Dificultad: 1=fácil, 2=media, 3=difícil (interna a MenteActiva, no validada clínicamente)
 
 **Etapa 5 (auth-patient-management):**
 - Mecanismo exacto de acceso/autenticación del paciente
@@ -227,10 +314,6 @@ Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están ce
 - Estructura definitiva del dataset QLoRA
 
 ## Deuda técnica
-
-### PRIORITARIA — resolver en feature/question-bank (Etapa 4)
-
-- **Seed destructivo:** `backend/src/db/seeds/001_sections_and_questions.js` ejecuta `knex("questions").del()` y `knex("sections").del()` al inicio, borrando todas las preguntas y secciones existentes. Esto destruiría preguntas validadas/creadas posteriormente. La Etapa 4 debe diseñar una estrategia segura de seed/importación que no borre datos existentes.
 
 ### Para feature/auth-patient-management (Etapa 5)
 
@@ -264,26 +347,85 @@ Estado: **CERRADA.**
 Tests: 76 pasando (0 fail).
 
 ### ETAPA 4 — feature/question-bank
-Estado: **SIGUIENTE.**
+Estado: **EN PROGRESO.**
 
-Primera tarea: auditoría del banco existente (NO generar preguntas inmediatamente).
+**Completado:**
+- Auditoría del banco existente (43 preguntas legacy, 10 actividades/secciones)
+- Descubrimiento: actividades y dominios son dimensiones ortogonales (no jerárquicas)
+- Identificación del modelo correcto: pregunta ↔ dominio es N:M
+- Migración 004: `questions.subdimension` columna
+- Migración 005: tabla `cognitive_domains` (5 dominios) + tabla pivote `question_cognitive_domains` (N:M)
+- Migración 006: eliminación de `sections.cognitive_domain` (columna incorrecta del modelo anterior)
+- Corrección del checkpoint WIP anterior (migración 005 incorrecta eliminada, secciones restauradas)
+- Seed idempotente no destructivo con 10 secciones originales y 5 dominios cognitivos
+- Tests actualizados para modelo correcto
+- Migración 007: `questions.stimulus` (TEXT NULLABLE) + `session_questions.stimulus_snapshot` (TEXT NULLABLE)
+- Frontend: ActivityScreen con fase de stimulus (stimulus → Continuar → ocultar → prompt + opciones)
+- Latencia de respuesta comienza al mostrar prompt+opciones, no al mostrar stimulus
+- Snapshot de stimulus al crear sesión (inmutable, igual que prompt_snapshot)
+- Banco piloto HOME (Objetos de la casa): 34 preguntas incorporadas al seed
+- Distribución de dificultad: 12 fácil / 14 media / 8 difícil
+- Distribución de correct_answer: 9/8/9/8 (índices 0/1/2/3)
+- Stimulus: 19 preguntas con stimulus, 15 sin stimulus
+- Dominios N:M: 39 asociaciones (20 atención, 19 memoria) vía `question_cognitive_domains`
+- 13 subdimensiones definidas (reconocimiento_funcional, asociacion_objeto_lugar, categorizacion_funcional, atencion_selectiva, discriminacion_funcional, deteccion_de_anomalia, atencion_sostenida, rastreo_de_atributos, retencion_de_escena, memoria_de_ubicacion, memoria_de_secuencia, deteccion_de_cambio, discriminacion_entre_similares)
+- Idempotencia del seed verificada (doble ejecución sin errores ni duplicados)
+- Tests backend: 95 pasando (0 fallos)
 
-1. Inspeccionar las 10 secciones actuales
-2. Inspeccionar las 45 preguntas legacy
-3. Analizar solapamientos entre secciones
-4. Revisar nombres/slugs/domains
-5. Detectar preguntas duplicadas o demasiado similares
-6. Analizar los response_type actuales
-7. Determinar qué metadatos necesita el banco
-8. Proponer la estructura definitiva del banco
-9. Presentar dudas/decisiones
-10. Esperar aprobación
+**Piloto HOME — validación E2E completada:**
+- Las 34 HOME fueron probadas mediante el flujo real del backend (REST API)
+- Creación de sesión, inicio, respuestas, finalización: funcionaron correctamente
+- Snapshots (prompt, options, correct_answer, stimulus) verificados
+- Métricas (accuracy, completion_rate, latencias) verificadas
+- Datos temporales usados para la prueba fueron eliminados
+- Las HOME quedaron nuevamente como `is_validated=false`
 
-Las 10 secciones actuales NO son definitivas.
+**43 legacy — diseño corregido congelado, implementación pendiente:**
+- Se realizó auditoría conceptual de las 43 preguntas legacy
+- Se diseñó una versión corregida completa, aprobada conceptualmente
+- La versión corregida TODAVÍA NO fue implementada en seed ni PostgreSQL
+- Decisiones de la versión congelada:
+  - 4 opciones por pregunta (eran 3)
+  - correct_answer 0-based
+  - difficulty 1/2/3
+  - stimulus cuando corresponde
+  - dominios N:M asignados
+  - subdimensiones normalizadas
+  - distractores plausibles (sin opciones absurdas)
+  - L-03 y L-42 reemplazadas completamente
+  - L-32 reemplazada para evitar duplicación con HOME-002
+  - Preguntas de medicación (L-28 a L-31) reformuladas: trabajan comprensión/retención de instrucciones previamente proporcionadas, no generan recomendaciones sanitarias
+  - Lenguaje adulto y respetuoso, sin infantilización ni gamificación
+  - Sin afirmaciones diagnósticas ni absolutas innecesarias
+  - `source = legacy_seed_v1` (sin cambio)
+  - `is_validated = false` (sin cambio)
+- Distribución final del diseño corregido: difficulty 17/21/5, correct_answer 11/11/11/10, stimulus 18 con / 25 sin
+- Estas cifras corresponden al DISEÑO congelado, no al estado actual de PostgreSQL
 
-Después de aprobar la auditoría se ampliará el banco (~30-50 preguntas por sección).
+**Vocabulario de subdimensiones consolidado (21 total):**
+- 13 de HOME: reconocimiento_funcional, asociacion_objeto_lugar, categorizacion_funcional, atencion_selectiva, discriminacion_funcional, deteccion_de_anomalia, atencion_sostenida, rastreo_de_atributos, retencion_de_escena, memoria_de_ubicacion, memoria_de_secuencia, deteccion_de_cambio, discriminacion_entre_similares
+- 8 nuevas para legacy: retencion_y_evocacion, calculo_funcional, comprension_funcional, planificacion_secuencial, juicio_y_resolucion, estrategia_y_autorregulacion, orientacion_temporal, orientacion_espacial
 
-Incluye también: diseñar estrategia segura de seed/importación que NO borre preguntas existentes/validadas (reemplazar seed destructivo actual).
+**Estado actual:**
+- Rama: `feature/question-bank`
+- Infraestructura implementada: stimulus, subdimension, cognitive_domains, N:M pivot
+- 77 preguntas en PostgreSQL (43 legacy original + 34 HOME piloto)
+- Las 43 legacy permanecen con su versión original en seed/DB (`source='legacy_seed_v1'`, `is_validated=false`)
+- Las 34 HOME cargadas (`source='ai_assisted_v1'`, `is_active=true`, `is_validated=false`)
+- Las 43 legacy todavía NO tienen asociaciones definitivas a `cognitive_domains`
+- 95 tests backend passing
+- Matriz ACTIVIDAD × DOMINIO: pendiente de congelar
+- Banco grande (~306 preguntas): pendiente
+
+**Siguiente:**
+1. Congelar matriz ACTIVIDAD × DOMINIO
+2. Definir distribución del banco final por actividad, dominio, subdimensión, dificultad y stimulus
+3. Construir banco final de ~306 preguntas
+4. Auditar banco completo (duplicados, ambigüedad, distractores, difficulty, dominios, subdimensiones, stimulus, balance de correct_answer, lenguaje adulto/respetuoso, seguridad)
+5. Implementar en seed/PostgreSQL únicamente el banco aprobado (incluye las 43 legacy corregidas)
+6. Verificar idempotencia
+7. Ejecutar tests y validaciones de distribución
+8. Cerrar Etapa 4
 
 ### CHECKPOINT GIT
 
@@ -321,6 +463,17 @@ Incluye: conectar frontend con backend, reemplazo de pacientes mock, reemplazo d
 
 Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
 
+## Posicionamiento de MenteActiva (decisión metodológica)
+
+MenteActiva es una herramienta de estimulación/entrenamiento cognitivo y seguimiento del desempeño.
+
+**NO debe presentarse como:**
+- Instrumento diagnóstico
+- Evaluación neuropsicológica validada
+- Sustituto de criterio profesional
+
+Evitar lenguaje infantilizante o gamificación dirigida a adultos mayores. En contenido de preguntas, feedbacks y notas internas: describir qué demanda cognitiva trabaja cada pregunta, sin afirmar capacidad diagnóstica. Las preguntas que involucran medicación deben trabajar sobre instrucciones previamente proporcionadas, no generar recomendaciones sanitarias propias.
+
 ## Reglas de trabajo
 
 - Inspeccionar archivos antes de modificarlos
@@ -337,9 +490,9 @@ Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, acces
 
 ## Git
 
-**Branch actual:** `feature/session-results`
+**Branch actual:** `feature/question-bank`
 
-**Estado:** rama funcionalmente cerrada. Documentación actualizada.
+**Estado:** EN PROGRESO. Modelo de datos corregido. `origin/main` ya fue integrado en esta rama.
 
 **Estrategia de branches:**
 
@@ -347,7 +500,7 @@ Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, acces
 main
 └── feature/backend-first-step
       └── feature/session-results  ← CERRADA
-            └── feature/question-bank  ← SIGUIENTE (se creará desde session-results)
+            └── feature/question-bank  ← EN PROGRESO
 ```
 
 Los PRs actuales permanecen sin mergear. El primer gran merge será después de completar `feature/question-bank`:
@@ -357,3 +510,42 @@ Los PRs actuales permanecen sin mergear. El primer gran merge será después de 
 3. `feature/question-bank` → `main`
 
 NO hacer merges prematuros. Después del checkpoint, nuevas features desde `main` actualizado.
+
+## Roadmap inmediato · Question Bank
+
+1. ~~**Terminar y auditar las 34 preguntas piloto HOME.**~~ ✓ COMPLETADO
+   - 34 preguntas HOME-001 a HOME-034 incorporadas al seed.
+   - Distribución 12/14/8, correct_answer 9/8/9/8, stimulus 19/15, dominios N:M 39 asociaciones.
+
+2. ~~**Probar stimulus end-to-end con preguntas reales del piloto.**~~ ✓ COMPLETADO
+   - Validación E2E via REST API exitosa.
+   - Snapshots, métricas y ciclo de vida verificados.
+
+3. ~~**Auditar y corregir las 43 preguntas legacy.**~~ ✓ DISEÑO CONGELADO
+   - Auditoría conceptual completada.
+   - Versión corregida de las 43 aprobada (implementación pendiente).
+   - Vocabulario de subdimensiones consolidado: 21 totales.
+
+4. **Congelar matriz ACTIVIDAD × DOMINIO.**
+
+5. **Definir distribución del banco final** por actividad, dominio, subdimensión, dificultad y stimulus.
+
+6. **Construir banco final de ~306 preguntas.**
+
+7. **Auditar banco completo:**
+   - Duplicados, ambigüedad, distractores.
+   - Difficulty, dominios, subdimensiones, stimulus.
+   - Balance de correct_answer.
+   - Lenguaje adulto/respetuoso, seguridad.
+
+8. **Implementar en seed/PostgreSQL únicamente el banco aprobado** (incluye las 43 legacy corregidas).
+
+9. **Verificar idempotencia, ejecutar tests y validaciones de distribución.**
+
+10. **Cerrar Etapa 4.**
+
+NO avanzar todavía a frontend integration. La integración React ↔ backend sigue correspondiendo a Etapa 9.
+
+---
+
+**PRÓXIMO PASO AL RETOMAR:** Congelar la matriz ACTIVIDAD × DOMINIO y definir la distribución del banco final de ~306 preguntas.

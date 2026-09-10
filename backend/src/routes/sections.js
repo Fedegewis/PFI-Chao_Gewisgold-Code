@@ -8,7 +8,7 @@ router.get("/sections", async (_req, res, next) => {
     const sections = await db("sections")
       .where("is_active", true)
       .orderBy("display_order")
-      .select("id", "slug", "name", "description", "cognitive_domain", "display_order");
+      .select("id", "slug", "name", "description", "display_order");
 
     res.json(sections);
   } catch (err) {
