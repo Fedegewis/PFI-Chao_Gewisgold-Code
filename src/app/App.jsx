@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { SCREEN_NAMES } from "../constants/appConfig.js";
 import { ErrorBoundary } from "../components/common/ErrorBoundary.jsx";
 import { Footer } from "../components/common/Footer.jsx";
@@ -20,7 +21,6 @@ export function App() {
     openActivity,
     patients,
     professionalId,
-    resetDemo,
     role,
     screen,
     selectedActivity,
@@ -32,13 +32,24 @@ export function App() {
     updatePatient
   } = useAppController();
 
+  useEffect(() => {
+    const titles = {
+      [SCREEN_NAMES.login]: "Login — MenteActiva",
+      [SCREEN_NAMES.patient]: "Actividades — MenteActiva",
+      [SCREEN_NAMES.professional]: "Panel Profesional — MenteActiva",
+    };
+    document.title = screen === SCREEN_NAMES.activity
+      ? `${selectedActivity.title} — MenteActiva`
+      : titles[screen] || "MenteActiva";
+  }, [screen, selectedActivity]);
+
   return (
-    <main className="app-shell">
+    <div className="app-shell">
       <a href="#main-content" className="skip-link">Saltar al contenido principal</a>
       <div className="app-inner">
         <GlobalHeader screen={screen} role={role} onLogout={logout} onNavigate={setScreen} />
         <ErrorBoundary>
-          <div id="main-content">
+          <main id="main-content">
             {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} />}
             {screen === SCREEN_NAMES.patient && isAuthenticated && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
             {screen === SCREEN_NAMES.activity && isAuthenticated && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
@@ -46,7 +57,6 @@ export function App() {
               <ProfessionalScreen
                 patients={patients}
                 professionalId={professionalId}
-                resetDemo={resetDemo}
                 selectedPatient={selectedPatient}
                 sessions={sessions}
                 setPatients={setPatients}
@@ -54,10 +64,10 @@ export function App() {
                 updatePatient={updatePatient}
               />
             )}
-          </div>
+          </main>
         </ErrorBoundary>
         <Footer />
       </div>
-    </main>
+    </div>
   );
 }

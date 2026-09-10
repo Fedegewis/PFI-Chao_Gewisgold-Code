@@ -1,6 +1,7 @@
 import { ArrowLeft, Bot, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { heuristicDifficulty } from "../ai.js";
+import { COMPLETION_MESSAGES } from "../constants/appConfig.js";
 import { ACTIVITY_DRAFT_MESSAGE } from "../constants/content.js";
 import { clearActivityDraft, loadActivityDraft, saveActivityDraft } from "../storage/appStorage.js";
 import { summarizeAnswers } from "../services/sessionService.js";
@@ -95,7 +96,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
       <div className="activity-layout">
         <div className="activity-prompt">
           <p>{activity.skill}</p>
-          <h2 id="activity-title">{activity.title}</h2>
+          <h1 id="activity-title">{activity.title}</h1>
           <div className="session-progress">
             <span>Pregunta {step + 1} de {sessionLength}</span>
             <div role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={sessionLength} aria-label="Progreso de la sesión"><span className="progress-fill" style={{ width: `${((step + 1) / sessionLength) * 100}%` }} /></div>
@@ -103,7 +104,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           <p className="prompt-copy">{activity.intro}</p>
           <div className="chip-row">
             <StatusChip icon={Clock3} text="Sin límite estricto" />
-            <StatusChip icon={Bot} text="IA adaptativa" />
+            <StatusChip icon={Bot} text="Dificultad adaptativa" />
           </div>
           <div className="session-card">
             <p>{ACTIVITY_DRAFT_MESSAGE}</p>
@@ -112,7 +113,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
           </div>
         </div>
         <div className="question-panel">
-          <div className="question-header"><h3>Pregunta {step + 1}</h3><span aria-hidden="true">{answeredCount}/{sessionLength}</span></div>
+          <div className="question-header"><h2>Pregunta {step + 1}</h2><span aria-hidden="true">{answeredCount}/{sessionLength}</span></div>
           <p className="question-text" id="current-question">{current.prompt}</p>
           <div className="answer-grid" role="group" aria-labelledby="current-question">
             {current.options.map((answer, index) => (
@@ -126,6 +127,12 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
               <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
                 {isCorrect ? <CheckCircle2 size={24} aria-hidden="true" /> : <RefreshCw size={24} aria-hidden="true" />}
                 <p>{isCorrect ? current.patientGood : current.patientTry}</p>
+              </div>
+            )}
+            {isLast && selectedEntry && (
+              <div className="feedback-box completion-message">
+                <CheckCircle2 size={24} aria-hidden="true" />
+                <p>{COMPLETION_MESSAGES[new Date().getDay() % COMPLETION_MESSAGES.length]}</p>
               </div>
             )}
           </div>
