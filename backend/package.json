@@ -9,7 +9,7 @@
     "migrate": "knex migrate:latest --knexfile src/db/knexfile.js",
     "migrate:rollback": "knex migrate:rollback --knexfile src/db/knexfile.js",
     "seed": "knex seed:run --knexfile src/db/knexfile.js",
-    "test": "node --test tests/**/*.test.js",
+    "test": "node --test --test-concurrency=1 tests/**/*.test.js",
     "db:reset": "knex migrate:rollback --all --knexfile src/db/knexfile.js && knex migrate:latest --knexfile src/db/knexfile.js && knex seed:run --knexfile src/db/knexfile.js"
   },
   "dependencies": {
