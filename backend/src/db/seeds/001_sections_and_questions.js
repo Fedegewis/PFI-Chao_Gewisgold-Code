@@ -4,6 +4,16 @@
 // Cognitive domains: insert only if slug does not exist.
 // Legacy questions: only inserted if zero legacy_seed_v1 questions exist.
 // HOME pilot questions: only inserted if zero ai_assisted_v1 questions exist for atencion_visual.
+// Bank questions (bank_v1): only inserted if zero bank_v1 questions exist for each section.
+
+import ATENCION_Y_CALCULO_QUESTIONS from "./questions/atencion_y_calculo.js";
+import FUNCIONES_EJECUTIVAS_QUESTIONS from "./questions/funciones_ejecutivas.js";
+import ORIENTACION_TEMPORAL_QUESTIONS from "./questions/orientacion_temporal.js";
+import MEMORIA_ASOCIATIVA_QUESTIONS from "./questions/memoria_asociativa.js";
+import METACOGNICION_QUESTIONS from "./questions/metacognicion.js";
+import MEMORIA_PROSPECTIVA_QUESTIONS from "./questions/memoria_prospectiva.js";
+import COMPRENSION_FUNCIONAL_QUESTIONS from "./questions/comprension_funcional.js";
+import ORIENTACION_ESPACIAL_QUESTIONS from "./questions/orientacion_espacial.js";
 
 const SECTIONS = [
   {
@@ -610,6 +620,400 @@ const HOME_QUESTIONS = [
   },
 ];
 
+// MT pilot: 30 questions for memoria_de_trabajo ("Lista del supermercado")
+const MT_QUESTIONS = [
+  // MT-01 (legacy corrected)
+  {
+    prompt: "¿Cuáles eran los productos de la lista?",
+    options: ["Pan, leche y manzanas", "Café, arroz y jabón", "Tomates, queso y pilas", "Pan, galletitas y manzanas"],
+    correct_answer: 0,
+    difficulty: 1,
+    stimulus: "En la lista de compras hay pan, leche y manzanas.",
+    subdimension: "retencion_y_evocacion",
+    feedback_correct: "Correcto. Recuperó la lista completa de tres productos.",
+    feedback_incorrect: "Los productos eran pan, leche y manzanas.",
+    clinician_note: "Reconocimiento de lista completa de 3 ítems presentada previamente. Demanda baja: recuperación directa, distractores con ítems completamente diferentes o con una sustitución.",
+    domains: ["memoria"],
+  },
+  // MT-02 (legacy corrected)
+  {
+    prompt: "Elena quería comprar leche, arroz y jabón. ¿Qué producto NO estaba en su lista?",
+    options: ["Arroz", "Pilas", "Jabón", "Leche"],
+    correct_answer: 1,
+    difficulty: 1,
+    stimulus: null,
+    subdimension: "deteccion_de_anomalia",
+    feedback_correct: "Correcto. Detectó el elemento que no pertenecía a la lista.",
+    feedback_incorrect: "Los productos eran leche, arroz y jabón. Las pilas no estaban en la lista.",
+    clinician_note: "Detección de elemento intruso en lista de 3 ítems. Demanda baja: el intruso no guarda relación semántica cercana con los originales.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-03 (legacy corrected)
+  {
+    prompt: "La lista tenía leche, pan y manzanas. Si ya puso leche y pan en el chango, ¿qué falta?",
+    options: ["Leche", "Pan", "Manzanas", "Ya tiene todo"],
+    correct_answer: 2,
+    difficulty: 1,
+    stimulus: null,
+    subdimension: "actualizacion_de_memoria",
+    feedback_correct: "Correcto. Identificó el producto pendiente.",
+    feedback_incorrect: "Faltaban las manzanas: leche y pan ya estaban en el chango.",
+    clinician_note: "Actualización de memoria de trabajo: descontar 2 ítems ya obtenidos de una lista de 3 y retener el pendiente. Demanda baja: un solo ítem remanente.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-04 (legacy corrected)
+  {
+    prompt: "El cartel decía: 2 yogures y 1 queso. ¿Qué debe llevar?",
+    options: ["Un yogur y dos quesos", "Dos quesos y una leche", "Un yogur y un queso", "Dos yogures y un queso"],
+    correct_answer: 3,
+    difficulty: 1,
+    stimulus: null,
+    subdimension: "rastreo_de_atributos",
+    feedback_correct: "Correcto. Retuvo las cantidades correctas de cada producto.",
+    feedback_incorrect: "El cartel indicaba 2 yogures y 1 queso.",
+    clinician_note: "Retención de doble atributo: producto con cantidad. Demanda baja: dos pares producto-cantidad, distractores invierten o alteran las cantidades.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-05 (legacy corrected)
+  {
+    prompt: "La receta pide tomate, queso y albahaca. ¿Qué grupo de productos sirve para prepararla?",
+    options: ["Tomate, queso y albahaca", "Pan, mermelada y café", "Jabón, arroz y pilas", "Tomate, arroz y café"],
+    correct_answer: 0,
+    difficulty: 1,
+    stimulus: null,
+    subdimension: "categorizacion_funcional",
+    feedback_correct: "Correcto. Asoció los productos con el propósito de la receta.",
+    feedback_incorrect: "Los ingredientes de la receta eran tomate, queso y albahaca.",
+    clinician_note: "Agrupación semántica por contexto: asociar tres productos con el propósito que los vincula. Demanda baja: el vínculo temático es directo.",
+    domains: ["memoria"],
+  },
+  // MT-06
+  {
+    prompt: "¿Cuál de estas verduras pidió?",
+    options: ["Zapallo", "Morrones", "Lechuga", "Tomate"],
+    correct_answer: 1,
+    difficulty: 1,
+    stimulus: "En la verdulería pidió papa, cebolla y morrones.",
+    subdimension: "retencion_y_evocacion",
+    feedback_correct: "Correcto. Reconoció uno de los productos pedidos.",
+    feedback_incorrect: "Las verduras pedidas eran papa, cebolla y morrones.",
+    clinician_note: "Recuperación selectiva: reconocer un ítem de una lista breve entre distractores de la misma categoría semántica. Demanda baja: 3 ítems, un solo dato a recuperar.",
+    domains: ["memoria"],
+  },
+  // MT-07
+  {
+    prompt: "Marta fue a comprar productos de limpieza y puso en el chango: lavandina, detergente, un paquete de fideos y jabón en polvo. ¿Cuál no corresponde a esa categoría?",
+    options: ["Lavandina", "Jabón en polvo", "Fideos", "Detergente"],
+    correct_answer: 2,
+    difficulty: 1,
+    stimulus: null,
+    subdimension: "deteccion_de_anomalia",
+    feedback_correct: "Correcto. Los fideos no son un producto de limpieza.",
+    feedback_incorrect: "Lavandina, detergente y jabón en polvo son productos de limpieza. Los fideos no corresponden a esa categoría.",
+    clinician_note: "Detección de ítem fuera de categoría en enumeración de 4 elementos. Demanda baja: la anomalía es evidente por pertenecer a una categoría funcional diferente.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-08
+  {
+    prompt: "La lista decía manteca, pero en el negocio no había. Decidió llevar margarina en su lugar. ¿Qué lleva finalmente?",
+    options: ["Manteca", "Aceite", "Las dos cosas", "Margarina"],
+    correct_answer: 3,
+    difficulty: 1,
+    stimulus: null,
+    subdimension: "actualizacion_de_memoria",
+    feedback_correct: "Correcto. Retuvo la sustitución realizada.",
+    feedback_incorrect: "Como no había manteca, decidió llevar margarina.",
+    clinician_note: "Actualización por sustitución: reemplazar un ítem por otro y retener el cambio. Demanda baja: un solo reemplazo directo.",
+    domains: ["memoria"],
+  },
+  // MT-09
+  {
+    prompt: "¿En qué parte del supermercado busca la leche?",
+    options: ["En la entrada", "Al fondo", "En las cajas", "En el pasillo central"],
+    correct_answer: 1,
+    difficulty: 1,
+    stimulus: "Las frutas están en la entrada del supermercado y los lácteos están al fondo.",
+    subdimension: "rastreo_de_atributos",
+    feedback_correct: "Correcto. Los lácteos estaban al fondo.",
+    feedback_incorrect: "Las frutas estaban en la entrada y los lácteos al fondo. La leche es un lácteo.",
+    clinician_note: "Asociación categoría-ubicación: retener dos bindings (frutas→entrada, lácteos→fondo) y recuperar la ubicación de un producto a partir de su categoría. Demanda baja: dos asociaciones directas.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-10
+  {
+    prompt: "Cuando llega al supermercado se encuentra con un vecino y conversan un momento. Al entrar, ¿qué productos tenía que comprar?",
+    options: ["Aceite, harina y huevos", "Aceite, leche y huevos", "Manteca, harina y huevos", "Aceite, harina y azúcar"],
+    correct_answer: 0,
+    difficulty: 1,
+    stimulus: "Tiene que comprar aceite, harina y huevos.",
+    subdimension: "retencion_y_evocacion",
+    feedback_correct: "Correcto. Recordó los tres productos pese a la distracción.",
+    feedback_incorrect: "Los productos eran aceite, harina y huevos.",
+    clinician_note: "Retención de lista breve con distracción narrativa interpuesta. Demanda baja: 3 ítems, la distracción es contextual, no agrega carga de procesamiento real.",
+    domains: ["memoria"],
+  },
+  // MT-11
+  {
+    prompt: "¿Cuánta leche tenía que comprar?",
+    options: ["1 litro", "Medio litro", "2 litros", "3 litros"],
+    correct_answer: 2,
+    difficulty: 1,
+    stimulus: "Necesita comprar: 1 kilo de azúcar, medio kilo de yerba y 2 litros de leche.",
+    subdimension: "rastreo_de_atributos",
+    feedback_correct: "Correcto. Recuperó la cantidad indicada.",
+    feedback_incorrect: "Tenía que comprar 2 litros de leche.",
+    clinician_note: "Recuperación de un atributo numérico (cantidad) de un ítem dentro de una lista de tres pares producto-cantidad. Demanda baja: una sola asociación a recuperar.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-12
+  {
+    prompt: "¿Qué producto anotó último?",
+    options: ["Azúcar", "Yerba", "No se puede saber", "Café"],
+    correct_answer: 3,
+    difficulty: 1,
+    stimulus: "Fue anotando: primero azúcar, después yerba y al final café.",
+    subdimension: "memoria_de_secuencia",
+    feedback_correct: "Correcto. El último producto anotado fue el café.",
+    feedback_incorrect: "El orden era: primero azúcar, después yerba y al final café.",
+    clinician_note: "Retención del orden de 3 ítems y recuperación del último. Demanda baja: secuencia corta con marcadores ordinales explícitos (primero, después, al final).",
+    domains: ["memoria"],
+  },
+  // MT-13
+  {
+    prompt: "¿Cuáles eran los cuatro productos de la lista?",
+    options: ["Arroz, fideos, aceite y sal", "Arroz, harina, aceite y vinagre", "Arroz, fideos, aceite y vinagre", "Arroz, fideos, manteca y vinagre"],
+    correct_answer: 2,
+    difficulty: 2,
+    stimulus: "La lista de compras tiene: arroz, fideos, aceite y vinagre.",
+    subdimension: "retencion_y_evocacion",
+    feedback_correct: "Correcto. Recordó los cuatro productos.",
+    feedback_incorrect: "Los productos eran arroz, fideos, aceite y vinagre.",
+    clinician_note: "Retención de lista de 4 ítems. Cada distractor sustituye un ítem por otro semánticamente cercano. Demanda moderada: mayor carga de retención y discriminación fina entre opciones similares.",
+    domains: ["memoria"],
+  },
+  // MT-14
+  {
+    prompt: "Fue al supermercado a comprar para un guiso: carne, papa, batata, cebolla y un champú que necesitaba. ¿Cuál de los productos no es un ingrediente del guiso?",
+    options: ["Papa", "Batata", "Cebolla", "Champú"],
+    correct_answer: 3,
+    difficulty: 2,
+    stimulus: null,
+    subdimension: "deteccion_de_anomalia",
+    feedback_correct: "Correcto. El champú no es un ingrediente del guiso.",
+    feedback_incorrect: "Los ingredientes del guiso eran carne, papa, batata y cebolla. El champú no es un ingrediente.",
+    clinician_note: "Detección de anomalía en lista mixta de 5 ítems: distinguir ingredientes de un ítem no alimentario que aparece mezclado en la misma compra. Demanda moderada: lista más larga y contexto de compra mixta.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-15
+  {
+    prompt: "Ya puso la leche y el jamón en el chango. ¿Qué productos le faltan?",
+    options: ["Leche y queso", "Pan y queso", "Queso y jamón", "Pan y jamón"],
+    correct_answer: 1,
+    difficulty: 2,
+    stimulus: "Tiene que comprar: leche, pan, queso y jamón.",
+    subdimension: "actualizacion_de_memoria",
+    feedback_correct: "Correcto. Faltan pan y queso.",
+    feedback_incorrect: "Tenía que comprar leche, pan, queso y jamón. Ya puso leche y jamón. Faltan pan y queso.",
+    clinician_note: "Actualización: descontar 2 ítems de una lista de 4 y retener los 2 pendientes. Demanda moderada: más ítems que en d1 y dos operaciones de exclusión con dos remanentes.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-16
+  {
+    prompt: "¿Cuánta harina y cuánto aceite tenía que comprar?",
+    options: ["2 kilos de harina y 1 litro de aceite", "1 kilo de harina y 2 litros de aceite", "2 kilos de harina y medio litro de aceite", "Medio kilo de harina y 1 litro de aceite"],
+    correct_answer: 0,
+    difficulty: 2,
+    stimulus: "Tiene que comprar: 2 kilos de harina, 1 litro de aceite y medio kilo de azúcar.",
+    subdimension: "rastreo_de_atributos",
+    feedback_correct: "Correcto. Recuperó ambas cantidades.",
+    feedback_incorrect: "Tenía que comprar 2 kilos de harina y 1 litro de aceite.",
+    clinician_note: "Recuperación simultánea de dos bindings producto-cantidad de una lista de tres pares. Demanda moderada: los distractores invierten o intercambian cantidades entre productos.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-17
+  {
+    prompt: "¿Qué producto necesitan los dos?",
+    options: ["Pan", "Café", "Huevos", "Manteca"],
+    correct_answer: 2,
+    difficulty: 2,
+    stimulus: "Carlos necesita: leche, pan y huevos. Marta necesita: huevos, café y manteca.",
+    subdimension: "comparacion_y_seleccion",
+    feedback_correct: "Correcto. Huevos es el producto compartido.",
+    feedback_incorrect: "Carlos necesita leche, pan y huevos. Marta necesita huevos, café y manteca. El producto compartido son los huevos.",
+    clinician_note: "Comparación entre dos listas breves para encontrar el elemento compartido. Demanda moderada: requiere mantener ambas listas activas y cruzarlas.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-18
+  {
+    prompt: "¿Qué producto estaba en la primera lista pero NO en la segunda?",
+    options: ["Leche", "Fideos", "Detergente", "Arroz"],
+    correct_answer: 3,
+    difficulty: 2,
+    stimulus: "Primero leyó una lista que decía: leche, arroz y jabón. Después leyó otra que decía: leche, fideos y detergente.",
+    subdimension: "retencion_y_evocacion",
+    feedback_correct: "Correcto. El arroz solo estaba en la primera lista.",
+    feedback_incorrect: "La primera lista tenía leche, arroz y jabón. La segunda tenía leche, fideos y detergente. El arroz solo estaba en la primera.",
+    clinician_note: "Retención con interferencia proactiva: discriminar entre dos listas que comparten un ítem y recuperar uno exclusivo de la primera. Demanda moderada: la superposición parcial genera confusión.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-19
+  {
+    prompt: "¿Adónde fue en segundo lugar?",
+    options: ["A la verdulería", "A la carnicería", "A la panadería", "A las cajas"],
+    correct_answer: 1,
+    difficulty: 2,
+    stimulus: "Primero compró las verduras, después pasó por la carnicería y por último fue a la panadería.",
+    subdimension: "memoria_de_secuencia",
+    feedback_correct: "Correcto. En segundo lugar fue a la carnicería.",
+    feedback_incorrect: "El orden fue: primero verduras, después carnicería y por último panadería.",
+    clinician_note: "Memoria de secuencia: retener el orden de 3 paradas y recuperar la posición ordinal de una. Demanda moderada: requiere mantener no solo los destinos sino el orden temporal.",
+    domains: ["memoria"],
+  },
+  // MT-20
+  {
+    prompt: "La lista original tenía arroz, fideos y aceite. En el supermercado se acordó de que también necesitaba sal. ¿Cuál es la lista actualizada?",
+    options: ["Arroz, fideos, aceite y sal", "Arroz, fideos y sal", "Fideos, aceite y sal", "Arroz, fideos, aceite y azúcar"],
+    correct_answer: 0,
+    difficulty: 2,
+    stimulus: null,
+    subdimension: "actualizacion_de_memoria",
+    feedback_correct: "Correcto. Agregó sal sin perder los productos originales.",
+    feedback_incorrect: "La lista original era arroz, fideos y aceite. Al agregar sal, queda: arroz, fideos, aceite y sal.",
+    clinician_note: "Actualización por adición: agregar un ítem nuevo a una lista de 3 retenida previamente. Demanda moderada: requiere mantener los 3 originales intactos e incorporar el agregado; los distractores pierden un original.",
+    domains: ["memoria"],
+  },
+  // MT-21
+  {
+    prompt: "Compró yogur, queso, manzanas, jabón y pan. El yogur y el queso los encontró en la sección de lácteos. ¿Qué productos encontró en esa sección?",
+    options: ["Yogur y manzanas", "Yogur y queso", "Queso y pan", "Manzanas y jabón"],
+    correct_answer: 1,
+    difficulty: 2,
+    stimulus: null,
+    subdimension: "categorizacion_funcional",
+    feedback_correct: "Correcto. Yogur y queso estaban en la sección de lácteos.",
+    feedback_incorrect: "El yogur y el queso son los que encontró en la sección de lácteos.",
+    clinician_note: "Asociación ítem-sección con información explícita en un contexto de 5 productos. Demanda moderada: debe identificar cuáles de los 5 fueron asignados a la sección mencionada.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-22
+  {
+    prompt: "¿Cuáles fueron los dos primeros productos que anotó?",
+    options: ["Aceite y leche", "Leche y jabón", "Arroz y aceite", "Arroz y jabón"],
+    correct_answer: 2,
+    difficulty: 2,
+    stimulus: "Fue anotando la lista en este orden: primero arroz, segundo aceite, tercero leche y cuarto jabón.",
+    subdimension: "memoria_de_secuencia",
+    feedback_correct: "Correcto. Los dos primeros fueron arroz y aceite.",
+    feedback_incorrect: "El orden era: primero arroz, segundo aceite, tercero leche, cuarto jabón.",
+    clinician_note: "Recuperación posicional de los dos primeros ítems de una secuencia de 4. Demanda moderada: requiere retener el orden completo y recuperar un subconjunto posicional.",
+    domains: ["memoria"],
+  },
+  // MT-23
+  {
+    prompt: "En la lista anotó: leche a $800, pan a $500 y queso a $1200. ¿Cuál era el producto más caro?",
+    options: ["Leche", "Pan", "Los tres costaban lo mismo", "Queso"],
+    correct_answer: 3,
+    difficulty: 2,
+    stimulus: null,
+    subdimension: "rastreo_de_atributos",
+    feedback_correct: "Correcto. El queso era el más caro, a $1200.",
+    feedback_incorrect: "Los precios eran: leche $800, pan $500, queso $1200. El más caro era el queso.",
+    clinician_note: "Rastreo de atributo numérico (precio) en 3 ítems y comparación ordinal. Demanda moderada: requiere retener 3 bindings producto-precio y determinar el máximo.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-24
+  {
+    prompt: "La lista original decía: café, azúcar, yerba y leche. Después tachó el café y anotó té en su lugar. ¿Cómo quedó la lista?",
+    options: ["Té, azúcar, yerba y leche", "Café, azúcar, yerba y leche", "Té, azúcar, yerba y café", "Café, azúcar, té y leche"],
+    correct_answer: 0,
+    difficulty: 2,
+    stimulus: null,
+    subdimension: "actualizacion_de_memoria",
+    feedback_correct: "Correcto. Reemplazó café por té y mantuvo el resto.",
+    feedback_incorrect: "La lista era café, azúcar, yerba y leche. Al reemplazar café por té, queda: té, azúcar, yerba y leche.",
+    clinician_note: "Actualización por sustitución en lista de 4 ítems: retener la lista, aplicar la sustitución y verificar el resultado completo. Demanda moderada: más ítems que la sustitución de d1 y verificación de 4 posiciones.",
+    domains: ["memoria"],
+  },
+  // MT-25
+  {
+    prompt: "¿Cuál de estos grupos coincide exactamente con lo anotado?",
+    options: ["Leche descremada, pan lactal, queso cremoso, manteca y dulce de leche", "Leche entera, pan lactal, queso cremoso, manteca y dulce de leche", "Leche descremada, pan francés, queso cremoso, manteca y dulce de leche", "Leche descremada, pan lactal, queso cremoso, margarina y dulce de leche"],
+    correct_answer: 0,
+    difficulty: 3,
+    stimulus: "Anotó para comprar: leche descremada, pan lactal, queso cremoso, manteca y dulce de leche.",
+    subdimension: "retencion_y_evocacion",
+    feedback_correct: "Correcto. Recordó los cinco productos con sus especificaciones.",
+    feedback_incorrect: "Los productos eran: leche descremada, pan lactal, queso cremoso, manteca y dulce de leche.",
+    clinician_note: "Retención de 5 ítems con atributos específicos (tipo de leche, tipo de pan). Los distractores alteran un solo atributo por opción. Alta demanda: requiere retención precisa de los 5 ítems con sus especificaciones.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-26
+  {
+    prompt: "¿Qué producto necesitan Juan y María pero no Pedro?",
+    options: ["Pan", "Leche", "Queso", "Café"],
+    correct_answer: 1,
+    difficulty: 3,
+    stimulus: "Juan necesita leche y pan. María necesita leche y queso. Pedro necesita pan y café.",
+    subdimension: "comparacion_y_seleccion",
+    feedback_correct: "Correcto. Leche es el producto que comparten Juan y María pero no Pedro.",
+    feedback_incorrect: "Juan necesita leche y pan. María necesita leche y queso. Pedro necesita pan y café. El producto compartido por Juan y María que Pedro no necesita es la leche.",
+    clinician_note: "Intersección con exclusión: retener tres listas de 2 ítems cada una, encontrar la intersección de dos y verificar exclusión del tercero. Alta carga de memoria de trabajo por la triple comparación cruzada.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-27
+  {
+    prompt: "Tachó el vinagre, agregó limones y reemplazó la sal por pimienta. ¿Cómo quedó la lista?",
+    options: ["Arroz, fideos, aceite, sal y limones", "Arroz, fideos, aceite, pimienta y vinagre", "Arroz, fideos, aceite, pimienta y limones", "Arroz, fideos, sal, pimienta y limones"],
+    correct_answer: 2,
+    difficulty: 3,
+    stimulus: "La lista original tenía: arroz, fideos, aceite, sal y vinagre.",
+    subdimension: "actualizacion_de_memoria",
+    feedback_correct: "Correcto. Aplicó las tres modificaciones correctamente.",
+    feedback_incorrect: "Tachó vinagre, agregó limones y reemplazó sal por pimienta. La lista queda: arroz, fideos, aceite, pimienta y limones.",
+    clinician_note: "Triple actualización secuencial sobre una lista de 5 ítems: una eliminación, una adición y una sustitución. Alta demanda: tres operaciones diferentes aplicadas en secuencia sobre memoria de trabajo.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-28
+  {
+    prompt: "¿Cuánto queso tiene que buscar y en qué sección?",
+    options: ["2 kilos, en la carnicería", "3 paquetes, en almacén", "1 kilo, en la carnicería", "1 kilo, en la fiambrería"],
+    correct_answer: 3,
+    difficulty: 3,
+    stimulus: "Tiene que buscar: 2 kilos de carne en la carnicería, 1 kilo de queso en la fiambrería y 3 paquetes de fideos en almacén.",
+    subdimension: "rastreo_de_atributos",
+    feedback_correct: "Correcto. Un kilo de queso, en la fiambrería.",
+    feedback_incorrect: "Tenía que buscar 1 kilo de queso en la fiambrería.",
+    clinician_note: "Triple binding producto-cantidad-sección en 3 ítems: retener tres asociaciones de tres atributos y recuperar dos atributos de un ítem específico. Alta demanda por la carga de bindings simultáneos.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-29
+  {
+    prompt: "Al repasarla, dijo: leche, huevos, pan, queso y café. ¿Qué dos productos cambió de lugar?",
+    options: ["Leche y huevos", "Pan y huevos", "Queso y café", "Leche y pan"],
+    correct_answer: 1,
+    difficulty: 3,
+    stimulus: "La lista del supermercado era: primero leche, segundo pan, tercero huevos, cuarto queso y quinto café.",
+    subdimension: "memoria_de_secuencia",
+    feedback_correct: "Correcto. Pan y huevos intercambiaron posiciones.",
+    feedback_incorrect: "La lista original era: leche, pan, huevos, queso, café. Al repasar dijo: leche, huevos, pan, queso, café. Pan y huevos cambiaron de lugar.",
+    clinician_note: "Detección de intercambio posicional en secuencia de 5 ítems: retener la secuencia original, compararla con la versión alterada e identificar los dos elementos permutados. Alta demanda: comparación posicional de 5 ítems.",
+    domains: ["memoria", "atencion"],
+  },
+  // MT-30
+  {
+    prompt: "Compró estos productos: leche en caja, yogur natural, jugo de naranja en botella, agua mineral en botella y queso untable. Si separa los lácteos de las bebidas no lácteas, ¿qué productos van en el grupo de lácteos?",
+    options: ["Leche, yogur y jugo", "Leche, jugo y queso untable", "Leche, yogur y queso untable", "Yogur, jugo y agua"],
+    correct_answer: 2,
+    difficulty: 3,
+    stimulus: null,
+    subdimension: "categorizacion_funcional",
+    feedback_correct: "Correcto. Los lácteos son leche, yogur y queso untable.",
+    feedback_incorrect: "Los lácteos son: leche, yogur natural y queso untable. El jugo y el agua mineral son bebidas no lácteas.",
+    clinician_note: "Categorización de 5 ítems con criterio que requiere conocimiento funcional: la leche es lácteo (no solo bebida), el jugo no es lácteo aunque es bebida. Alta demanda: 5 ítems con fronteras semánticas que exigen clasificación deliberada.",
+    domains: ["memoria", "atencion"],
+  },
+];
+
 export async function seed(knex) {
   // --- Cognitive domains: insert only if slug does not exist ---
   for (const domain of COGNITIVE_DOMAINS) {
@@ -676,36 +1080,98 @@ export async function seed(knex) {
     .where({ source: "ai_assisted_v1", section_id: homeSectionId })
     .count("id as count");
 
-  if (Number(homeCount) > 0) {
-    return;
+  if (Number(homeCount) === 0) {
+    for (const q of HOME_QUESTIONS) {
+      const [inserted] = await knex("questions")
+        .insert({
+          section_id: homeSectionId,
+          prompt: q.prompt,
+          response_type: "multiple_choice",
+          options: JSON.stringify(q.options),
+          correct_answer: q.correct_answer,
+          scoring_value: 1,
+          difficulty: q.difficulty,
+          feedback_correct: q.feedback_correct,
+          feedback_incorrect: q.feedback_incorrect,
+          clinician_note: q.clinician_note,
+          stimulus: q.stimulus,
+          subdimension: q.subdimension,
+          source: "ai_assisted_v1",
+          is_active: true,
+          is_validated: false,
+        })
+        .returning("id");
+
+      for (const domainSlug of q.domains) {
+        await knex("question_cognitive_domains").insert({
+          question_id: inserted.id,
+          cognitive_domain_id: domainSlugToId[domainSlug],
+        });
+      }
+    }
   }
 
-  for (const q of HOME_QUESTIONS) {
-    const [inserted] = await knex("questions")
-      .insert({
-        section_id: homeSectionId,
-        prompt: q.prompt,
-        response_type: "multiple_choice",
-        options: JSON.stringify(q.options),
-        correct_answer: q.correct_answer,
-        scoring_value: 1,
-        difficulty: q.difficulty,
-        feedback_correct: q.feedback_correct,
-        feedback_incorrect: q.feedback_incorrect,
-        clinician_note: q.clinician_note,
-        stimulus: q.stimulus,
-        subdimension: q.subdimension,
-        source: "ai_assisted_v1",
-        is_active: true,
-        is_validated: false,
-      })
-      .returning("id");
+  // --- MT questions: migrate from ai_assisted_v1 to bank_v1, then insert if needed ---
+  const mtSectionId = slugToId["memoria_de_trabajo"];
 
-    for (const domainSlug of q.domains) {
-      await knex("question_cognitive_domains").insert({
-        question_id: inserted.id,
-        cognitive_domain_id: domainSlugToId[domainSlug],
-      });
+  // One-time migration: remove old ai_assisted_v1 MT questions (replaced by bank_v1)
+  const oldMtIds = await knex("questions")
+    .where({ source: "ai_assisted_v1", section_id: mtSectionId })
+    .select("id");
+  if (oldMtIds.length > 0) {
+    const ids = oldMtIds.map((r) => r.id);
+    await knex("question_cognitive_domains").whereIn("question_id", ids).del();
+    await knex("questions").whereIn("id", ids).del();
+  }
+
+  // --- Bank questions (bank_v1): insert per section if none exist ---
+  const BANK_SECTIONS = [
+    { slug: "memoria_de_trabajo", questions: MT_QUESTIONS },
+    { slug: "atencion_y_calculo", questions: ATENCION_Y_CALCULO_QUESTIONS },
+    { slug: "funciones_ejecutivas", questions: FUNCIONES_EJECUTIVAS_QUESTIONS },
+    { slug: "orientacion_temporal", questions: ORIENTACION_TEMPORAL_QUESTIONS },
+    { slug: "memoria_asociativa", questions: MEMORIA_ASOCIATIVA_QUESTIONS },
+    { slug: "metacognicion", questions: METACOGNICION_QUESTIONS },
+    { slug: "memoria_prospectiva", questions: MEMORIA_PROSPECTIVA_QUESTIONS },
+    { slug: "comprension_funcional", questions: COMPRENSION_FUNCIONAL_QUESTIONS },
+    { slug: "orientacion_espacial", questions: ORIENTACION_ESPACIAL_QUESTIONS },
+  ];
+
+  for (const { slug, questions } of BANK_SECTIONS) {
+    const sectionId = slugToId[slug];
+    const [{ count }] = await knex("questions")
+      .where({ source: "bank_v1", section_id: sectionId })
+      .count("id as count");
+
+    if (Number(count) === 0) {
+      for (const q of questions) {
+        const [inserted] = await knex("questions")
+          .insert({
+            section_id: sectionId,
+            prompt: q.prompt,
+            response_type: "multiple_choice",
+            options: JSON.stringify(q.options),
+            correct_answer: q.correct_answer,
+            scoring_value: 1,
+            difficulty: q.difficulty,
+            feedback_correct: q.feedback_correct,
+            feedback_incorrect: q.feedback_incorrect,
+            clinician_note: q.clinician_note,
+            stimulus: q.stimulus || null,
+            subdimension: q.subdimension,
+            source: "bank_v1",
+            is_active: true,
+            is_validated: false,
+          })
+          .returning("id");
+
+        for (const domainSlug of q.domains) {
+          await knex("question_cognitive_domains").insert({
+            question_id: inserted.id,
+            cognitive_domain_id: domainSlugToId[domainSlug],
+          });
+        }
+      }
     }
   }
 }

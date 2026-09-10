@@ -196,16 +196,24 @@ describe("API", () => {
       assert.ok(res.body.section);
       assert.equal(res.body.section.slug, "memoria_de_trabajo");
       assert.ok(Array.isArray(res.body.questions));
-      assert.equal(res.body.questions.length, 5);
+      assert.equal(res.body.questions.length, 35);
+
+      const legacy = res.body.questions.filter(
+        (q) => q.source === "legacy_seed_v1"
+      );
+      assert.equal(legacy.length, 5);
+
+      const mt = res.body.questions.filter(
+        (q) => q.source === "bank_v1"
+      );
+      assert.equal(mt.length, 30);
 
       const q = res.body.questions[0];
       assert.ok(q.prompt);
       assert.ok(Array.isArray(q.options));
-      assert.equal(q.options.length, 3);
       assert.equal(q.response_type, "multiple_choice");
       assert.equal(typeof q.correct_answer, "number");
       assert.equal(q.is_validated, false);
-      assert.equal(q.source, "legacy_seed_v1");
     });
 
     it("returns 404 for non-existent section", async () => {
