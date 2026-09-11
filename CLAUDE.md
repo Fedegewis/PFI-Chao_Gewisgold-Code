@@ -321,7 +321,7 @@ Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están ce
 
 ### Para feature/frontend-integration (Etapa 9)
 
-- **Sin CORS:** el backend no tiene middleware CORS. Configurar cuando frontend intente conectarse al backend.
+- **CORS configurado** con variable `CORS_ORIGIN`. Para deploy, actualizar a la URL de producción.
 
 ### Limpieza general
 
@@ -439,29 +439,56 @@ Respetando dependencias y orden de PRs.
 
 Después de ese checkpoint, las siguientes features se crearán desde `main` actualizado, salvo dependencia que justifique otra estrategia.
 
-### ETAPA 5 — feature/auth-patient-management
+### ETAPA 5A — feature/professional-auth
+Estado: **EN PROGRESO.**
 
-Incluye: registro de profesionales, login, autenticación, relación Professional → Patient, alta/gestión de pacientes, ownership, autorización, aislamiento entre profesionales, adaptar endpoints para no confiar en IDs manipulables desde frontend.
+Autenticación profesional con email/password. JWT stateless, bcrypt, registro, login, middleware de autorización. `POST /api/users` restringido a pacientes; profesionales se registran exclusivamente por `/api/auth/register`. `JWT_SECRET` obligatorio (error si falta). CORS configurado con `CORS_ORIGIN`.
 
-### ETAPA 6 — feature/ai-contract
+TODO pendiente para Etapa 6 (invitaciones): `POST /api/users` no está protegido con auth — actualmente necesario para crear pacientes sin auth definida aún. Proteger o reemplazar cuando se implemente el flujo de invitaciones.
 
-Incluye: auditoría del panel profesional, clasificación de cada dato visible (DB / Node.js / Llama / eliminar / decidir), definir AI Input v1, definir AI Output v1, definir guardrails, definir qué información histórica recibe Llama, resolver conceptos UI pendientes (riesgo, status, etc.).
+### ETAPA 5B — Google OAuth para profesionales
 
-### ETAPA 7 — feature/ml-pipeline
+Login alternativo para profesionales vía Google. Complementa email/password, no lo reemplaza.
 
-Incluye: baseline Llama sin adaptación, dataset, ejemplos sintéticos/controlados, QLoRA, evaluación baseline vs adaptado, exportación/merge/conversión para Ollama.
+### ETAPA 5C — Deploy inicial
 
-### ETAPA 8 — feature/ai-backend
+- Vercel como opción elegida actualmente.
+- PostgreSQL en cloud.
+- Variables de entorno (`JWT_SECRET`, `CORS_ORIGIN`, `DATABASE_URL`, etc.) configuradas en el proveedor.
+- URL pública estable.
 
-Incluye: Node.js → Ollama → Llama adaptado → validación estructurada → AiReport → PostgreSQL.
+**IMPORTANTE:** El deploy debe realizarse ANTES de implementar el flujo final de invitaciones por email para disponer de una URL pública estable.
 
-### ETAPA 9 — feature/frontend-integration
+### ETAPA 6 — Invitaciones de pacientes
 
-Incluye: conectar frontend con backend, reemplazo de pacientes mock, reemplazo de métricas mock cuando exista equivalente real, reemplazo progresivo de localStorage, pacientes/sesiones/resultados reales, informes IA reales, panel profesional alimentado por backend.
+Flujo:
+1. Profesional ingresa email del paciente.
+2. Backend genera token de invitación.
+3. Envío de email con URL pública.
+4. Paciente abre URL, completa registro.
+5. Queda asociado al profesional que lo invitó.
 
-### ETAPA 10 — End-to-end / hardening
+Requiere URL pública (Etapa 5C completada).
 
-Incluye: tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
+### ETAPA 7 — Integración IA/Ollama
+
+Incluye: contrato AI Input/Output v1, auditoría del panel profesional, guardrails, definir qué información histórica recibe Llama, resolver conceptos UI pendientes (riesgo, status, etc.). Pipeline ML (baseline, dataset, QLoRA, evaluación). Node.js → Ollama → Llama → validación → PostgreSQL.
+
+### ETAPA 8 — Lógica adaptativa
+
+Selección/adaptación de preguntas del banco validado según contexto y resultados, usando IA como asistente del proceso.
+
+### ETAPA 9 — Flujo E2E completo
+
+Conectar frontend con backend, reemplazo de pacientes/métricas mock, reemplazo progresivo de localStorage, informes IA reales, panel profesional alimentado por backend.
+
+### ETAPA 10 — Testing, UX/accesibilidad, pulido, documentación y tesis
+
+Tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
+
+## Decisión arquitectónica: IA y banco de preguntas
+
+La IA NO debe generar libremente el contenido clínico/cognitivo que recibe el paciente. El banco validado es la fuente de preguntas. La IA se utilizará principalmente para selección y adaptación dentro de ese banco según el contexto y resultados disponibles del paciente. Esto garantiza que todo contenido presentado al paciente fue revisado y aprobado previamente.
 
 ## Posicionamiento de MenteActiva (decisión metodológica)
 

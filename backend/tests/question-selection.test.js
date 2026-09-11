@@ -7,6 +7,7 @@ import {
   selectQuestionsForSection,
   RECENT_SESSION_WINDOW,
 } from "../src/routes/sessions.js";
+import { authHeaderFor } from "./helpers.js";
 
 let professional;
 let patient;
@@ -14,6 +15,7 @@ let patientB;
 let sectionId;
 let sectionBId;
 let questionIds;
+let profAuth;
 
 async function cleanTestData() {
   await db("answers")
@@ -55,6 +57,8 @@ async function createTestFixtures() {
       email: `prof-sel-${Date.now()}@test.com`,
     })
     .returning("*");
+
+  profAuth = authHeaderFor(professional);
 
   [patient] = await db("users")
     .insert({
@@ -133,7 +137,7 @@ async function createTestFixtures() {
 }
 
 async function createSession(patientId, sections) {
-  const res = await request(app).post("/api/sessions").send({
+  const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
     patient_id: patientId,
     professional_id: professional.id,
     sections,
@@ -226,7 +230,7 @@ describe("Question Selection", () => {
         source: "test_fixture",
       });
 
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: unvalSection.id, question_count: 1 }],
@@ -236,7 +240,7 @@ describe("Question Selection", () => {
     });
 
     it("returns error when eligible total < requested", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: sectionId, question_count: 11 }],
@@ -245,7 +249,7 @@ describe("Question Selection", () => {
     });
 
     it("error includes requested and available counts", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: sectionId, question_count: 15 }],

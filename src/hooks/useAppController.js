@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_PROFESSIONAL_ID, LOGIN_CREDENTIALS, MOTIVATION_MESSAGES, PATIENT_LOGINS, SCREEN_NAMES } from "../constants/appConfig.js";
+import { DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, PATIENT_LOGINS, SCREEN_NAMES } from "../constants/appConfig.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
@@ -21,6 +21,13 @@ import {
   saveSessions
 } from "../storage/appStorage.js";
 import { LOGIN_ERROR_MESSAGE } from "../constants/content.js";
+import {
+  clearAuth,
+  getSavedUser,
+  getToken,
+  loginProfessional,
+  registerProfessional,
+} from "../services/authService.js";
 
 function loadAppPatients() {
   const initialPatients = buildInitialPatients();
@@ -44,10 +51,19 @@ export function useAppController() {
     const session = loadAppSession();
     const hash = readHashState();
     const patients = loadAppPatients();
-    return { session, hash, patients };
+    const savedUser = getSavedUser();
+    const hasToken = Boolean(getToken());
+    return { session, hash, patients, savedUser, hasToken };
   });
-  const [role, setRole] = useState(() => init.session?.role || "patient");
-  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(init.session?.role));
+  const [role, setRole] = useState(() => {
+    if (init.hasToken && init.savedUser?.role === "professional") return "professional";
+    return init.session?.role || "patient";
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (init.hasToken && init.savedUser) return true;
+    return Boolean(init.session?.role);
+  });
+  const [authUser, setAuthUser] = useState(() => init.savedUser);
   const [screen, setScreen] = useState(() => {
     const { session, hash } = init;
     if (!session?.role) return SCREEN_NAMES.login;
@@ -59,7 +75,10 @@ export function useAppController() {
     }
     return session.role === SCREEN_NAMES.professional ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
   });
-  const [professionalId, setProfessionalId] = useState(() => init.session?.professionalId || DEFAULT_PROFESSIONAL_ID);
+  const [professionalId, setProfessionalId] = useState(() => {
+    if (init.savedUser?.role === "professional") return init.savedUser.id;
+    return init.session?.professionalId || DEFAULT_PROFESSIONAL_ID;
+  });
   const [patients, setPatients] = useState(() => init.patients);
   const [sessions, setSessions] = useState(() => {
     const stored = loadSessions();
@@ -145,7 +164,7 @@ export function useAppController() {
     return () => window.removeEventListener("hashchange", syncFromHash);
   }, [isAuthenticated, role]);
 
-  function login(nextRole, email, password) {
+  async function login(nextRole, email, password) {
     if (nextRole === SCREEN_NAMES.patient) {
       const match = PATIENT_LOGINS.find((p) => p.email === email && p.password === password);
       if (match) {
@@ -162,23 +181,44 @@ export function useAppController() {
       setLoginError(LOGIN_ERROR_MESSAGE);
       return;
     }
-    if (email === LOGIN_CREDENTIALS[nextRole].email && password === LOGIN_CREDENTIALS[nextRole].password) {
-      setRole(nextRole);
+
+    try {
+      const data = await loginProfessional({ email, password });
+      setAuthUser(data.user);
+      setRole("professional");
+      setProfessionalId(data.user.id);
       setIsAuthenticated(true);
-      if (nextRole === SCREEN_NAMES.professional) setProfessionalId(LOGIN_CREDENTIALS.professional.id);
-      const nextScreen = nextRole === SCREEN_NAMES.professional ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
       if (typeof window !== "undefined") {
-        window.history.replaceState(null, "", buildHash(nextScreen, selectedActivity.id));
+        window.history.replaceState(null, "", buildHash(SCREEN_NAMES.professional, selectedActivity.id));
       }
-      setScreen(nextScreen);
+      setScreen(SCREEN_NAMES.professional);
       setLoginError("");
-      return;
+    } catch (err) {
+      setLoginError(err.message || LOGIN_ERROR_MESSAGE);
     }
-    setLoginError(LOGIN_ERROR_MESSAGE);
+  }
+
+  async function register(name, email, password) {
+    try {
+      const data = await registerProfessional({ name, email, password });
+      setAuthUser(data.user);
+      setRole("professional");
+      setProfessionalId(data.user.id);
+      setIsAuthenticated(true);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", buildHash(SCREEN_NAMES.professional, selectedActivity.id));
+      }
+      setScreen(SCREEN_NAMES.professional);
+      setLoginError("");
+    } catch (err) {
+      setLoginError(err.message || "Error al registrarse");
+    }
   }
 
   function logout() {
     setIsAuthenticated(false);
+    setAuthUser(null);
+    clearAuth();
     clearActivityDraft();
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", buildHash(SCREEN_NAMES.login, selectedActivity.id));
@@ -222,10 +262,12 @@ export function useAppController() {
 
   return {
     activities,
+    authUser,
     isAuthenticated,
     loginError,
     login,
     logout,
+    register,
     motivationMessage,
     openActivity,
     professionalId,

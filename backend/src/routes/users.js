@@ -11,8 +11,8 @@ router.post("/users", async (req, res, next) => {
       return res.status(400).json({ error: "role, name y email son obligatorios" });
     }
 
-    if (!["patient", "professional"].includes(role)) {
-      return res.status(400).json({ error: "role debe ser 'patient' o 'professional'" });
+    if (role !== "patient") {
+      return res.status(400).json({ error: "Solo se pueden crear pacientes por este endpoint. Los profesionales deben registrarse en /api/auth/register" });
     }
 
     if (professional_id != null) {

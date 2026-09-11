@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
+import { authHeaderFor } from "./helpers.js";
 
 let professional;
 let patient;
 let testSectionId;
+let profAuth;
 
 async function cleanTestData() {
   await db("session_questions").whereIn(
@@ -32,6 +34,8 @@ async function createTestFixtures() {
   [professional] = await db("users")
     .insert({ role: "professional", name: "Dr. Test", email: `prof-${Date.now()}@test.com` })
     .returning("*");
+
+  profAuth = authHeaderFor(professional);
 
   [patient] = await db("users")
     .insert({
@@ -97,14 +101,14 @@ describe("Users API", () => {
       assert.ok(res.body.id);
     });
 
-    it("creates a professional", async () => {
+    it("rejects professional creation (must use /api/auth/register)", async () => {
       const res = await request(app).post("/api/users").send({
         role: "professional",
         name: "Dr. Nuevo",
         email: `dr-nuevo-${Date.now()}@test.com`,
       });
-      assert.equal(res.status, 201);
-      assert.equal(res.body.role, "professional");
+      assert.equal(res.status, 400);
+      assert.ok(res.body.error.includes("/api/auth/register"));
     });
 
     it("returns 409 for duplicate email", async () => {
@@ -158,7 +162,7 @@ describe("Users API", () => {
 
   describe("POST /api/sessions", () => {
     it("creates a session with 1 section", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 3 }],
@@ -207,7 +211,7 @@ describe("Users API", () => {
         },
       ]);
 
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [
@@ -224,7 +228,7 @@ describe("Users API", () => {
     });
 
     it("returns 404 for non-existent patient", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: 99999,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 1 }],
@@ -233,7 +237,7 @@ describe("Users API", () => {
     });
 
     it("returns 404 for non-existent professional", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: 99999,
         sections: [{ section_id: testSectionId, question_count: 1 }],
@@ -242,7 +246,7 @@ describe("Users API", () => {
     });
 
     it("returns 404 for non-existent section", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: 99999, question_count: 1 }],
@@ -251,7 +255,7 @@ describe("Users API", () => {
     });
 
     it("returns 400 when requesting more questions than available", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 100 }],
@@ -261,7 +265,7 @@ describe("Users API", () => {
     });
 
     it("returns 400 for missing fields", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
       });
       assert.equal(res.status, 400);
@@ -290,7 +294,7 @@ describe("Users API", () => {
         source: "test_fixture",
       });
 
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: sectionUnvalidated.id, question_count: 1 }],
@@ -302,7 +306,7 @@ describe("Users API", () => {
 
   describe("GET /api/sessions/:id", () => {
     it("returns a session with sections and questions", async () => {
-      const createRes = await request(app).post("/api/sessions").send({
+      const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 2 }],
@@ -336,7 +340,7 @@ describe("Users API", () => {
 
   describe("POST /api/sessions/:id/start", () => {
     it("transitions session from created to in_progress", async () => {
-      const createRes = await request(app).post("/api/sessions").send({
+      const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 2 }],
@@ -350,7 +354,7 @@ describe("Users API", () => {
     });
 
     it("returns 400 when starting an already started session", async () => {
-      const createRes = await request(app).post("/api/sessions").send({
+      const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 1 }],
@@ -373,7 +377,7 @@ describe("Users API", () => {
       const questions = await db("questions")
         .where({ section_id: testSectionId, is_active: true, is_validated: true });
 
-      const createRes = await request(app).post("/api/sessions").send({
+      const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 2 }],

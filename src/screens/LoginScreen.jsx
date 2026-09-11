@@ -1,19 +1,23 @@
-import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserRound } from "lucide-react";
+import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserPlus, UserRound } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { LOGIN_CREDENTIALS, MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 
-export function LoginScreen({ loginError, onLogin }) {
+export function LoginScreen({ loginError, onLogin, onRegister }) {
   const loginMotivation = useMemo(() => {
     const day = new Date().getDay();
     const offset = Math.floor(MOTIVATION_MESSAGES.length / 2);
     return MOTIVATION_MESSAGES[(day + offset) % MOTIVATION_MESSAGES.length];
   }, []);
   const [mode, setMode] = useState("patient");
+  const [isRegister, setIsRegister] = useState(false);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState(LOGIN_CREDENTIALS.patient.email);
   const [password, setPassword] = useState(LOGIN_CREDENTIALS.patient.password);
   const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(false);
   const emailId = "login-email";
   const passwordId = "login-password";
+  const nameId = "login-name";
   const patientTabRef = useRef(null);
   const professionalTabRef = useRef(null);
 
@@ -21,8 +25,15 @@ export function LoginScreen({ loginError, onLogin }) {
 
   function switchMode(nextMode) {
     setMode(nextMode);
-    setEmail(LOGIN_CREDENTIALS[nextMode].email);
-    setPassword(LOGIN_CREDENTIALS[nextMode].password);
+    setIsRegister(false);
+    setName("");
+    if (nextMode === "patient") {
+      setEmail(LOGIN_CREDENTIALS.patient.email);
+      setPassword(LOGIN_CREDENTIALS.patient.password);
+    } else {
+      setEmail("");
+      setPassword("");
+    }
     setDirty(false);
   }
 
@@ -36,11 +47,22 @@ export function LoginScreen({ loginError, onLogin }) {
     }
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setDirty(false);
-    onLogin(mode, email, password);
+    setLoading(true);
+    try {
+      if (mode === "professional" && isRegister) {
+        await onRegister(name, email, password);
+      } else {
+        await onLogin(mode, email, password);
+      }
+    } finally {
+      setLoading(false);
+    }
   }
+
+  const isProfessional = mode === "professional";
 
   return (
     <section className="login-layout" aria-label="Inicio de sesión">
@@ -82,7 +104,28 @@ export function LoginScreen({ loginError, onLogin }) {
           </button>
         </div>
         <div id="tabpanel-login" role="tabpanel" aria-labelledby={mode === "patient" ? "tab-patient" : "tab-professional"}>
-          <div className="login-title"><ShieldCheck size={34} aria-hidden="true" /><div><h2>Inicio de sesión</h2><p>Usá las credenciales demo del README.</p></div></div>
+          <div className="login-title">
+            <ShieldCheck size={34} aria-hidden="true" />
+            <div>
+              <h2>{isProfessional && isRegister ? "Crear cuenta" : "Inicio de sesión"}</h2>
+              <p>{isProfessional
+                ? (isRegister ? "Completá tus datos para registrarte." : "Ingresá con tu cuenta de profesional.")
+                : "Usá las credenciales demo del README."}</p>
+            </div>
+          </div>
+          {isProfessional && isRegister && (
+            <>
+              <label htmlFor={nameId}>Nombre completo</label>
+              <input
+                id={nameId}
+                type="text"
+                name="name"
+                autoComplete="name"
+                value={name}
+                onChange={(e) => { setName(e.target.value); setDirty(true); }}
+              />
+            </>
+          )}
           <label htmlFor={emailId}>Email</label>
           <input
             id={emailId}
@@ -97,7 +140,7 @@ export function LoginScreen({ loginError, onLogin }) {
             id={passwordId}
             type="password"
             name="password"
-            autoComplete="current-password"
+            autoComplete={isRegister ? "new-password" : "current-password"}
             value={password}
             onChange={(e) => { setPassword(e.target.value); setDirty(true); }}
           />
@@ -107,9 +150,22 @@ export function LoginScreen({ loginError, onLogin }) {
             <AlertTriangle size={20} aria-hidden="true" /> {visibleError}
           </div>
         )}
-        <button type="submit" className="primary">
-          Entrar como {mode === "patient" ? "paciente" : "psicólogo"} <ChevronRight size={22} aria-hidden="true" />
+        <button type="submit" className="primary" disabled={loading}>
+          {loading ? "Cargando..." : (
+            isProfessional && isRegister
+              ? <><UserPlus size={22} aria-hidden="true" /> Registrarse</>
+              : <>Entrar como {mode === "patient" ? "paciente" : "psicólogo"} <ChevronRight size={22} aria-hidden="true" /></>
+          )}
         </button>
+        {isProfessional && (
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => { setIsRegister(!isRegister); setDirty(true); }}
+          >
+            {isRegister ? "Ya tengo cuenta, iniciar sesión" : "No tengo cuenta, registrarme"}
+          </button>
+        )}
       </form>
     </section>
   );
