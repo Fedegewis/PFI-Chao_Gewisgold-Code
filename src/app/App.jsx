@@ -17,6 +17,7 @@ export function App() {
     login,
     loginError,
     logout,
+    register,
     motivationMessage,
     openActivity,
     patients,
@@ -50,7 +51,7 @@ export function App() {
         <GlobalHeader screen={screen} role={role} onLogout={logout} onNavigate={setScreen} />
         <ErrorBoundary>
           <main id="main-content">
-            {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} />}
+            {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} />}
             {screen === SCREEN_NAMES.patient && isAuthenticated && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
             {screen === SCREEN_NAMES.activity && isAuthenticated && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
             {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (

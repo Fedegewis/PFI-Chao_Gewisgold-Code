@@ -39,6 +39,7 @@ textarea { min-height: 150px; resize: vertical; }
 .primary--saved { background: #7fae95; border-color: #7fae95; }
 .primary:disabled, .secondary-action:disabled { cursor: not-allowed; background: #cbd5c4; color: #3d4f38; }
 .error-box { display: flex; gap: 10px; border: 2px solid #f1b5a7; border-radius: 8px; background: #fff2ef; padding: 12px; color: #9a3412; font-weight: 900; }
+.link-button { background: none; border: none; color: #617a58; font-weight: 850; cursor: pointer; padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
 .patient-layout, .professional-layout, .activity-layout { display: grid; gap: 28px; }
 .patient-layout { grid-template-columns: minmax(0, 1fr) auto; }
 .patient-main, .activity-panel, .professional-patients { padding: 32px; }

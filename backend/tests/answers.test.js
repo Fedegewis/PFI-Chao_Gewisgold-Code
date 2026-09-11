@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
+import { authHeaderFor } from "./helpers.js";
 
 let professional;
 let patient;
 let testSectionId1;
 let testSectionId2;
+let profAuth;
 
 async function cleanTestData() {
   await db("answers")
@@ -43,6 +45,8 @@ async function createTestFixtures() {
       email: `prof-${Date.now()}@test.com`,
     })
     .returning("*");
+
+  profAuth = authHeaderFor(professional);
 
   [patient] = await db("users")
     .insert({
@@ -110,7 +114,7 @@ async function createTestFixtures() {
 }
 
 async function createSession(sections) {
-  const res = await request(app).post("/api/sessions").send({
+  const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
     patient_id: patient.id,
     professional_id: professional.id,
     sections,
@@ -474,7 +478,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
-      );
+      ).set("Authorization", profAuth);
       assert.equal(res.status, 200);
       assert.equal(res.body.session_id, session.id);
       assert.equal(res.body.status, "completed");
@@ -488,7 +492,7 @@ describe("Answers & Results API", () => {
     });
 
     it("returns 404 for nonexistent session", async () => {
-      const res = await request(app).get("/api/sessions/99999/results");
+      const res = await request(app).get("/api/sessions/99999/results").set("Authorization", profAuth);
       assert.equal(res.status, 404);
     });
 
@@ -500,7 +504,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
-      );
+      ).set("Authorization", profAuth);
       assert.equal(res.status, 400);
     });
   });
@@ -525,7 +529,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
-      );
+      ).set("Authorization", profAuth);
       assert.equal(res.status, 200);
 
       const s1 = res.body.sections[0];
@@ -592,7 +596,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
-      );
+      ).set("Authorization", profAuth);
       assert.equal(res.body.global.accuracy, null);
       assert.equal(res.body.global.completion_rate, 0);
       assert.equal(res.body.global.unanswered_count, 1);
@@ -607,7 +611,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
-      );
+      ).set("Authorization", profAuth);
       assert.equal(res.body.global.mean_latency_ms, null);
       assert.equal(res.body.global.min_latency_ms, null);
       assert.equal(res.body.global.max_latency_ms, null);
@@ -629,7 +633,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
-      );
+      ).set("Authorization", profAuth);
       assert.equal(res.body.global.latency_std_ms, 0);
       assert.equal(res.body.global.mean_latency_ms, 5000);
       assert.equal(res.body.global.min_latency_ms, 5000);

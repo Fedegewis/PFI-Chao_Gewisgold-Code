@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
+import { authHeaderFor } from "./helpers.js";
 
 let professional;
 let patient;
 let testSectionId;
+let profAuth;
 
 async function cleanTestData() {
   await db("session_questions").whereIn(
@@ -36,6 +38,8 @@ async function createTestFixtures() {
   [professional] = await db("users")
     .insert({ role: "professional", name: "Dr. Stimulus", email: `prof-${Date.now()}@test-stimulus.com` })
     .returning("*");
+
+  profAuth = authHeaderFor(professional);
 
   [patient] = await db("users")
     .insert({
@@ -122,7 +126,7 @@ describe("Stimulus support", () => {
 
   describe("Session creation snapshots stimulus", () => {
     it("copies stimulus to stimulus_snapshot when present", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 3 }],
@@ -147,7 +151,7 @@ describe("Stimulus support", () => {
     });
 
     it("sets stimulus_snapshot to null when question has no stimulus", async () => {
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 3 }],
@@ -163,7 +167,7 @@ describe("Stimulus support", () => {
 
   describe("GET /api/sessions/:id exposes stimulus_snapshot", () => {
     it("returns stimulus_snapshot in session questions", async () => {
-      const createRes = await request(app).post("/api/sessions").send({
+      const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 3 }],
@@ -185,7 +189,7 @@ describe("Stimulus support", () => {
 
   describe("Snapshot immutability", () => {
     it("modifying question stimulus does not affect existing session snapshot", async () => {
-      const createRes = await request(app).post("/api/sessions").send({
+      const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 3 }],
@@ -213,7 +217,7 @@ describe("Stimulus support", () => {
 
   describe("Scoring unaffected by stimulus", () => {
     it("answering a question with stimulus works normally", async () => {
-      const createRes = await request(app).post("/api/sessions").send({
+      const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: testSectionId, question_count: 3 }],
@@ -237,7 +241,7 @@ describe("Stimulus support", () => {
       assert.equal(completeRes.status, 200);
       assert.equal(completeRes.body.status, "completed");
 
-      const resultsRes = await request(app).get(`/api/sessions/${sessionId}/results`);
+      const resultsRes = await request(app).get(`/api/sessions/${sessionId}/results`).set("Authorization", profAuth);
       assert.equal(resultsRes.status, 200);
       assert.equal(resultsRes.body.global.accuracy, 1);
     });
@@ -265,7 +269,7 @@ describe("Stimulus support", () => {
         source: "test_stimulus_fixture",
       });
 
-      const res = await request(app).post("/api/sessions").send({
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
         sections: [{ section_id: legacySection.id, question_count: 1 }],

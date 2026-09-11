@@ -1,5 +1,6 @@
 import { Router } from "express";
 import db from "../db/connection.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -136,7 +137,7 @@ function parseNumericFields(row) {
   };
 }
 
-router.post("/sessions", async (req, res, next) => {
+router.post("/sessions", requireAuth, requireRole("professional"), async (req, res, next) => {
   try {
     const { patient_id, professional_id, sections } = req.body;
 
@@ -489,7 +490,7 @@ router.post("/sessions/:id/abandon", async (req, res, next) => {
   }
 });
 
-router.get("/sessions/:id/results", async (req, res, next) => {
+router.get("/sessions/:id/results", requireAuth, requireRole("professional"), async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);
     if (!Number.isFinite(sessionId) || sessionId < 1) {

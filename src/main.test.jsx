@@ -9,6 +9,8 @@ function renderApp() {
 
 function setStoredProfessionalSession() {
   localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "professional", professionalId: "psico-01" }));
+  localStorage.setItem("ma_auth_token", "fake-test-token");
+  localStorage.setItem("ma_auth_user", JSON.stringify({ id: "psico-01", role: "professional", name: "Dra. Test", email: "test@demo.com" }));
 }
 
 function setStoredPatientSession() {
@@ -28,7 +30,7 @@ describe("MenteActiva critical flows", () => {
     expect(screen.getByDisplayValue("elena.rios@demo.com")).toBeInTheDocument();
   });
 
-  test("shows validation for invalid login and navigates after a valid professional login", async () => {
+  test("shows validation for invalid patient login", async () => {
     const user = userEvent.setup();
     renderApp();
 
@@ -39,13 +41,28 @@ describe("MenteActiva critical flows", () => {
     await user.click(screen.getByRole("button", { name: /entrar como paciente/i }));
 
     expect(screen.getByText(/credenciales incorrectas/i)).toBeInTheDocument();
+  });
+
+  test("navigates after a valid professional login via API", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        user: { id: 1, role: "professional", name: "Dra. Test", email: "test@demo.com", is_active: true },
+        token: "fake-jwt-token",
+      }),
+    })));
+
+    const user = userEvent.setup();
+    renderApp();
 
     await user.click(screen.getByRole("tab", { name: /psic[oó]logo/i }));
+    await user.type(screen.getByLabelText(/email/i), "test@demo.com");
+    await user.type(screen.getByLabelText(/clave/i), "segura123");
     await user.click(screen.getByRole("button", { name: /entrar como psic[oó]logo/i }));
 
     expect(await screen.findByRole("heading", { name: /seguimiento/i })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^paciente$/i }));
-    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
   });
 
   test("restores the professional route from direct URL and persisted session", async () => {
