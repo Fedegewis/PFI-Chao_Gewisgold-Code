@@ -6,6 +6,7 @@ import sectionsRouter from "./routes/sections.js";
 import usersRouter from "./routes/users.js";
 import sessionsRouter from "./routes/sessions.js";
 import authRouter from "./routes/auth.js";
+import googleAuthRouter from "./routes/google-auth.js";
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(express.json());
 
 app.use("/api", healthRouter);
 app.use("/api", authRouter);
+app.use("/api", googleAuthRouter);
 app.use("/api", sectionsRouter);
 app.use("/api", usersRouter);
 app.use("/api", sessionsRouter);
