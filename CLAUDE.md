@@ -440,15 +440,27 @@ Respetando dependencias y orden de PRs.
 Después de ese checkpoint, las siguientes features se crearán desde `main` actualizado, salvo dependencia que justifique otra estrategia.
 
 ### ETAPA 5A — feature/professional-auth
-Estado: **EN PROGRESO.**
+Estado: **COMPLETADA.** Mergeada a main.
 
 Autenticación profesional con email/password. JWT stateless, bcrypt, registro, login, middleware de autorización. `POST /api/users` restringido a pacientes; profesionales se registran exclusivamente por `/api/auth/register`. `JWT_SECRET` obligatorio (error si falta). CORS configurado con `CORS_ORIGIN`.
 
 TODO pendiente para Etapa 6 (invitaciones): `POST /api/users` no está protegido con auth — actualmente necesario para crear pacientes sin auth definida aún. Proteger o reemplazar cuando se implemente el flujo de invitaciones.
 
-### ETAPA 5B — Google OAuth para profesionales
+### ETAPA 5B — feature/google-auth
+Estado: **COMPLETADA.** Implementada y probada manualmente.
 
 Login alternativo para profesionales vía Google. Complementa email/password, no lo reemplaza.
+
+**Implementado:**
+- `POST /api/auth/google` — recibe credential (ID token de Google), verifica con `google-auth-library`, busca/crea/vincula profesional, emite JWT MenteActiva.
+- Migración 009: columnas `google_id` (unique, nullable) y `auth_provider` (default `'local'`) en `users`.
+- Frontend: botón "Continuar con Google" en modo Psicólogo (Google Identity Services, script de GSI).
+- Account linking: si el email de Google coincide con un profesional existente (email/password), vincula `google_id` automáticamente (email verificado por Google en backend).
+- Google NO crea ni autentica pacientes (403).
+- No se almacena client secret — solo Client ID (verificación mediante clave pública de Google).
+- 12 tests backend para Google auth (credential inválido, email no verificado, paciente rechazado, linking, usuario inactivo, `/auth/me` con JWT Google, etc.).
+- Variables: `GOOGLE_CLIENT_ID` (backend), `VITE_GOOGLE_CLIENT_ID` (frontend). Opcionales — sin ellas, el botón no aparece.
+- 134 tests backend totales (0 fail).
 
 ### ETAPA 5C — Deploy inicial
 

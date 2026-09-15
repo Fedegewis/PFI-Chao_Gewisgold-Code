@@ -68,6 +68,16 @@ export async function loginProfessional({ email, password }) {
   return data;
 }
 
+export async function loginWithGoogle(credential) {
+  const data = await apiRequest("/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+  setToken(data.token);
+  saveUser(data.user);
+  return data;
+}
+
 export async function fetchCurrentUser() {
   if (!authToken) return null;
   try {

@@ -26,6 +26,7 @@ import {
   getSavedUser,
   getToken,
   loginProfessional,
+  loginWithGoogle,
   registerProfessional,
 } from "../services/authService.js";
 
@@ -215,6 +216,23 @@ export function useAppController() {
     }
   }
 
+  async function googleLogin(credential) {
+    try {
+      const data = await loginWithGoogle(credential);
+      setAuthUser(data.user);
+      setRole("professional");
+      setProfessionalId(data.user.id);
+      setIsAuthenticated(true);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", buildHash(SCREEN_NAMES.professional, selectedActivity.id));
+      }
+      setScreen(SCREEN_NAMES.professional);
+      setLoginError("");
+    } catch (err) {
+      setLoginError(err.message || "Error al iniciar sesión con Google");
+    }
+  }
+
   function logout() {
     setIsAuthenticated(false);
     setAuthUser(null);
@@ -267,6 +285,7 @@ export function useAppController() {
     loginError,
     login,
     logout,
+    googleLogin,
     register,
     motivationMessage,
     openActivity,

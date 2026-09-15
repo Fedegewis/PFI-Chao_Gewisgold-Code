@@ -1,8 +1,10 @@
 import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserPlus, UserRound } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LOGIN_CREDENTIALS, MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 
-export function LoginScreen({ loginError, onLogin, onRegister }) {
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) {
   const loginMotivation = useMemo(() => {
     const day = new Date().getDay();
     const offset = Math.floor(MOTIVATION_MESSAGES.length / 2);
@@ -20,6 +22,62 @@ export function LoginScreen({ loginError, onLogin, onRegister }) {
   const nameId = "login-name";
   const patientTabRef = useRef(null);
   const professionalTabRef = useRef(null);
+
+  const googleBtnRef = useRef(null);
+  const [googleReady, setGoogleReady] = useState(false);
+
+  const handleGoogleResponse = useCallback(
+    (response) => {
+      if (response.credential) {
+        onGoogleLogin(response.credential);
+      }
+    },
+    [onGoogleLogin]
+  );
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+
+    function initGoogle() {
+      if (!window.google?.accounts?.id) return;
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+      });
+      setGoogleReady(true);
+    }
+
+    if (window.google?.accounts?.id) {
+      initGoogle();
+      return;
+    }
+
+    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    if (existing) {
+      existing.addEventListener("load", initGoogle);
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = initGoogle;
+    document.head.appendChild(script);
+  }, [handleGoogleResponse]);
+
+  useEffect(() => {
+    if (!googleReady || !GOOGLE_CLIENT_ID || mode !== "professional" || !googleBtnRef.current) return;
+    googleBtnRef.current.innerHTML = "";
+    window.google.accounts.id.renderButton(googleBtnRef.current, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "continue_with",
+      locale: "es",
+      width: googleBtnRef.current.offsetWidth || 300,
+    });
+  }, [googleReady, mode]);
 
   const visibleError = dirty ? "" : loginError;
 
@@ -165,6 +223,12 @@ export function LoginScreen({ loginError, onLogin, onRegister }) {
           >
             {isRegister ? "Ya tengo cuenta, iniciar sesión" : "No tengo cuenta, registrarme"}
           </button>
+        )}
+        {isProfessional && GOOGLE_CLIENT_ID && (
+          <>
+            <div className="login-divider" aria-hidden="true"><span>o</span></div>
+            <div ref={googleBtnRef} className="google-btn-container" />
+          </>
         )}
       </form>
     </section>
