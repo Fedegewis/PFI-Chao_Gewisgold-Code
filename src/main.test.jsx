@@ -278,17 +278,24 @@ describe("MenteActiva critical flows", () => {
 
   test("completes the main patient activity flow and updates the dashboard state", async () => {
     const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "Test Paciente", email: "t@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
     renderApp();
 
-    await user.click(screen.getByRole("button", { name: /entrar como paciente/i }));
-    await user.click(screen.getByRole("button", { name: /lista del supermercado/i }));
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
 
+    // patientFromBackendUser inicializa maxQuestions=4 (default de createPatient),
+    // así que la actividad presenta 4 preguntas del banco demo.
     const answers = [
       /pan, leche y manzanas/i,
       /pilas/i,
       /manzanas/i,
-      /dos yogures y un queso/i,
-      /tomate, queso y albahaca/i
+      /dos yogures y un queso/i
     ];
 
     for (const answer of answers) {
@@ -790,25 +797,25 @@ describe("MenteActiva critical flows", () => {
     setStoredProfessionalSession();
     window.location.hash = "#/professional";
     renderApp();
-    await screen.findByRole("heading", { name: /ficha del usuario/i });
+    await screen.findByRole("heading", { level: 2, name: /elena r[ií]os/i });
 
     const textarea = screen.getByLabelText(/c[oó]mo se mide y qu[eé] tipo de preguntas debe hacer/i);
     const numberInput = screen.getByLabelText(/cantidad m[aá]xima de preguntas/i);
 
     await user.clear(textarea);
     await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
-    expect(await screen.findByText(/describ[eí] al menos una indicaci[oó]n/i)).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/describ[eí] al menos una indicaci[oó]n/i);
 
     await user.type(textarea, "Indicaciones nuevas");
     await user.clear(numberInput);
     await user.type(numberInput, "11");
     await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
-    expect(await screen.findByText(/la cantidad m[aá]xima debe estar entre 1 y 10 preguntas/i)).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/la cantidad m[aá]xima debe estar entre 1 y 10 preguntas/i);
 
     await user.clear(numberInput);
     await user.type(numberInput, "6");
     await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
 
-    expect(await screen.findByText(/criterio guardado/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^guardado$/i })).toBeInTheDocument();
   });
 });
