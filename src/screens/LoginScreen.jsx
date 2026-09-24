@@ -1,6 +1,6 @@
 import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserPlus, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LOGIN_CREDENTIALS, MOTIVATION_MESSAGES } from "../constants/appConfig.js";
+import { MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -13,8 +13,8 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
   const [mode, setMode] = useState("patient");
   const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState(LOGIN_CREDENTIALS.patient.email);
-  const [password, setPassword] = useState(LOGIN_CREDENTIALS.patient.password);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
   const emailId = "login-email";
@@ -85,13 +85,8 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
     setMode(nextMode);
     setIsRegister(false);
     setName("");
-    if (nextMode === "patient") {
-      setEmail(LOGIN_CREDENTIALS.patient.email);
-      setPassword(LOGIN_CREDENTIALS.patient.password);
-    } else {
-      setEmail("");
-      setPassword("");
-    }
+    setEmail("");
+    setPassword("");
     setDirty(false);
   }
 
@@ -168,7 +163,7 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
               <h2>{isProfessional && isRegister ? "Crear cuenta" : "Inicio de sesión"}</h2>
               <p>{isProfessional
                 ? (isRegister ? "Completá tus datos para registrarte." : "Ingresá con tu cuenta de profesional.")
-                : "Usá las credenciales demo del README."}</p>
+                : "Ingresá con las credenciales que recibiste en tu invitación."}</p>
             </div>
           </div>
           {isProfessional && isRegister && (

@@ -1,4 +1,4 @@
-import { COGNITIVE_DOMAINS, DEFAULT_PROFESSIONAL_ID, LOGIN_CREDENTIALS } from "../constants/appConfig.js";
+import { COGNITIVE_DOMAINS, DEFAULT_PROFESSIONAL_ID } from "../constants/appConfig.js";
 import { PATIENT_DEFAULTS, PROFESSIONAL_DEFAULT_INSTRUCTIONS } from "../constants/content.js";
 
 export function createWeeklyProgress() {
@@ -212,7 +212,7 @@ export function buildInitialPatients() {
       id: "elena",
       name: "Elena Ríos",
       age: 72,
-      email: LOGIN_CREDENTIALS.patient.email,
+      email: "elena.rios@demo.com",
       aiInstructions: "Usar preguntas breves, ejemplos cotidianos y refuerzo amable. Evitar consignas con más de dos datos juntos.",
       link: "https://menteactiva.demo/p/elena",
       maxQuestions: 5

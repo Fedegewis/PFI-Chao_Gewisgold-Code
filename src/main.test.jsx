@@ -68,25 +68,138 @@ describe("MenteActiva critical flows", () => {
     window.location.hash = "";
   });
 
-  test("renders the main login page", () => {
+  test("renders the main login page with empty patient credentials", () => {
     renderApp();
 
     expect(screen.getByRole("heading", { name: /menteactiva/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /entrar como paciente/i })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("elena.rios@demo.com")).toBeInTheDocument();
+    expect(screen.getByLabelText(/email/i)).toHaveValue("");
+    expect(screen.getByLabelText(/clave/i)).toHaveValue("");
+    expect(screen.queryByDisplayValue("elena.rios@demo.com")).not.toBeInTheDocument();
   });
 
-  test("shows validation for invalid patient login", async () => {
+  test("shows a backend-driven error for invalid patient credentials", async () => {
     const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ error: "Credenciales incorrectas" }),
+    })));
     renderApp();
 
-    await user.clear(screen.getByLabelText(/email/i));
     await user.type(screen.getByLabelText(/email/i), "wrong@demo.com");
-    await user.clear(screen.getByLabelText(/clave/i));
     await user.type(screen.getByLabelText(/clave/i), "bad-pass");
     await user.click(screen.getByRole("button", { name: /entrar como paciente/i }));
 
-    expect(screen.getByText(/credenciales incorrectas/i)).toBeInTheDocument();
+    expect(await screen.findByText(/credenciales incorrectas/i)).toBeInTheDocument();
+  });
+
+  test("patient login calls POST /api/auth/login and enters the patient screen", async () => {
+    const user = userEvent.setup();
+    const calls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      calls.push({ url: String(url), method: (opts.method || "GET").toUpperCase(), body: opts.body });
+      if (String(url).includes("/auth/login")) {
+        return jsonResponse({
+          user: { id: 42, role: "patient", name: "Real Patient", email: "real@patient.com", is_active: true },
+          token: "patient-jwt",
+        });
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.type(screen.getByLabelText(/email/i), "real@patient.com");
+    await user.type(screen.getByLabelText(/clave/i), "secreta123");
+    await user.click(screen.getByRole("button", { name: /entrar como paciente/i }));
+
+    expect(await screen.findByRole("button", { name: /lista del supermercado/i })).toBeInTheDocument();
+    expect(localStorage.getItem("ma_auth_token")).toBe("patient-jwt");
+    const savedUser = JSON.parse(localStorage.getItem("ma_auth_user"));
+    expect(savedUser.role).toBe("patient");
+    const loginCall = calls.find((c) => c.url.includes("/auth/login"));
+    expect(loginCall).toBeDefined();
+    expect(loginCall.method).toBe("POST");
+    expect(JSON.parse(loginCall.body)).toEqual({ email: "real@patient.com", password: "secreta123" });
+  });
+
+  test("professional using the patient tab does NOT enter the patient panel and gets an error", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).includes("/auth/login")) {
+        return jsonResponse({
+          user: { id: 7, role: "professional", name: "Dra. X", email: "dra@x.com", is_active: true },
+          token: "prof-jwt",
+        });
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.type(screen.getByLabelText(/email/i), "dra@x.com");
+    await user.type(screen.getByLabelText(/clave/i), "profpass");
+    await user.click(screen.getByRole("button", { name: /entrar como paciente/i }));
+
+    expect(await screen.findByText(/no corresponde a un paciente/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /lista del supermercado/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /seguimiento/i })).not.toBeInTheDocument();
+    expect(localStorage.getItem("ma_auth_token")).toBeNull();
+  });
+
+  test("patient using the professional tab does NOT enter the professional panel and gets an error", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).includes("/auth/login")) {
+        return jsonResponse({
+          user: { id: 42, role: "patient", name: "Paciente Y", email: "y@p.com", is_active: true },
+          token: "pat-jwt",
+        });
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(screen.getByRole("tab", { name: /psic[oó]logo/i }));
+    await user.type(screen.getByLabelText(/email/i), "y@p.com");
+    await user.type(screen.getByLabelText(/clave/i), "patpass");
+    await user.click(screen.getByRole("button", { name: /entrar como psic[oó]logo/i }));
+
+    expect(await screen.findByText(/no corresponde a un profesional/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /seguimiento/i })).not.toBeInTheDocument();
+    expect(localStorage.getItem("ma_auth_token")).toBeNull();
+  });
+
+  test("restores an authenticated patient session on refresh from localStorage", async () => {
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "Real Patient", email: "real@patient.com" })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+
+    renderApp();
+
+    expect(await screen.findByRole("button", { name: /lista del supermercado/i })).toBeInTheDocument();
+  });
+
+  test("logout as patient clears token, user and returns to login", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "Real Patient", email: "real@patient.com" })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /salir/i }));
+
+    expect(localStorage.getItem("ma_auth_token")).toBeNull();
+    expect(localStorage.getItem("ma_auth_user")).toBeNull();
+    expect(await screen.findByRole("button", { name: /entrar como paciente/i })).toBeInTheDocument();
   });
 
   test("navigates after a valid professional login via API", async () => {

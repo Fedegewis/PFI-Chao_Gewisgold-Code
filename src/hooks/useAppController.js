@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, PATIENT_LOGINS, SCREEN_NAMES } from "../constants/appConfig.js";
+import { DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
@@ -27,7 +27,7 @@ import {
   clearAuth,
   getSavedUser,
   getToken,
-  loginProfessional,
+  loginWithPassword,
   loginWithGoogle,
   registerProfessional,
 } from "../services/authService.js";
@@ -56,13 +56,23 @@ export function useAppController() {
     const savedUser = getSavedUser();
     const hasToken = Boolean(getToken());
     const isAuthenticatedProfessional = hasToken && savedUser?.role === "professional";
-    // Profesionales autenticados: los pacientes vienen del backend, no de localStorage.
-    // Modo demo/paciente: se conservan los pacientes hardcodeados existentes.
-    const patients = isAuthenticatedProfessional ? [] : loadAppPatients();
-    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional };
+    const isAuthenticatedPatient = hasToken && savedUser?.role === "patient";
+    // Autenticados: los datos vienen del backend, no de localStorage.
+    // Paciente autenticado: sembramos el propio user como único paciente en la lista.
+    // Modo demo/legacy: se conservan los pacientes hardcodeados existentes.
+    let patients;
+    if (isAuthenticatedProfessional) {
+      patients = [];
+    } else if (isAuthenticatedPatient) {
+      patients = [patientFromBackendUser(savedUser)];
+    } else {
+      patients = loadAppPatients();
+    }
+    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional, isAuthenticatedPatient };
   });
   const [role, setRole] = useState(() => {
     if (init.hasToken && init.savedUser?.role === "professional") return "professional";
+    if (init.hasToken && init.savedUser?.role === "patient") return "patient";
     return init.session?.role || "patient";
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -106,13 +116,15 @@ export function useAppController() {
   const motivationMessage = useMemo(() => MOTIVATION_MESSAGES[new Date().getDay() % MOTIVATION_MESSAGES.length], []);
 
   const isBackendProfessional = role === "professional" && Boolean(authUser?.id);
+  const isBackendPatient = role === "patient" && Boolean(authUser?.id);
+  const isBackendAuthenticated = isBackendProfessional || isBackendPatient;
 
   useEffect(() => {
-    // Solo se persisten pacientes en localStorage para modo demo/paciente.
-    // Los profesionales autenticados tienen a Postgres como fuente de verdad.
-    if (isBackendProfessional) return;
+    // Solo se persisten pacientes en localStorage para modo demo/legacy.
+    // Los usuarios autenticados tienen a Postgres como fuente de verdad.
+    if (isBackendAuthenticated) return;
     savePatients(patients);
-  }, [patients, isBackendProfessional]);
+  }, [patients, isBackendAuthenticated]);
 
   useEffect(() => {
     if (!isBackendProfessional) return;
@@ -153,7 +165,7 @@ export function useAppController() {
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     function handleStorage(event) {
-      if (event.key === "ma_patients_v1" && event.newValue && !isBackendProfessional) {
+      if (event.key === "ma_patients_v1" && event.newValue && !isBackendAuthenticated) {
         try {
           const parsed = JSON.parse(event.newValue);
           if (Array.isArray(parsed)) setPatients(parsed.map(normalizePatient));
@@ -168,7 +180,7 @@ export function useAppController() {
     }
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [isBackendProfessional]);
+  }, [isBackendAuthenticated]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -205,36 +217,40 @@ export function useAppController() {
   }, [isAuthenticated, role]);
 
   async function login(nextRole, email, password) {
-    if (nextRole === SCREEN_NAMES.patient) {
-      const match = PATIENT_LOGINS.find((p) => p.email === email && p.password === password);
-      if (match) {
-        setRole(nextRole);
-        setIsAuthenticated(true);
-        setSelectedPatientId(match.patientId);
+    try {
+      const data = await loginWithPassword({ email, password });
+      if (data.user.role !== nextRole) {
+        clearAuth();
+        setLoginError(
+          nextRole === SCREEN_NAMES.patient
+            ? "Esa cuenta no corresponde a un paciente."
+            : "Esa cuenta no corresponde a un profesional."
+        );
+        return;
+      }
+
+      setAuthUser(data.user);
+      setRole(data.user.role);
+      setIsAuthenticated(true);
+      setLoginError("");
+
+      if (data.user.role === "professional") {
+        setPatients([]);
+        setSelectedPatientId(null);
+        setProfessionalId(data.user.id);
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", buildHash(SCREEN_NAMES.professional, selectedActivity.id));
+        }
+        setScreen(SCREEN_NAMES.professional);
+      } else {
+        const patientObj = patientFromBackendUser(data.user);
+        setPatients([patientObj]);
+        setSelectedPatientId(patientObj.id);
         if (typeof window !== "undefined") {
           window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
         }
         setScreen(SCREEN_NAMES.patient);
-        setLoginError("");
-        return;
       }
-      setLoginError(LOGIN_ERROR_MESSAGE);
-      return;
-    }
-
-    try {
-      const data = await loginProfessional({ email, password });
-      setPatients([]);
-      setSelectedPatientId(null);
-      setAuthUser(data.user);
-      setRole("professional");
-      setProfessionalId(data.user.id);
-      setIsAuthenticated(true);
-      if (typeof window !== "undefined") {
-        window.history.replaceState(null, "", buildHash(SCREEN_NAMES.professional, selectedActivity.id));
-      }
-      setScreen(SCREEN_NAMES.professional);
-      setLoginError("");
     } catch (err) {
       setLoginError(err.message || LOGIN_ERROR_MESSAGE);
     }

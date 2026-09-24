@@ -62,7 +62,7 @@ export async function registerProfessional({ name, email, password }) {
   return data;
 }
 
-export async function loginProfessional({ email, password }) {
+export async function loginWithPassword({ email, password }) {
   const data = await apiRequest("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
@@ -71,6 +71,8 @@ export async function loginProfessional({ email, password }) {
   saveUser(data.user);
   return data;
 }
+
+export const loginProfessional = loginWithPassword;
 
 export async function loginWithGoogle(credential) {
   const data = await apiRequest("/auth/google", {
