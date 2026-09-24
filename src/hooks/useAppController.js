@@ -6,8 +6,10 @@ import {
   DEMO_PROFILES,
   buildInitialPatients,
   normalizePatient,
+  patientFromBackendUser,
   refreshDailyPatientState
 } from "../services/patientService.js";
+import { createPatientApi, fetchPatients } from "../services/patientsApi.js";
 import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
@@ -51,10 +53,13 @@ export function useAppController() {
   const [init] = useState(() => {
     const session = loadAppSession();
     const hash = readHashState();
-    const patients = loadAppPatients();
     const savedUser = getSavedUser();
     const hasToken = Boolean(getToken());
-    return { session, hash, patients, savedUser, hasToken };
+    const isAuthenticatedProfessional = hasToken && savedUser?.role === "professional";
+    // Profesionales autenticados: los pacientes vienen del backend, no de localStorage.
+    // Modo demo/paciente: se conservan los pacientes hardcodeados existentes.
+    const patients = isAuthenticatedProfessional ? [] : loadAppPatients();
+    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional };
   });
   const [role, setRole] = useState(() => {
     if (init.hasToken && init.savedUser?.role === "professional") return "professional";
@@ -85,19 +90,53 @@ export function useAppController() {
     const stored = loadSessions();
     return stored.length ? stored : buildInitialSessions();
   });
-  const [selectedPatientId, setSelectedPatientId] = useState(() => init.patients[0].id);
+  const [selectedPatientId, setSelectedPatientId] = useState(() =>
+    init.patients.length > 0 ? init.patients[0].id : null
+  );
   const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(init.hash.activityId));
   const [loginError, setLoginError] = useState("");
 
   const selectedPatient = useMemo(
-    () => patients.find((patient) => patient.id === selectedPatientId) ?? patients[0],
+    () =>
+      selectedPatientId
+        ? patients.find((patient) => patient.id === selectedPatientId) ?? null
+        : null,
     [patients, selectedPatientId]
   );
   const motivationMessage = useMemo(() => MOTIVATION_MESSAGES[new Date().getDay() % MOTIVATION_MESSAGES.length], []);
 
+  const isBackendProfessional = role === "professional" && Boolean(authUser?.id);
+
   useEffect(() => {
+    // Solo se persisten pacientes en localStorage para modo demo/paciente.
+    // Los profesionales autenticados tienen a Postgres como fuente de verdad.
+    if (isBackendProfessional) return;
     savePatients(patients);
-  }, [patients]);
+  }, [patients, isBackendProfessional]);
+
+  useEffect(() => {
+    if (!isBackendProfessional) return;
+    let cancelled = false;
+    fetchPatients()
+      .then((rows) => {
+        if (cancelled) return;
+        const mapped = Array.isArray(rows) ? rows.map(patientFromBackendUser) : [];
+        setPatients(mapped);
+        setSelectedPatientId((current) => {
+          if (mapped.length === 0) return null;
+          if (current && mapped.some((p) => p.id === current)) return current;
+          return mapped[0].id;
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPatients([]);
+        setSelectedPatientId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isBackendProfessional, authUser?.id]);
 
   useEffect(() => {
     saveSessions(sessions);
@@ -114,7 +153,7 @@ export function useAppController() {
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     function handleStorage(event) {
-      if (event.key === "ma_patients_v1" && event.newValue) {
+      if (event.key === "ma_patients_v1" && event.newValue && !isBackendProfessional) {
         try {
           const parsed = JSON.parse(event.newValue);
           if (Array.isArray(parsed)) setPatients(parsed.map(normalizePatient));
@@ -185,6 +224,8 @@ export function useAppController() {
 
     try {
       const data = await loginProfessional({ email, password });
+      setPatients([]);
+      setSelectedPatientId(null);
       setAuthUser(data.user);
       setRole("professional");
       setProfessionalId(data.user.id);
@@ -202,6 +243,8 @@ export function useAppController() {
   async function register(name, email, password) {
     try {
       const data = await registerProfessional({ name, email, password });
+      setPatients([]);
+      setSelectedPatientId(null);
       setAuthUser(data.user);
       setRole("professional");
       setProfessionalId(data.user.id);
@@ -219,6 +262,8 @@ export function useAppController() {
   async function googleLogin(credential) {
     try {
       const data = await loginWithGoogle(credential);
+      setPatients([]);
+      setSelectedPatientId(null);
       setAuthUser(data.user);
       setRole("professional");
       setProfessionalId(data.user.id);
@@ -231,6 +276,14 @@ export function useAppController() {
     } catch (err) {
       setLoginError(err.message || "Error al iniciar sesión con Google");
     }
+  }
+
+  async function createPatientForProfessional({ name, age, email }) {
+    const user = await createPatientApi({ name, age, email });
+    const nextPatient = patientFromBackendUser(user);
+    setPatients((current) => [...current, nextPatient]);
+    setSelectedPatientId(nextPatient.id);
+    return nextPatient;
   }
 
   function logout() {
@@ -251,12 +304,14 @@ export function useAppController() {
   }
 
   function openActivity(activity) {
+    if (!selectedPatient) return;
     if (selectedPatient.completed.includes(activity.id)) return;
     setSelectedActivity(activity);
     setScreen(SCREEN_NAMES.activity);
   }
 
   function completeActivity(summary) {
+    if (!selectedPatient) return;
     const { nextSessions, patientPatch } = buildCompletedActivityState({
       patient: selectedPatient,
       sessions,
@@ -281,6 +336,8 @@ export function useAppController() {
   return {
     activities,
     authUser,
+    createPatientForProfessional,
+    isBackendProfessional,
     isAuthenticated,
     loginError,
     login,

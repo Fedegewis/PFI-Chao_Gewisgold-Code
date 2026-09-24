@@ -14,8 +14,20 @@ export function PatientDetail({
   questionSample,
   onSaveAiConfig
 }) {
-  const precisionValue = stats.count ? `${stats.avgAccuracy}%` : `${selectedPatient.score}%`;
-  const latencyValue = stats.count ? `${stats.avgLatencySec} s` : selectedPatient.responseTime;
+  const hasScore = (selectedPatient.score ?? 0) > 0;
+  const precisionValue = stats.count
+    ? `${stats.avgAccuracy}%`
+    : hasScore
+      ? `${selectedPatient.score}%`
+      : "—";
+  const rawLatency = selectedPatient.responseTime;
+  const latencyValue = stats.count
+    ? `${stats.avgLatencySec} s`
+    : rawLatency && rawLatency !== "-"
+      ? rawLatency
+      : "—";
+  const trendValue = selectedPatient.trend && selectedPatient.trend !== "0%" ? selectedPatient.trend : "Sin datos";
+  const riskValue = hasScore || stats.count ? selectedPatient.risk : "Sin datos";
 
   return (
     <section className="professional-detail" aria-label={`Datos de ${selectedPatient.name}`}>
@@ -29,9 +41,9 @@ export function PatientDetail({
 
       <div className="metric-grid">
         <MetricCard icon={User} label="Usuario" value={selectedPatient.name.split(" ")[0]} detail={`${selectedPatient.age} años`} />
-        <MetricCard icon={Target} label="Precisión" value={precisionValue} detail={selectedPatient.trend} />
+        <MetricCard icon={Target} label="Precisión" value={precisionValue} detail={trendValue} />
         <MetricCard icon={Timer} label="Tiempo medio" value={latencyValue} detail="respuesta" />
-        <MetricCard icon={Activity} label="Riesgo" value={selectedPatient.risk} detail="preventivo" />
+        <MetricCard icon={Activity} label="Riesgo" value={riskValue} detail="preventivo" />
         <MetricCard icon={CalendarDays} label="Sesiones" value={`${stats.count}`} detail={`${stats.weekCount} esta semana`} />
       </div>
 

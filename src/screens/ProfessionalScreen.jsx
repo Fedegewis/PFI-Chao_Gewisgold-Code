@@ -32,11 +32,16 @@ export function ProfessionalScreen({
   sessions,
   setPatients,
   setSelectedPatientId,
-  updatePatient
+  updatePatient,
+  isBackendProfessional,
+  createPatientForProfessional
 }) {
   const patientSessions = useMemo(
-    () => getPatientSessions(sessions, selectedPatient.id).sort((a, b) => new Date(a.date) - new Date(b.date)),
-    [sessions, selectedPatient.id]
+    () =>
+      selectedPatient
+        ? getPatientSessions(sessions, selectedPatient.id).sort((a, b) => new Date(a.date) - new Date(b.date))
+        : [],
+    [sessions, selectedPatient]
   );
   const stats = useMemo(() => computeStats(patientSessions), [patientSessions]);
   const questionSample = useMemo(buildQuestionSample, []);
@@ -45,7 +50,13 @@ export function ProfessionalScreen({
     setSelectedPatientId(patient.id);
   }
 
-  function handleCreatePatient(trimmedName, parsedAge) {
+  async function handleCreatePatient(trimmedName, parsedAge) {
+    if (isBackendProfessional) {
+      const slug = generatePatientId(trimmedName, patients.length + 1);
+      const email = `${slug}-${Date.now()}@menteactiva.local`;
+      await createPatientForProfessional({ name: trimmedName, age: parsedAge, email });
+      return;
+    }
     const nextPatientId = generatePatientId(trimmedName, patients.length + 1);
     const nextPatient = createNewProfessionalPatient({
       patientId: nextPatientId,
@@ -58,6 +69,7 @@ export function ProfessionalScreen({
   }
 
   function handleSaveAiConfig(instructions, maxQuestions, activeDomains) {
+    if (!selectedPatient) return;
     updatePatient(selectedPatient.id, { aiInstructions: instructions, maxQuestions, activeDomains });
   }
 
@@ -69,15 +81,30 @@ export function ProfessionalScreen({
         selectedPatient={selectedPatient}
         onSelectPatient={handleSelectPatient}
         onCreatePatient={handleCreatePatient}
+        useBackendScope={isBackendProfessional}
       />
-      <PatientDetail
-        selectedPatient={selectedPatient}
-        patientSessions={patientSessions}
-        sessions={sessions}
-        stats={stats}
-        questionSample={questionSample}
-        onSaveAiConfig={handleSaveAiConfig}
-      />
+      {selectedPatient ? (
+        <PatientDetail
+          selectedPatient={selectedPatient}
+          patientSessions={patientSessions}
+          sessions={sessions}
+          stats={stats}
+          questionSample={questionSample}
+          onSaveAiConfig={handleSaveAiConfig}
+        />
+      ) : (
+        <section className="professional-detail" aria-label="Sin paciente seleccionado">
+          <div className="panel">
+            <p className="eyebrow">Ficha del usuario</p>
+            <h2>Ningún paciente seleccionado</h2>
+            <p>
+              {patients.length === 0
+                ? "Todavía no tenés pacientes cargados. Usá \"Agregar paciente\" para crear el primero."
+                : "Seleccioná un paciente de la lista para ver su ficha, métricas y evolución."}
+            </p>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

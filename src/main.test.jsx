@@ -1,16 +1,52 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { App } from "./main.jsx";
 
 function renderApp() {
   return render(<App />);
 }
 
+const DEMO_PROFESSIONAL_ID = "psico-01";
+const DEMO_PATIENT = {
+  id: "elena",
+  role: "patient",
+  name: "Elena Ríos",
+  email: "elena.rios@demo.com",
+  age: 72,
+  professional_id: DEMO_PROFESSIONAL_ID,
+  is_active: true,
+};
+
+function jsonResponse(body, status = 200) {
+  return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
+}
+
+function installFetchStub({ patients = [DEMO_PATIENT], loginUser, createPatientResponse } = {}) {
+  const stub = vi.fn((url, opts = {}) => {
+    const method = (opts.method || "GET").toUpperCase();
+    if (url.includes("/auth/login") || url.includes("/auth/register") || url.includes("/auth/google")) {
+      return jsonResponse({
+        user: loginUser || { id: DEMO_PROFESSIONAL_ID, role: "professional", name: "Dra. Test", email: "test@demo.com", is_active: true },
+        token: "fake-jwt-token",
+      });
+    }
+    if (url.includes("/patients") && method === "GET") {
+      return jsonResponse(patients);
+    }
+    if (url.includes("/users") && method === "POST") {
+      return jsonResponse(createPatientResponse || { ...DEMO_PATIENT, id: "maria-perez", name: "Maria Perez", age: 74, email: "maria.perez@demo.com" }, 201);
+    }
+    return jsonResponse({}, 404);
+  });
+  vi.stubGlobal("fetch", stub);
+  return stub;
+}
+
 function setStoredProfessionalSession() {
-  localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "professional", professionalId: "psico-01" }));
+  localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "professional", professionalId: DEMO_PROFESSIONAL_ID }));
   localStorage.setItem("ma_auth_token", "fake-test-token");
-  localStorage.setItem("ma_auth_user", JSON.stringify({ id: "psico-01", role: "professional", name: "Dra. Test", email: "test@demo.com" }));
+  localStorage.setItem("ma_auth_user", JSON.stringify({ id: DEMO_PROFESSIONAL_ID, role: "professional", name: "Dra. Test", email: "test@demo.com" }));
 }
 
 function setStoredPatientSession() {
@@ -22,6 +58,12 @@ function setStoredSessions(sessions) {
 }
 
 describe("MenteActiva critical flows", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+    window.location.hash = "";
+  });
+
   test("renders the main login page", () => {
     renderApp();
 
@@ -44,13 +86,7 @@ describe("MenteActiva critical flows", () => {
   });
 
   test("navigates after a valid professional login via API", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({
-        user: { id: 1, role: "professional", name: "Dra. Test", email: "test@demo.com", is_active: true },
-        token: "fake-jwt-token",
-      }),
-    })));
+    installFetchStub({ patients: [] });
 
     const user = userEvent.setup();
     renderApp();
@@ -61,18 +97,31 @@ describe("MenteActiva critical flows", () => {
     await user.click(screen.getByRole("button", { name: /entrar como psic[oó]logo/i }));
 
     expect(await screen.findByRole("heading", { name: /seguimiento/i })).toBeInTheDocument();
-
-    vi.unstubAllGlobals();
+    expect(await screen.findByRole("heading", { name: /ning[uú]n paciente seleccionado/i })).toBeInTheDocument();
   });
 
-  test("restores the professional route from direct URL and persisted session", async () => {
+  test("restores the professional route from direct URL and persisted session with real patients", async () => {
+    installFetchStub({ patients: [DEMO_PATIENT] });
     setStoredProfessionalSession();
     window.location.hash = "#/professional";
 
     renderApp();
 
     expect(await screen.findByRole("heading", { name: /seguimiento/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /precisi[oó]n por sesi[oó]n/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /precisi[oó]n por sesi[oó]n/i })).toBeInTheDocument();
+  });
+
+  test("professional with zero patients sees an empty state, not demo data", async () => {
+    installFetchStub({ patients: [] });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: /seguimiento/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /ning[uú]n paciente seleccionado/i })).toBeInTheDocument();
+    expect(screen.queryByText(/elena r[ií]os/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /precisi[oó]n por sesi[oó]n/i })).not.toBeInTheDocument();
   });
 
   test("completes the main patient activity flow and updates the dashboard state", async () => {
@@ -120,6 +169,7 @@ describe("MenteActiva critical flows", () => {
 
   test("validates and completes the critical professional patient-creation form", async () => {
     const user = userEvent.setup();
+    installFetchStub({ patients: [] });
     setStoredProfessionalSession();
     window.location.hash = "#/professional";
     renderApp();
@@ -151,7 +201,14 @@ describe("MenteActiva critical flows", () => {
       pending.resolve = resolve;
       pending.reject = reject;
     });
-    vi.stubGlobal("fetch", vi.fn(() => pending.promise));
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      // Endpoint de pacientes: devolvemos el paciente demo para llegar a la ficha.
+      if (String(url).includes("/patients")) {
+        return jsonResponse([DEMO_PATIENT]);
+      }
+      // Cualquier otra llamada (observación IA) queda pendiente hasta que el test decida.
+      return pending.promise;
+    }));
     setStoredProfessionalSession();
     setStoredSessions([
       {
@@ -171,7 +228,7 @@ describe("MenteActiva critical flows", () => {
 
     renderApp();
 
-    await user.click(screen.getByRole("button", { name: /generar observaci[oó]n/i }));
+    await user.click(await screen.findByRole("button", { name: /generar observaci[oó]n/i }));
     expect(screen.getByRole("button", { name: /generando/i })).toBeDisabled();
 
     pending.reject(new Error("network down"));
@@ -182,9 +239,11 @@ describe("MenteActiva critical flows", () => {
 
   test("validates AI configuration inputs before saving", async () => {
     const user = userEvent.setup();
+    installFetchStub({ patients: [DEMO_PATIENT] });
     setStoredProfessionalSession();
     window.location.hash = "#/professional";
     renderApp();
+    await screen.findByRole("heading", { name: /ficha del usuario/i });
 
     const textarea = screen.getByLabelText(/c[oó]mo se mide y qu[eé] tipo de preguntas debe hacer/i);
     const numberInput = screen.getByLabelText(/cantidad m[aá]xima de preguntas/i);

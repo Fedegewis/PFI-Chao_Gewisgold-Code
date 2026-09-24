@@ -1,13 +1,18 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
 
-let authToken = localStorage.getItem("ma_auth_token");
+function readStoredToken() {
+  try {
+    return localStorage.getItem("ma_auth_token");
+  } catch {
+    return null;
+  }
+}
 
 export function getToken() {
-  return authToken;
+  return readStoredToken();
 }
 
 export function setToken(token) {
-  authToken = token;
   if (token) {
     localStorage.setItem("ma_auth_token", token);
   } else {
@@ -16,7 +21,6 @@ export function setToken(token) {
 }
 
 export function clearAuth() {
-  authToken = null;
   localStorage.removeItem("ma_auth_token");
   localStorage.removeItem("ma_auth_user");
 }
@@ -79,10 +83,11 @@ export async function loginWithGoogle(credential) {
 }
 
 export async function fetchCurrentUser() {
-  if (!authToken) return null;
+  const token = readStoredToken();
+  if (!token) return null;
   try {
     const data = await apiRequest("/auth/me", {
-      headers: { Authorization: `Bearer ${authToken}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     saveUser(data.user);
     return data.user;

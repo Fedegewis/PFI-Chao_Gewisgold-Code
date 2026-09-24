@@ -10,17 +10,19 @@ export function PatientGrid({
   professionalId,
   selectedPatient,
   onSelectPatient,
-  onCreatePatient
+  onCreatePatient,
+  useBackendScope = false
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newAge, setNewAge] = useState("70");
   const [feedback, setFeedback] = useState({ text: "", type: "" });
+  const [submitting, setSubmitting] = useState(false);
 
   const professionalPatients = useMemo(
-    () => patients.filter((p) => p.professionalId === professionalId),
-    [patients, professionalId]
+    () => (useBackendScope ? patients : patients.filter((p) => p.professionalId === professionalId)),
+    [patients, professionalId, useBackendScope]
   );
   const filteredPatients = useMemo(
     () => professionalPatients.filter((p) =>
@@ -37,7 +39,7 @@ export function PatientGrid({
     setFeedback({ text: "", type: "" });
   }
 
-  function handleCreate() {
+  async function handleCreate() {
     const trimmedName = newName.trim();
     if (!trimmedName) {
       setFeedback({ text: "Ingresá un nombre para crear el paciente.", type: "error" });
@@ -48,14 +50,23 @@ export function PatientGrid({
       setFeedback({ text: `La edad debe ser un número entero entre 1 y ${MAX_PATIENT_AGE}.`, type: "error" });
       return;
     }
-    const nextPatientId = generatePatientId(trimmedName, patients.length + 1);
-    if (patients.some((p) => p.id === nextPatientId)) {
-      setFeedback({ text: "Ya existe un paciente con un nombre muy parecido. Usá otro nombre.", type: "error" });
-      return;
+    if (!useBackendScope) {
+      const nextPatientId = generatePatientId(trimmedName, patients.length + 1);
+      if (patients.some((p) => p.id === nextPatientId)) {
+        setFeedback({ text: "Ya existe un paciente con un nombre muy parecido. Usá otro nombre.", type: "error" });
+        return;
+      }
     }
-    onCreatePatient(trimmedName, parsedAge);
-    resetForm();
-    setFeedback({ text: "Paciente creado correctamente.", type: "success" });
+    setSubmitting(true);
+    try {
+      await onCreatePatient(trimmedName, parsedAge);
+      resetForm();
+      setFeedback({ text: "Paciente creado correctamente.", type: "success" });
+    } catch (err) {
+      setFeedback({ text: err?.message || "No se pudo crear el paciente.", type: "error" });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -125,8 +136,8 @@ export function PatientGrid({
                 placeholder="Edad"
               />
             </div>
-            <button className="primary" type="submit">
-              <UserPlus size={18} aria-hidden="true" /> Crear paciente
+            <button className="primary" type="submit" disabled={submitting}>
+              <UserPlus size={18} aria-hidden="true" /> {submitting ? "Creando..." : "Crear paciente"}
             </button>
           </div>
           {feedback.text && (
@@ -146,13 +157,18 @@ export function PatientGrid({
           <div role="listitem" key={patient.id}>
             <PatientCard
               patient={patient}
-              selected={patient.id === selectedPatient.id}
+              selected={selectedPatient ? patient.id === selectedPatient.id : false}
               onSelect={onSelectPatient}
             />
           </div>
         ))}
       </div>
 
+      {professionalPatients.length === 0 && !searchQuery && (
+        <div className="empty-chart">
+          Todavía no tenés pacientes cargados. Usá &quot;Agregar paciente&quot; para crear el primero.
+        </div>
+      )}
       {filteredPatients.length === 0 && searchQuery && (
         <div className="empty-chart">No hay pacientes que coincidan con &quot;{searchQuery}&quot;.</div>
       )}
