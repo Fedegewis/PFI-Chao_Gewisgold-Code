@@ -36,3 +36,7 @@ export async function createPatientApi({ name, age, email }) {
     body: JSON.stringify({ name, age, email }),
   });
 }
+
+export async function deletePatientApi(patientId) {
+  return apiRequest(`/patients/${patientId}`, { method: "DELETE" });
+}

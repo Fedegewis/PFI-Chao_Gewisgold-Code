@@ -90,6 +90,38 @@ router.post(
   }
 );
 
+router.delete(
+  "/patients/:id",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const patientId = Number(req.params.id);
+      if (!Number.isInteger(patientId) || patientId < 1) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+
+      const deleted = await db.transaction(async (trx) => {
+        const patient = await trx("users")
+          .where({ id: patientId, role: "patient", professional_id: req.user.id })
+          .first();
+        if (!patient) return null;
+        await trx("sessions").where({ patient_id: patientId }).del();
+        await trx("users").where({ id: patientId }).del();
+        return patient;
+      });
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+
+      return res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get("/users/:id", requireAuth, async (req, res, next) => {
   try {
     const userId = Number(req.params.id);

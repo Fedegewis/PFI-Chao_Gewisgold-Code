@@ -22,7 +22,7 @@ function jsonResponse(body, status = 200) {
   return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
 }
 
-function installFetchStub({ patients = [DEMO_PATIENT], loginUser, createPatientResponse } = {}) {
+function installFetchStub({ patients = [DEMO_PATIENT], loginUser, createPatientResponse, onDelete } = {}) {
   const stub = vi.fn((url, opts = {}) => {
     const method = (opts.method || "GET").toUpperCase();
     if (url.includes("/auth/login") || url.includes("/auth/register") || url.includes("/auth/google")) {
@@ -30,6 +30,10 @@ function installFetchStub({ patients = [DEMO_PATIENT], loginUser, createPatientR
         user: loginUser || { id: DEMO_PROFESSIONAL_ID, role: "professional", name: "Dra. Test", email: "test@demo.com", is_active: true },
         token: "fake-jwt-token",
       });
+    }
+    if (url.includes("/patients/") && method === "DELETE") {
+      if (onDelete) onDelete(url);
+      return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(null) });
     }
     if (url.includes("/patients") && method === "GET") {
       return jsonResponse(patients);
@@ -192,6 +196,30 @@ describe("MenteActiva critical flows", () => {
 
     expect(await screen.findByText(/paciente creado correctamente/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /maria perez/i })).toBeInTheDocument();
+  });
+
+  test("deletes a patient after confirmation and removes it from the list", async () => {
+    const user = userEvent.setup();
+    const deleteCalls = [];
+    installFetchStub({
+      patients: [DEMO_PATIENT],
+      onDelete: (url) => deleteCalls.push(url),
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    const deleteButton = await screen.findByRole("button", { name: /eliminar paciente elena r[ií]os/i });
+    await user.click(deleteButton);
+    expect(await screen.findByRole("dialog", { name: /eliminar a elena r[ií]os/i })).toBeInTheDocument();
+    expect(screen.getByText(/no se puede deshacer/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /s[ií], eliminar definitivamente/i }));
+
+    expect(await screen.findByRole("heading", { name: /ning[uú]n paciente seleccionado/i })).toBeInTheDocument();
+    expect(screen.queryByText(/elena r[ií]os/i)).not.toBeInTheDocument();
+    expect(deleteCalls.length).toBe(1);
+    expect(deleteCalls[0]).toMatch(/\/patients\/elena$/);
   });
 
   test("shows loading and fallback error handling for AI observations", async () => {

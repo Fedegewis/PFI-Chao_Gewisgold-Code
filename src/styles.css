@@ -38,6 +38,10 @@ textarea { min-height: 150px; resize: vertical; }
 .primary { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 62px; border: 2px solid #617a58; border-radius: 8px; background: #617a58; padding: 12px 18px; color: white; font-weight: 950; }
 .primary--saved { background: #7fae95; border-color: #7fae95; }
 .primary:disabled, .secondary-action:disabled { cursor: not-allowed; background: #cbd5c4; color: #3d4f38; }
+.danger { display: inline-flex; align-items: center; gap: 8px; border: 2px solid #b3261e; border-radius: 8px; background: white; padding: 8px 14px; color: #b3261e; font-weight: 900; }
+.danger:hover:not(:disabled) { background: #fdecea; }
+.danger:disabled { cursor: not-allowed; opacity: 0.6; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .error-box { display: flex; gap: 10px; border: 2px solid #f1b5a7; border-radius: 8px; background: #fff2ef; padding: 12px; color: #9a3412; font-weight: 900; }
 .link-button { background: none; border: none; color: #617a58; font-weight: 850; cursor: pointer; padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
 .login-divider { display: flex; align-items: center; gap: 12px; color: #687763; font-weight: 850; font-size: 0.875rem; }

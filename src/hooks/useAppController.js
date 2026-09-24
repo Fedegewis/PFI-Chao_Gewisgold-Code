@@ -9,7 +9,7 @@ import {
   patientFromBackendUser,
   refreshDailyPatientState
 } from "../services/patientService.js";
-import { createPatientApi, fetchPatients } from "../services/patientsApi.js";
+import { createPatientApi, deletePatientApi, fetchPatients } from "../services/patientsApi.js";
 import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
@@ -168,7 +168,7 @@ export function useAppController() {
     }
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+  }, [isBackendProfessional]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -286,6 +286,18 @@ export function useAppController() {
     return nextPatient;
   }
 
+  async function deletePatientForProfessional(patientId) {
+    await deletePatientApi(patientId);
+    setPatients((current) => {
+      const next = current.filter((p) => p.id !== patientId);
+      setSelectedPatientId((currentId) => {
+        if (currentId !== patientId) return currentId;
+        return next.length > 0 ? next[0].id : null;
+      });
+      return next;
+    });
+  }
+
   function logout() {
     setIsAuthenticated(false);
     setAuthUser(null);
@@ -337,6 +349,7 @@ export function useAppController() {
     activities,
     authUser,
     createPatientForProfessional,
+    deletePatientForProfessional,
     isBackendProfessional,
     isAuthenticated,
     loginError,

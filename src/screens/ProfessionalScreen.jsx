@@ -34,7 +34,8 @@ export function ProfessionalScreen({
   setSelectedPatientId,
   updatePatient,
   isBackendProfessional,
-  createPatientForProfessional
+  createPatientForProfessional,
+  deletePatientForProfessional
 }) {
   const patientSessions = useMemo(
     () =>
@@ -68,6 +69,11 @@ export function ProfessionalScreen({
     setSelectedPatientId(nextPatient.id);
   }
 
+  async function handleDeletePatient() {
+    if (!selectedPatient || !isBackendProfessional || !deletePatientForProfessional) return;
+    await deletePatientForProfessional(selectedPatient.id);
+  }
+
   function handleSaveAiConfig(instructions, maxQuestions, activeDomains) {
     if (!selectedPatient) return;
     updatePatient(selectedPatient.id, { aiInstructions: instructions, maxQuestions, activeDomains });
@@ -91,6 +97,7 @@ export function ProfessionalScreen({
           stats={stats}
           questionSample={questionSample}
           onSaveAiConfig={handleSaveAiConfig}
+          onDeletePatient={isBackendProfessional ? handleDeletePatient : null}
         />
       ) : (
         <section className="professional-detail" aria-label="Sin paciente seleccionado">

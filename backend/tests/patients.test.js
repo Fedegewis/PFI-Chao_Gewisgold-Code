@@ -177,4 +177,168 @@ describe("Patients API", () => {
       assert.equal(res.status, 401);
     });
   });
+
+  describe("DELETE /api/patients/:id", () => {
+    async function createOwnedPatient(professional) {
+      const [row] = await db("users")
+        .insert({
+          role: "patient",
+          name: `Paciente Del ${Date.now()}`,
+          email: `del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}${EMAIL_SUFFIX}`,
+          professional_id: professional.id,
+        })
+        .returning("*");
+      return row;
+    }
+
+    it("permanently deletes a patient owned by the authenticated professional", async () => {
+      const patient = await createOwnedPatient(profA);
+      const res = await request(app)
+        .delete(`/api/patients/${patient.id}`)
+        .set("Authorization", profAAuth);
+      assert.equal(res.status, 204);
+
+      const found = await db("users").where({ id: patient.id }).first();
+      assert.equal(found, undefined);
+    });
+
+    it("cascades sessions, session_sections, session_questions, answers and session_results", async () => {
+      const patient = await createOwnedPatient(profA);
+
+      const [section] = await db("sections").select("id").limit(1);
+      const [question] = await db("questions")
+        .where({ section_id: section.id })
+        .select("id", "response_type")
+        .limit(1);
+
+      const [session] = await db("sessions")
+        .insert({
+          patient_id: patient.id,
+          professional_id: profA.id,
+          status: "completed",
+          started_at: db.fn.now(),
+          completed_at: db.fn.now(),
+        })
+        .returning("*");
+
+      const [sessionSection] = await db("session_sections")
+        .insert({
+          session_id: session.id,
+          section_id: section.id,
+          requested_count: 1,
+          display_order: 1,
+        })
+        .returning("*");
+
+      const [sessionQuestion] = await db("session_questions")
+        .insert({
+          session_section_id: sessionSection.id,
+          question_id: question.id,
+          display_order: 1,
+          prompt_snapshot: "test prompt",
+          options_snapshot: JSON.stringify(["a", "b", "c", "d"]),
+          correct_answer_snapshot: 0,
+          response_type: question.response_type,
+        })
+        .returning("*");
+
+      const [answer] = await db("answers")
+        .insert({
+          session_question_id: sessionQuestion.id,
+          selected_answer: 0,
+          is_correct: true,
+          response_time_ms: 1500,
+        })
+        .returning("*");
+
+      const [sessionResult] = await db("session_results")
+        .insert({
+          session_id: session.id,
+          section_id: null,
+          total_questions: 1,
+          answered_questions: 1,
+          correct_count: 1,
+          incorrect_count: 0,
+          unanswered_count: 0,
+          accuracy: 1,
+          completion_rate: 1,
+          mean_latency_ms: 1500,
+          min_latency_ms: 1500,
+          max_latency_ms: 1500,
+          latency_std_ms: 0,
+        })
+        .returning("*");
+
+      const res = await request(app)
+        .delete(`/api/patients/${patient.id}`)
+        .set("Authorization", profAAuth);
+      assert.equal(res.status, 204);
+
+      assert.equal(await db("users").where({ id: patient.id }).first(), undefined);
+      assert.equal(await db("sessions").where({ id: session.id }).first(), undefined);
+      assert.equal(await db("session_sections").where({ id: sessionSection.id }).first(), undefined);
+      assert.equal(await db("session_questions").where({ id: sessionQuestion.id }).first(), undefined);
+      assert.equal(await db("answers").where({ id: answer.id }).first(), undefined);
+      assert.equal(await db("session_results").where({ id: sessionResult.id }).first(), undefined);
+
+      const questionStillThere = await db("questions").where({ id: question.id }).first();
+      assert.ok(questionStillThere, "shared question bank must not be deleted");
+      const professionalStillThere = await db("users").where({ id: profA.id }).first();
+      assert.ok(professionalStillThere, "professional must not be deleted");
+    });
+
+    it("does not allow professional A to delete a patient of professional B", async () => {
+      const patientOfB = await createOwnedPatient(profB);
+      const res = await request(app)
+        .delete(`/api/patients/${patientOfB.id}`)
+        .set("Authorization", profAAuth);
+      assert.equal(res.status, 404);
+
+      const stillThere = await db("users").where({ id: patientOfB.id }).first();
+      assert.ok(stillThere, "patient of professional B must remain");
+    });
+
+    it("returns 404 for a non-existent patient", async () => {
+      const res = await request(app)
+        .delete(`/api/patients/99999999`)
+        .set("Authorization", profAAuth);
+      assert.equal(res.status, 404);
+    });
+
+    it("returns 404 for an invalid id", async () => {
+      const res = await request(app)
+        .delete(`/api/patients/not-a-number`)
+        .set("Authorization", profAAuth);
+      assert.equal(res.status, 404);
+    });
+
+    it("ignores a professional_id body attempt to impersonate", async () => {
+      const patientOfB = await createOwnedPatient(profB);
+      const res = await request(app)
+        .delete(`/api/patients/${patientOfB.id}`)
+        .set("Authorization", profAAuth)
+        .send({ professional_id: profB.id });
+      assert.equal(res.status, 404);
+      const stillThere = await db("users").where({ id: patientOfB.id }).first();
+      assert.ok(stillThere);
+    });
+
+    it("rejects patient tokens", async () => {
+      const patient = await createOwnedPatient(profA);
+      const res = await request(app)
+        .delete(`/api/patients/${patient.id}`)
+        .set("Authorization", patientAuth);
+      assert.equal(res.status, 403);
+      const stillThere = await db("users").where({ id: patient.id }).first();
+      assert.ok(stillThere);
+    });
+
+    it("rejects unauthenticated requests", async () => {
+      const patient = await createOwnedPatient(profA);
+      const res = await request(app).delete(`/api/patients/${patient.id}`);
+      assert.equal(res.status, 401);
+      const stillThere = await db("users").where({ id: patient.id }).first();
+      assert.ok(stillThere);
+    });
+  });
 });
