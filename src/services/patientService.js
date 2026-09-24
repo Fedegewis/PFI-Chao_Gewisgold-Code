@@ -293,3 +293,15 @@ export function createNewProfessionalPatient({ patientId, name, age, professiona
     professionalId
   });
 }
+
+export function patientFromBackendUser(user) {
+  return createPatient({
+    id: user.id,
+    name: user.name,
+    age: user.age ?? null,
+    email: user.email,
+    aiInstructions: PROFESSIONAL_DEFAULT_INSTRUCTIONS,
+    link: null,
+    professionalId: user.professional_id ?? null,
+  });
+}

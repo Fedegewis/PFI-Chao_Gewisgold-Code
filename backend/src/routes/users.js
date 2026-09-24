@@ -1,51 +1,128 @@
 import { Router } from "express";
 import db from "../db/connection.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
 
-router.post("/users", async (req, res, next) => {
-  try {
-    const { role, name, email, age, professional_id } = req.body;
+router.get(
+  "/patients",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const patients = await db("users")
+        .where({ role: "patient", professional_id: req.user.id, is_active: true })
+        .select(
+          "id",
+          "role",
+          "name",
+          "email",
+          "age",
+          "professional_id",
+          "is_active",
+          "created_at",
+          "updated_at"
+        )
+        .orderBy("created_at", "asc");
 
-    if (!role || !name || !email) {
-      return res.status(400).json({ error: "role, name y email son obligatorios" });
+      res.json(patients);
+    } catch (err) {
+      next(err);
     }
-
-    if (role !== "patient") {
-      return res.status(400).json({ error: "Solo se pueden crear pacientes por este endpoint. Los profesionales deben registrarse en /api/auth/register" });
-    }
-
-    if (professional_id != null) {
-      const prof = await db("users")
-        .where({ id: professional_id, role: "professional" })
-        .first();
-      if (!prof) {
-        return res.status(404).json({ error: "Profesional no encontrado" });
-      }
-    }
-
-    const existing = await db("users").where("email", email).first();
-    if (existing) {
-      return res.status(409).json({ error: "El email ya está registrado" });
-    }
-
-    const [user] = await db("users")
-      .insert({
-        role,
-        name,
-        email,
-        age: age ?? null,
-        professional_id: professional_id ?? null,
-      })
-      .returning(["id", "role", "name", "email", "age", "professional_id", "is_active", "created_at", "updated_at"]);
-
-    res.status(201).json(user);
-  } catch (err) {
-    next(err);
   }
-});
+);
 
-router.get("/users/:id", async (req, res, next) => {
+router.post(
+  "/users",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const { name, email, age } = req.body;
+
+      if (!name || !email) {
+        return res.status(400).json({ error: "name y email son obligatorios" });
+      }
+
+      const trimmedName = String(name).trim();
+      const normalizedEmail = String(email).trim().toLowerCase();
+
+      if (!trimmedName) {
+        return res.status(400).json({ error: "name no puede estar vacío" });
+      }
+
+      if (age != null) {
+        const parsedAge = Number(age);
+        if (!Number.isFinite(parsedAge) || parsedAge < 0 || parsedAge > 150) {
+          return res.status(400).json({ error: "age inválida" });
+        }
+      }
+
+      const existing = await db("users").where("email", normalizedEmail).first();
+      if (existing) {
+        return res.status(409).json({ error: "El email ya está registrado" });
+      }
+
+      const [user] = await db("users")
+        .insert({
+          role: "patient",
+          name: trimmedName,
+          email: normalizedEmail,
+          age: age ?? null,
+          professional_id: req.user.id,
+        })
+        .returning([
+          "id",
+          "role",
+          "name",
+          "email",
+          "age",
+          "professional_id",
+          "is_active",
+          "created_at",
+          "updated_at",
+        ]);
+
+      res.status(201).json(user);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  "/patients/:id",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const patientId = Number(req.params.id);
+      if (!Number.isInteger(patientId) || patientId < 1) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+
+      const deleted = await db.transaction(async (trx) => {
+        const patient = await trx("users")
+          .where({ id: patientId, role: "patient", professional_id: req.user.id })
+          .first();
+        if (!patient) return null;
+        await trx("sessions").where({ patient_id: patientId }).del();
+        await trx("users").where({ id: patientId }).del();
+        return patient;
+      });
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+
+      return res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get("/users/:id", requireAuth, async (req, res, next) => {
   try {
     const userId = Number(req.params.id);
     if (!Number.isFinite(userId) || userId < 1) {
@@ -59,6 +136,18 @@ router.get("/users/:id", async (req, res, next) => {
 
     if (!user) {
       return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    if (req.user.role === "professional") {
+      if (user.role !== "patient" || user.professional_id !== req.user.id) {
+        if (user.id !== req.user.id) {
+          return res.status(404).json({ error: "Usuario no encontrado" });
+        }
+      }
+    } else if (req.user.role === "patient") {
+      if (user.id !== req.user.id) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
     }
 
     res.json(user);

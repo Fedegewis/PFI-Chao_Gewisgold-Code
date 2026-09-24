@@ -87,75 +87,95 @@ describe("Users API", () => {
   });
 
   describe("POST /api/users", () => {
-    it("creates a patient", async () => {
-      const res = await request(app).post("/api/users").send({
-        role: "patient",
-        name: "Elena Test",
-        email: `elena-${Date.now()}@test.com`,
-        age: 72,
-      });
+    it("creates a patient owned by the authenticated professional", async () => {
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", profAuth)
+        .send({
+          name: "Elena Test",
+          email: `elena-${Date.now()}@test.com`,
+          age: 72,
+        });
       assert.equal(res.status, 201);
       assert.equal(res.body.role, "patient");
       assert.equal(res.body.name, "Elena Test");
       assert.equal(res.body.age, 72);
+      assert.equal(res.body.professional_id, professional.id);
       assert.ok(res.body.id);
     });
 
-    it("rejects professional creation (must use /api/auth/register)", async () => {
+    it("ignores professional_id from body and uses JWT identity", async () => {
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", profAuth)
+        .send({
+          name: "Paciente Falsificado",
+          email: `spoof-${Date.now()}@test.com`,
+          age: 65,
+          professional_id: 999999,
+          role: "professional",
+        });
+      assert.equal(res.status, 201);
+      assert.equal(res.body.role, "patient");
+      assert.equal(res.body.professional_id, professional.id);
+    });
+
+    it("rejects unauthenticated requests", async () => {
       const res = await request(app).post("/api/users").send({
-        role: "professional",
-        name: "Dr. Nuevo",
-        email: `dr-nuevo-${Date.now()}@test.com`,
+        name: "Sin Token",
+        email: `no-token-${Date.now()}@test.com`,
       });
-      assert.equal(res.status, 400);
-      assert.ok(res.body.error.includes("/api/auth/register"));
+      assert.equal(res.status, 401);
     });
 
     it("returns 409 for duplicate email", async () => {
       const email = `dup-${Date.now()}@test.com`;
-      await request(app).post("/api/users").send({
-        role: "patient",
-        name: "Primero",
-        email,
-      });
-      const res = await request(app).post("/api/users").send({
-        role: "patient",
-        name: "Segundo",
-        email,
-      });
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", profAuth)
+        .send({ name: "Primero", email });
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", profAuth)
+        .send({ name: "Segundo", email });
       assert.equal(res.status, 409);
     });
 
     it("returns 400 for missing required fields", async () => {
-      const res = await request(app).post("/api/users").send({ role: "patient" });
-      assert.equal(res.status, 400);
-    });
-
-    it("returns 400 for invalid role", async () => {
-      const res = await request(app).post("/api/users").send({
-        role: "admin",
-        name: "Admin",
-        email: `admin-${Date.now()}@test.com`,
-      });
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", profAuth)
+        .send({});
       assert.equal(res.status, 400);
     });
   });
 
   describe("GET /api/users/:id", () => {
-    it("returns a user by id", async () => {
-      const res = await request(app).get(`/api/users/${patient.id}`);
+    it("returns a patient owned by the professional", async () => {
+      const res = await request(app)
+        .get(`/api/users/${patient.id}`)
+        .set("Authorization", profAuth);
       assert.equal(res.status, 200);
       assert.equal(res.body.id, patient.id);
       assert.equal(res.body.role, "patient");
     });
 
+    it("rejects unauthenticated requests", async () => {
+      const res = await request(app).get(`/api/users/${patient.id}`);
+      assert.equal(res.status, 401);
+    });
+
     it("returns 404 for non-existent user", async () => {
-      const res = await request(app).get("/api/users/99999");
+      const res = await request(app)
+        .get("/api/users/99999")
+        .set("Authorization", profAuth);
       assert.equal(res.status, 404);
     });
 
     it("returns 400 for invalid user id", async () => {
-      const res = await request(app).get("/api/users/abc");
+      const res = await request(app)
+        .get("/api/users/abc")
+        .set("Authorization", profAuth);
       assert.equal(res.status, 400);
     });
   });

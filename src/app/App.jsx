@@ -13,7 +13,10 @@ export function App() {
   const {
     activities,
     completeActivity,
+    createPatientForProfessional,
+    deletePatientForProfessional,
     isAuthenticated,
+    isBackendProfessional,
     googleLogin,
     login,
     loginError,
@@ -53,8 +56,8 @@ export function App() {
         <ErrorBoundary>
           <main id="main-content">
             {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} onGoogleLogin={googleLogin} />}
-            {screen === SCREEN_NAMES.patient && isAuthenticated && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
-            {screen === SCREEN_NAMES.activity && isAuthenticated && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
+            {screen === SCREEN_NAMES.patient && isAuthenticated && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
+            {screen === SCREEN_NAMES.activity && isAuthenticated && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
             {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (
               <ProfessionalScreen
                 patients={patients}
@@ -64,6 +67,9 @@ export function App() {
                 setPatients={setPatients}
                 setSelectedPatientId={setSelectedPatientId}
                 updatePatient={updatePatient}
+                isBackendProfessional={isBackendProfessional}
+                createPatientForProfessional={createPatientForProfessional}
+                deletePatientForProfessional={deletePatientForProfessional}
               />
             )}
           </main>
