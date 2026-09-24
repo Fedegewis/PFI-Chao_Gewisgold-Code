@@ -42,6 +42,18 @@ textarea { min-height: 150px; resize: vertical; }
 .danger:hover:not(:disabled) { background: #fdecea; }
 .danger:disabled { cursor: not-allowed; opacity: 0.6; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+.invite-link-box { margin-top: 12px; padding: 12px; border: 2px solid #d5decf; border-radius: 8px; background: #fbfaf5; }
+.invite-link-box label { display: block; font-size: 0.75rem; font-weight: 900; margin-bottom: 6px; color: #3d4f38; }
+.invite-link-row { display: flex; gap: 8px; align-items: stretch; }
+.invite-link-row input { flex: 1; min-height: 40px; font-family: monospace; font-size: 0.75rem; font-weight: 700; }
+.invite-link-row .secondary-action { min-height: 40px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; }
+.pending-invitations { margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(97, 122, 88, 0.18); }
+.pending-invites-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.pending-invite-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid rgba(97, 122, 88, 0.18); border-radius: 8px; background: rgba(255, 250, 241, 0.7); }
+.pending-invite-row .danger { min-height: 32px; padding: 4px 10px; font-size: 0.75rem; }
+.invite-details { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0 16px; padding: 12px; border: 1px solid rgba(97, 122, 88, 0.18); border-radius: 8px; background: rgba(255, 250, 241, 0.7); }
+.invite-details dt { font-weight: 900; color: #3d4f38; font-size: 0.8125rem; }
+.invite-details dd { margin: 0; font-weight: 700; color: #172114; font-size: 0.8125rem; }
 .error-box { display: flex; gap: 10px; border: 2px solid #f1b5a7; border-radius: 8px; background: #fff2ef; padding: 12px; color: #9a3412; font-weight: 900; }
 .link-button { background: none; border: none; color: #617a58; font-weight: 850; cursor: pointer; padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
 .login-divider { display: flex; align-items: center; gap: 12px; color: #687763; font-weight: 850; font-size: 0.875rem; }

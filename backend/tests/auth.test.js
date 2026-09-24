@@ -168,7 +168,7 @@ describe("Auth API", () => {
       assert.equal(res.status, 400);
     });
 
-    it("does not allow patient login through auth/login", async () => {
+    it("rejects patient login when the user has no password_hash", async () => {
       await db("users").insert({
         role: "patient",
         name: "Paciente Auth",
@@ -180,6 +180,146 @@ describe("Auth API", () => {
         password: "cualquiera",
       });
       assert.equal(res.status, 401);
+      assert.ok(res.body.error.includes("incorrectas"));
+    });
+
+    it("allows a patient with password_hash to log in and returns role='patient' in the JWT", async () => {
+      const bcrypt = (await import("bcrypt")).default;
+      const jwt = (await import("jsonwebtoken")).default;
+      const passwordHash = await bcrypt.hash("paciente-pass", 10);
+
+      const [professional] = await db("users")
+        .insert({
+          role: "professional",
+          name: "Prof Owner",
+          email: "prof-owner@auth-test.com",
+        })
+        .returning("*");
+
+      await db("users").insert({
+        role: "patient",
+        name: "Paciente Login",
+        email: "paciente-login@auth-test.com",
+        age: 68,
+        password_hash: passwordHash,
+        professional_id: professional.id,
+        auth_provider: "local",
+      });
+
+      const res = await request(app).post("/api/auth/login").send({
+        email: "paciente-login@auth-test.com",
+        password: "paciente-pass",
+      });
+
+      assert.equal(res.status, 200);
+      assert.equal(res.body.user.role, "patient");
+      assert.equal(res.body.user.email, "paciente-login@auth-test.com");
+      assert.equal(res.body.user.password_hash, undefined);
+      assert.equal(res.body.user.google_id, undefined);
+      assert.ok(res.body.token);
+
+      const decoded = jwt.verify(res.body.token, process.env.JWT_SECRET);
+      assert.equal(decoded.role, "patient");
+    });
+
+    it("ignores role sent in the body when logging in", async () => {
+      const bcrypt = (await import("bcrypt")).default;
+      const passwordHash = await bcrypt.hash("paciente-pass", 10);
+
+      await db("users").insert({
+        role: "patient",
+        name: "Paciente Role Hijack",
+        email: "hijack@auth-test.com",
+        age: 70,
+        password_hash: passwordHash,
+        auth_provider: "local",
+      });
+
+      const res = await request(app).post("/api/auth/login").send({
+        email: "hijack@auth-test.com",
+        password: "paciente-pass",
+        role: "professional",
+      });
+
+      assert.equal(res.status, 200);
+      assert.equal(res.body.user.role, "patient");
+    });
+
+    it("rejects an inactive patient", async () => {
+      const bcrypt = (await import("bcrypt")).default;
+      const passwordHash = await bcrypt.hash("paciente-pass", 10);
+
+      await db("users").insert({
+        role: "patient",
+        name: "Paciente Inactivo",
+        email: "inactive-patient@auth-test.com",
+        password_hash: passwordHash,
+        auth_provider: "local",
+        is_active: false,
+      });
+
+      const res = await request(app).post("/api/auth/login").send({
+        email: "inactive-patient@auth-test.com",
+        password: "paciente-pass",
+      });
+      assert.equal(res.status, 401);
+      assert.ok(res.body.error.includes("incorrectas"));
+    });
+
+    it("rejects an inactive professional", async () => {
+      const bcrypt = (await import("bcrypt")).default;
+      const passwordHash = await bcrypt.hash("prof-pass", 10);
+
+      await db("users").insert({
+        role: "professional",
+        name: "Prof Inactivo",
+        email: "inactive-prof@auth-test.com",
+        password_hash: passwordHash,
+        auth_provider: "local",
+        is_active: false,
+      });
+
+      const res = await request(app).post("/api/auth/login").send({
+        email: "inactive-prof@auth-test.com",
+        password: "prof-pass",
+      });
+      assert.equal(res.status, 401);
+      assert.ok(res.body.error.includes("incorrectas"));
+    });
+
+    it("allows a patient created via the invitation flow to log in later", async () => {
+      const [professional] = await db("users")
+        .insert({
+          role: "professional",
+          name: "Prof Invite",
+          email: "prof-invite@auth-test.com",
+        })
+        .returning("*");
+
+      const profToken = authHeaderFor(professional);
+      const inviteEmail = `invited-${Date.now()}@auth-test.com`;
+      const invRes = await request(app)
+        .post("/api/invitations")
+        .set("Authorization", profToken)
+        .send({ name: "Invitado", age: 66, email: inviteEmail });
+      assert.equal(invRes.status, 201);
+
+      const acceptRes = await request(app)
+        .post(`/api/invitations/${invRes.body.token}/accept`)
+        .send({ password: "invitado123" });
+      assert.equal(acceptRes.status, 201);
+
+      const loginRes = await request(app).post("/api/auth/login").send({
+        email: inviteEmail,
+        password: "invitado123",
+      });
+      assert.equal(loginRes.status, 200);
+      assert.equal(loginRes.body.user.role, "patient");
+      assert.equal(loginRes.body.user.email, inviteEmail);
+      assert.equal(loginRes.body.user.password_hash, undefined);
+
+      const dbUser = await db("users").where({ email: inviteEmail }).first();
+      assert.equal(dbUser.professional_id, professional.id);
     });
   });
 

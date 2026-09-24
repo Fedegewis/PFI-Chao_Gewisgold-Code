@@ -30,13 +30,6 @@ export async function fetchPatients() {
   return apiRequest("/patients", { method: "GET" });
 }
 
-export async function createPatientApi({ name, age, email }) {
-  return apiRequest("/users", {
-    method: "POST",
-    body: JSON.stringify({ name, age, email }),
-  });
-}
-
 export async function deletePatientApi(patientId) {
   return apiRequest(`/patients/${patientId}`, { method: "DELETE" });
 }

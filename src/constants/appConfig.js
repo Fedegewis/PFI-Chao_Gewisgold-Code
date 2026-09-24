@@ -1,30 +1,15 @@
-export const LOGIN_CREDENTIALS = {
-  patient: {
-    email: import.meta.env.VITE_PATIENT_EMAIL ?? "elena.rios@demo.com",
-    password: import.meta.env.VITE_PATIENT_PASSWORD ?? "menteactiva"
-  },
-  professional: {
-    email: import.meta.env.VITE_PROFESSIONAL_EMAIL ?? "psicologa@demo.com",
-    password: import.meta.env.VITE_PROFESSIONAL_PASSWORD ?? "jardin2",
-    id: import.meta.env.VITE_PROFESSIONAL_ID ?? "psico-01",
-    name: import.meta.env.VITE_PROFESSIONAL_NAME ?? "Dra. Ana Gomez"
-  }
-};
-
-// Cuentas de paciente para la demo. En produccion vendria del backend.
-export const PATIENT_LOGINS = [
-  { email: "elena.rios@demo.com",     password: "menteactiva", patientId: "elena" },
-  { email: "lucia.herrera@demo.com",  password: "jardin",      patientId: "lucia" },
-  { email: "hector.ramos@demo.com",   password: "jardin",      patientId: "hector" }
-];
-
-export const DEFAULT_PROFESSIONAL_ID = LOGIN_CREDENTIALS.professional.id;
+// Solo se conserva metadata del profesional demo usada por los pacientes hardcodeados
+// del PatientScreen legacy (buildInitialPatients). NO se usa para autenticación real.
+// TODO(6C.5+): eliminar cuando se migre el PatientScreen a datos reales del backend.
+export const DEMO_PROFESSIONAL_ID = import.meta.env.VITE_PROFESSIONAL_ID ?? "psico-01";
+export const DEFAULT_PROFESSIONAL_ID = DEMO_PROFESSIONAL_ID;
 
 export const SCREEN_NAMES = {
   login: "login",
   patient: "patient",
   activity: "activity",
-  professional: "professional"
+  professional: "professional",
+  invite: "invite"
 };
 
 export const MOTIVATION_MESSAGES = [

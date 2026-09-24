@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, PATIENT_LOGINS, SCREEN_NAMES } from "../constants/appConfig.js";
+import { DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
@@ -9,7 +9,7 @@ import {
   patientFromBackendUser,
   refreshDailyPatientState
 } from "../services/patientService.js";
-import { createPatientApi, deletePatientApi, fetchPatients } from "../services/patientsApi.js";
+import { deletePatientApi, fetchPatients } from "../services/patientsApi.js";
 import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
@@ -27,8 +27,9 @@ import {
   clearAuth,
   getSavedUser,
   getToken,
-  loginProfessional,
+  loginWithPassword,
   loginWithGoogle,
+  persistAuthSession,
   registerProfessional,
 } from "../services/authService.js";
 
@@ -56,13 +57,23 @@ export function useAppController() {
     const savedUser = getSavedUser();
     const hasToken = Boolean(getToken());
     const isAuthenticatedProfessional = hasToken && savedUser?.role === "professional";
-    // Profesionales autenticados: los pacientes vienen del backend, no de localStorage.
-    // Modo demo/paciente: se conservan los pacientes hardcodeados existentes.
-    const patients = isAuthenticatedProfessional ? [] : loadAppPatients();
-    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional };
+    const isAuthenticatedPatient = hasToken && savedUser?.role === "patient";
+    // Autenticados: los datos vienen del backend, no de localStorage.
+    // Paciente autenticado: sembramos el propio user como único paciente en la lista.
+    // Modo demo/legacy: se conservan los pacientes hardcodeados existentes.
+    let patients;
+    if (isAuthenticatedProfessional) {
+      patients = [];
+    } else if (isAuthenticatedPatient) {
+      patients = [patientFromBackendUser(savedUser)];
+    } else {
+      patients = loadAppPatients();
+    }
+    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional, isAuthenticatedPatient };
   });
   const [role, setRole] = useState(() => {
     if (init.hasToken && init.savedUser?.role === "professional") return "professional";
+    if (init.hasToken && init.savedUser?.role === "patient") return "patient";
     return init.session?.role || "patient";
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -72,6 +83,7 @@ export function useAppController() {
   const [authUser, setAuthUser] = useState(() => init.savedUser);
   const [screen, setScreen] = useState(() => {
     const { session, hash } = init;
+    if (hash.screen === SCREEN_NAMES.invite) return SCREEN_NAMES.invite;
     if (!session?.role) return SCREEN_NAMES.login;
     if (hash.screen === SCREEN_NAMES.professional && session.role !== SCREEN_NAMES.professional) {
       return SCREEN_NAMES.patient;
@@ -81,6 +93,7 @@ export function useAppController() {
     }
     return session.role === SCREEN_NAMES.professional ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
   });
+  const [inviteToken, setInviteToken] = useState(() => init.hash.inviteToken);
   const [professionalId, setProfessionalId] = useState(() => {
     if (init.savedUser?.role === "professional") return init.savedUser.id;
     return init.session?.professionalId || DEFAULT_PROFESSIONAL_ID;
@@ -106,13 +119,15 @@ export function useAppController() {
   const motivationMessage = useMemo(() => MOTIVATION_MESSAGES[new Date().getDay() % MOTIVATION_MESSAGES.length], []);
 
   const isBackendProfessional = role === "professional" && Boolean(authUser?.id);
+  const isBackendPatient = role === "patient" && Boolean(authUser?.id);
+  const isBackendAuthenticated = isBackendProfessional || isBackendPatient;
 
   useEffect(() => {
-    // Solo se persisten pacientes en localStorage para modo demo/paciente.
-    // Los profesionales autenticados tienen a Postgres como fuente de verdad.
-    if (isBackendProfessional) return;
+    // Solo se persisten pacientes en localStorage para modo demo/legacy.
+    // Los usuarios autenticados tienen a Postgres como fuente de verdad.
+    if (isBackendAuthenticated) return;
     savePatients(patients);
-  }, [patients, isBackendProfessional]);
+  }, [patients, isBackendAuthenticated]);
 
   useEffect(() => {
     if (!isBackendProfessional) return;
@@ -153,7 +168,7 @@ export function useAppController() {
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     function handleStorage(event) {
-      if (event.key === "ma_patients_v1" && event.newValue && !isBackendProfessional) {
+      if (event.key === "ma_patients_v1" && event.newValue && !isBackendAuthenticated) {
         try {
           const parsed = JSON.parse(event.newValue);
           if (Array.isArray(parsed)) setPatients(parsed.map(normalizePatient));
@@ -168,10 +183,11 @@ export function useAppController() {
     }
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [isBackendProfessional]);
+  }, [isBackendAuthenticated]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (screen === SCREEN_NAMES.invite) return;
     const nextHash = buildHash(isAuthenticated ? screen : SCREEN_NAMES.login, selectedActivity.id);
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }, [isAuthenticated, screen, selectedActivity.id]);
@@ -181,6 +197,11 @@ export function useAppController() {
 
     function syncFromHash() {
       const hashState = readHashState();
+      if (hashState.screen === SCREEN_NAMES.invite) {
+        setInviteToken(hashState.inviteToken);
+        setScreen(SCREEN_NAMES.invite);
+        return;
+      }
       if (!isAuthenticated) {
         setScreen(SCREEN_NAMES.login);
         return;
@@ -205,36 +226,40 @@ export function useAppController() {
   }, [isAuthenticated, role]);
 
   async function login(nextRole, email, password) {
-    if (nextRole === SCREEN_NAMES.patient) {
-      const match = PATIENT_LOGINS.find((p) => p.email === email && p.password === password);
-      if (match) {
-        setRole(nextRole);
-        setIsAuthenticated(true);
-        setSelectedPatientId(match.patientId);
+    try {
+      const data = await loginWithPassword({ email, password });
+      if (data.user.role !== nextRole) {
+        clearAuth();
+        setLoginError(
+          nextRole === SCREEN_NAMES.patient
+            ? "Esa cuenta no corresponde a un paciente."
+            : "Esa cuenta no corresponde a un profesional."
+        );
+        return;
+      }
+
+      setAuthUser(data.user);
+      setRole(data.user.role);
+      setIsAuthenticated(true);
+      setLoginError("");
+
+      if (data.user.role === "professional") {
+        setPatients([]);
+        setSelectedPatientId(null);
+        setProfessionalId(data.user.id);
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", buildHash(SCREEN_NAMES.professional, selectedActivity.id));
+        }
+        setScreen(SCREEN_NAMES.professional);
+      } else {
+        const patientObj = patientFromBackendUser(data.user);
+        setPatients([patientObj]);
+        setSelectedPatientId(patientObj.id);
         if (typeof window !== "undefined") {
           window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
         }
         setScreen(SCREEN_NAMES.patient);
-        setLoginError("");
-        return;
       }
-      setLoginError(LOGIN_ERROR_MESSAGE);
-      return;
-    }
-
-    try {
-      const data = await loginProfessional({ email, password });
-      setPatients([]);
-      setSelectedPatientId(null);
-      setAuthUser(data.user);
-      setRole("professional");
-      setProfessionalId(data.user.id);
-      setIsAuthenticated(true);
-      if (typeof window !== "undefined") {
-        window.history.replaceState(null, "", buildHash(SCREEN_NAMES.professional, selectedActivity.id));
-      }
-      setScreen(SCREEN_NAMES.professional);
-      setLoginError("");
     } catch (err) {
       setLoginError(err.message || LOGIN_ERROR_MESSAGE);
     }
@@ -278,14 +303,6 @@ export function useAppController() {
     }
   }
 
-  async function createPatientForProfessional({ name, age, email }) {
-    const user = await createPatientApi({ name, age, email });
-    const nextPatient = patientFromBackendUser(user);
-    setPatients((current) => [...current, nextPatient]);
-    setSelectedPatientId(nextPatient.id);
-    return nextPatient;
-  }
-
   async function deletePatientForProfessional(patientId) {
     await deletePatientApi(patientId);
     setPatients((current) => {
@@ -296,6 +313,35 @@ export function useAppController() {
       });
       return next;
     });
+  }
+
+  function acceptInvitationSession({ user, token }) {
+    if (!user || user.role !== "patient" || !token) {
+      clearAuth();
+      return false;
+    }
+    persistAuthSession({ user, token });
+    const patientObj = patientFromBackendUser(user);
+    setPatients([patientObj]);
+    setSelectedPatientId(patientObj.id);
+    setAuthUser(user);
+    setRole("patient");
+    setIsAuthenticated(true);
+    setInviteToken(null);
+    setLoginError("");
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
+    }
+    setScreen(SCREEN_NAMES.patient);
+    return true;
+  }
+
+  function goToLogin() {
+    setInviteToken(null);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", buildHash(SCREEN_NAMES.login, selectedActivity.id));
+    }
+    setScreen(SCREEN_NAMES.login);
   }
 
   function logout() {
@@ -348,7 +394,6 @@ export function useAppController() {
   return {
     activities,
     authUser,
-    createPatientForProfessional,
     deletePatientForProfessional,
     isBackendProfessional,
     isAuthenticated,
@@ -372,6 +417,9 @@ export function useAppController() {
     setSelectedPatientId,
     updatePatient,
     patients,
-    completeActivity
+    completeActivity,
+    inviteToken,
+    acceptInvitationSession,
+    goToLogin
   };
 }

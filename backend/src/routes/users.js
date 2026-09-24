@@ -32,64 +32,6 @@ router.get(
   }
 );
 
-router.post(
-  "/users",
-  requireAuth,
-  requireRole("professional"),
-  async (req, res, next) => {
-    try {
-      const { name, email, age } = req.body;
-
-      if (!name || !email) {
-        return res.status(400).json({ error: "name y email son obligatorios" });
-      }
-
-      const trimmedName = String(name).trim();
-      const normalizedEmail = String(email).trim().toLowerCase();
-
-      if (!trimmedName) {
-        return res.status(400).json({ error: "name no puede estar vacío" });
-      }
-
-      if (age != null) {
-        const parsedAge = Number(age);
-        if (!Number.isFinite(parsedAge) || parsedAge < 0 || parsedAge > 150) {
-          return res.status(400).json({ error: "age inválida" });
-        }
-      }
-
-      const existing = await db("users").where("email", normalizedEmail).first();
-      if (existing) {
-        return res.status(409).json({ error: "El email ya está registrado" });
-      }
-
-      const [user] = await db("users")
-        .insert({
-          role: "patient",
-          name: trimmedName,
-          email: normalizedEmail,
-          age: age ?? null,
-          professional_id: req.user.id,
-        })
-        .returning([
-          "id",
-          "role",
-          "name",
-          "email",
-          "age",
-          "professional_id",
-          "is_active",
-          "created_at",
-          "updated_at",
-        ]);
-
-      res.status(201).json(user);
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
 router.delete(
   "/patients/:id",
   requireAuth,

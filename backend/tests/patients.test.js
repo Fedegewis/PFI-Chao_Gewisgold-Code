@@ -141,8 +141,8 @@ describe("Patients API", () => {
     });
   });
 
-  describe("POST /api/users (create patient)", () => {
-    it("takes professional_id exclusively from the JWT", async () => {
+  describe("POST /api/users (removed in 6C.7)", () => {
+    it("returns 404 (pacientes se crean sólo por invitación)", async () => {
       const res = await request(app)
         .post("/api/users")
         .set("Authorization", profBAuth)
@@ -150,31 +150,8 @@ describe("Patients API", () => {
           name: "Nuevo B",
           email: `nuevo-b-${Date.now()}${EMAIL_SUFFIX}`,
           age: 70,
-          professional_id: profA.id,
-          role: "professional",
         });
-      assert.equal(res.status, 201);
-      assert.equal(res.body.role, "patient");
-      assert.equal(res.body.professional_id, profB.id);
-    });
-
-    it("rejects patient tokens", async () => {
-      const res = await request(app)
-        .post("/api/users")
-        .set("Authorization", patientAuth)
-        .send({
-          name: "Bloqueado",
-          email: `blocked-${Date.now()}${EMAIL_SUFFIX}`,
-        });
-      assert.equal(res.status, 403);
-    });
-
-    it("rejects unauthenticated requests", async () => {
-      const res = await request(app).post("/api/users").send({
-        name: "Sin token",
-        email: `no-token-${Date.now()}${EMAIL_SUFFIX}`,
-      });
-      assert.equal(res.status, 401);
+      assert.equal(res.status, 404);
     });
   });
 
