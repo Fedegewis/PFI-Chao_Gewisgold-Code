@@ -5,6 +5,7 @@ import { Footer } from "../components/common/Footer.jsx";
 import { GlobalHeader } from "../components/common/GlobalHeader.jsx";
 import { useAppController } from "../hooks/useAppController.js";
 import { ActivityScreen } from "../screens/ActivityScreen.jsx";
+import { InviteAcceptScreen } from "../screens/InviteAcceptScreen.jsx";
 import { LoginScreen } from "../screens/LoginScreen.jsx";
 import { PatientScreen } from "../screens/PatientScreen.jsx";
 import { ProfessionalScreen } from "../screens/ProfessionalScreen.jsx";
@@ -32,7 +33,10 @@ export function App() {
     sessions,
     setScreen,
     setSelectedPatientId,
-    updatePatient
+    updatePatient,
+    inviteToken,
+    acceptInvitationSession,
+    goToLogin
   } = useAppController();
 
   useEffect(() => {
@@ -53,6 +57,13 @@ export function App() {
         <GlobalHeader screen={screen} role={role} onLogout={logout} onNavigate={setScreen} />
         <ErrorBoundary>
           <main id="main-content">
+            {screen === SCREEN_NAMES.invite && (
+              <InviteAcceptScreen
+                token={inviteToken}
+                onAccepted={acceptInvitationSession}
+                onGoToLogin={goToLogin}
+              />
+            )}
             {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} onGoogleLogin={googleLogin} />}
             {screen === SCREEN_NAMES.patient && isAuthenticated && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
             {screen === SCREEN_NAMES.activity && isAuthenticated && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}

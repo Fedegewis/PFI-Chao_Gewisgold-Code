@@ -29,6 +29,7 @@ import {
   getToken,
   loginWithPassword,
   loginWithGoogle,
+  persistAuthSession,
   registerProfessional,
 } from "../services/authService.js";
 
@@ -82,6 +83,7 @@ export function useAppController() {
   const [authUser, setAuthUser] = useState(() => init.savedUser);
   const [screen, setScreen] = useState(() => {
     const { session, hash } = init;
+    if (hash.screen === SCREEN_NAMES.invite) return SCREEN_NAMES.invite;
     if (!session?.role) return SCREEN_NAMES.login;
     if (hash.screen === SCREEN_NAMES.professional && session.role !== SCREEN_NAMES.professional) {
       return SCREEN_NAMES.patient;
@@ -91,6 +93,7 @@ export function useAppController() {
     }
     return session.role === SCREEN_NAMES.professional ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
   });
+  const [inviteToken, setInviteToken] = useState(() => init.hash.inviteToken);
   const [professionalId, setProfessionalId] = useState(() => {
     if (init.savedUser?.role === "professional") return init.savedUser.id;
     return init.session?.professionalId || DEFAULT_PROFESSIONAL_ID;
@@ -184,6 +187,7 @@ export function useAppController() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (screen === SCREEN_NAMES.invite) return;
     const nextHash = buildHash(isAuthenticated ? screen : SCREEN_NAMES.login, selectedActivity.id);
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }, [isAuthenticated, screen, selectedActivity.id]);
@@ -193,6 +197,11 @@ export function useAppController() {
 
     function syncFromHash() {
       const hashState = readHashState();
+      if (hashState.screen === SCREEN_NAMES.invite) {
+        setInviteToken(hashState.inviteToken);
+        setScreen(SCREEN_NAMES.invite);
+        return;
+      }
       if (!isAuthenticated) {
         setScreen(SCREEN_NAMES.login);
         return;
@@ -314,6 +323,35 @@ export function useAppController() {
     });
   }
 
+  function acceptInvitationSession({ user, token }) {
+    if (!user || user.role !== "patient" || !token) {
+      clearAuth();
+      return false;
+    }
+    persistAuthSession({ user, token });
+    const patientObj = patientFromBackendUser(user);
+    setPatients([patientObj]);
+    setSelectedPatientId(patientObj.id);
+    setAuthUser(user);
+    setRole("patient");
+    setIsAuthenticated(true);
+    setInviteToken(null);
+    setLoginError("");
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
+    }
+    setScreen(SCREEN_NAMES.patient);
+    return true;
+  }
+
+  function goToLogin() {
+    setInviteToken(null);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", buildHash(SCREEN_NAMES.login, selectedActivity.id));
+    }
+    setScreen(SCREEN_NAMES.login);
+  }
+
   function logout() {
     setIsAuthenticated(false);
     setAuthUser(null);
@@ -388,6 +426,9 @@ export function useAppController() {
     setSelectedPatientId,
     updatePatient,
     patients,
-    completeActivity
+    completeActivity,
+    inviteToken,
+    acceptInvitationSession,
+    goToLogin
   };
 }

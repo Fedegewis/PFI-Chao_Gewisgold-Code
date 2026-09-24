@@ -8,7 +8,8 @@ export const SCREEN_NAMES = {
   login: "login",
   patient: "patient",
   activity: "activity",
-  professional: "professional"
+  professional: "professional",
+  invite: "invite"
 };
 
 export const MOTIVATION_MESSAGES = [

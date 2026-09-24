@@ -400,6 +400,291 @@ describe("MenteActiva critical flows", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/ya está registrado/i);
   });
 
+  test("navigating to #/invite/:token renders the public invitation screen (no auth)", async () => {
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({
+          status: "pending",
+          email: "nueva@paciente.com",
+          patient_name: "Nueva Paciente",
+          age: 70,
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          professional_name: "Dra. Test",
+        });
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/valid-token-xyz";
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: /aceptar invitación/i })).toBeInTheDocument();
+    expect(screen.getByText(/Nueva Paciente/)).toBeInTheDocument();
+    expect(screen.getByText(/nueva@paciente\.com/)).toBeInTheDocument();
+    expect(screen.getByText(/Dra\. Test/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /menteactiva/i, level: 1 })).toBeInTheDocument();
+    expect(localStorage.getItem("ma_auth_token")).toBeNull();
+    // Informative fields are not <input>s — they live inside <dd>
+    expect(screen.queryByRole("textbox", { name: /email/i })).not.toBeInTheDocument();
+    // Only password inputs are editable
+    expect(screen.getByLabelText(/crear contraseña/i)).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText(/confirmar contraseña/i)).toHaveAttribute("type", "password");
+  });
+
+  test("invite: short password shows validation and does not call accept", async () => {
+    const user = userEvent.setup();
+    const acceptCalls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({
+          status: "pending",
+          email: "n@p.com",
+          patient_name: "Nueva",
+          age: 70,
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          professional_name: "Dra.",
+        });
+      }
+      if (strUrl.includes("/accept")) {
+        acceptCalls.push(opts);
+        return jsonResponse({ user: {}, token: "x" }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/t1";
+    renderApp();
+
+    await screen.findByRole("heading", { name: /aceptar invitación/i });
+    await user.type(screen.getByLabelText(/crear contraseña/i), "abc");
+    await user.type(screen.getByLabelText(/confirmar contraseña/i), "abc");
+    await user.click(screen.getByRole("button", { name: /aceptar invitación/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/al menos 6/i);
+    expect(acceptCalls.length).toBe(0);
+  });
+
+  test("invite: mismatched confirmation shows validation and does not call accept", async () => {
+    const user = userEvent.setup();
+    const acceptCalls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({
+          status: "pending",
+          email: "n@p.com",
+          patient_name: "Nueva",
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          professional_name: "Dra.",
+        });
+      }
+      if (strUrl.includes("/accept")) {
+        acceptCalls.push(opts);
+        return jsonResponse({ user: {}, token: "x" }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/t2";
+    renderApp();
+
+    await screen.findByRole("heading", { name: /aceptar invitación/i });
+    await user.type(screen.getByLabelText(/crear contraseña/i), "secreto123");
+    await user.type(screen.getByLabelText(/confirmar contraseña/i), "otro456789");
+    await user.click(screen.getByRole("button", { name: /aceptar invitación/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no coinciden/i);
+    expect(acceptCalls.length).toBe(0);
+  });
+
+  test("invite accept: sends only {password}, persists session, navigates to #/patient", async () => {
+    const user = userEvent.setup();
+    let acceptBody = null;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({
+          status: "pending",
+          email: "nueva@paciente.com",
+          patient_name: "Nueva Paciente",
+          age: 70,
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          professional_name: "Dra. Test",
+        });
+      }
+      if (strUrl.match(/\/invitations\/[^/]+\/accept$/)) {
+        acceptBody = JSON.parse(opts.body);
+        return jsonResponse(
+          {
+            user: {
+              id: 501,
+              role: "patient",
+              name: "Nueva Paciente",
+              email: "nueva@paciente.com",
+              is_active: true,
+            },
+            token: "patient-jwt-real",
+          },
+          201
+        );
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/valid-token";
+    renderApp();
+
+    await screen.findByRole("heading", { name: /aceptar invitación/i });
+    await user.type(screen.getByLabelText(/crear contraseña/i), "secreto123");
+    await user.type(screen.getByLabelText(/confirmar contraseña/i), "secreto123");
+    await user.click(screen.getByRole("button", { name: /aceptar invitación/i }));
+
+    expect(await screen.findByRole("button", { name: /lista del supermercado/i })).toBeInTheDocument();
+    expect(acceptBody).toEqual({ password: "secreto123" });
+    expect(localStorage.getItem("ma_auth_token")).toBe("patient-jwt-real");
+    const savedUser = JSON.parse(localStorage.getItem("ma_auth_user"));
+    expect(savedUser.role).toBe("patient");
+    expect(savedUser.id).toBe(501);
+    // Token no se guarda separadamente
+    const rawStorage = Object.keys(localStorage).map((k) => localStorage.getItem(k)).join("|");
+    expect(rawStorage.includes("valid-token")).toBe(false);
+    expect(window.location.hash).toBe("#/patient");
+  });
+
+  test("invite accept: non-patient user role does not create a session", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({
+          status: "pending",
+          email: "x@p.com",
+          patient_name: "X",
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          professional_name: "Dra.",
+        });
+      }
+      if (strUrl.includes("/accept")) {
+        return jsonResponse(
+          { user: { id: 9, role: "professional", name: "X", email: "x@p.com", is_active: true }, token: "pro-jwt" },
+          201
+        );
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/tt";
+    renderApp();
+    await screen.findByRole("heading", { name: /aceptar invitación/i });
+    await user.type(screen.getByLabelText(/crear contraseña/i), "secreto123");
+    await user.type(screen.getByLabelText(/confirmar contraseña/i), "secreto123");
+    await user.click(screen.getByRole("button", { name: /aceptar invitación/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no pudo aceptarse/i);
+    expect(localStorage.getItem("ma_auth_token")).toBeNull();
+    expect(screen.queryByRole("button", { name: /lista del supermercado/i })).not.toBeInTheDocument();
+  });
+
+  test("invite: expired status shows message and no form", async () => {
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({ status: "expired" });
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/exp";
+    renderApp();
+    expect(await screen.findByText(/venció/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/crear contraseña/i)).not.toBeInTheDocument();
+  });
+
+  test("invite: revoked status shows message and no form", async () => {
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({ status: "revoked" });
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/rev";
+    renderApp();
+    expect(await screen.findByText(/ya no está disponible/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/crear contraseña/i)).not.toBeInTheDocument();
+  });
+
+  test("invite: accepted status shows message and login button", async () => {
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({ status: "accepted" });
+      }
+      return jsonResponse({}, 404);
+    }));
+    window.location.hash = "#/invite/acc";
+    renderApp();
+    expect(await screen.findByText(/ya fue utilizada/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /inicio de sesión/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/crear contraseña/i)).not.toBeInTheDocument();
+  });
+
+  test("invite: 404 invalid token shows invalid-link message", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ status: "invalid", error: "Invitación no encontrada" }, 404)));
+    window.location.hash = "#/invite/bad";
+    renderApp();
+    expect(await screen.findByText(/no es válido/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/crear contraseña/i)).not.toBeInTheDocument();
+  });
+
+  test("invite: network error shows a generic error with a retry button", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("Failed to fetch"))));
+    window.location.hash = "#/invite/net";
+    renderApp();
+    expect(await screen.findByText(/no pudimos cargar la invitación/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reintentar/i })).toBeInTheDocument();
+  });
+
+  test("invite: opening #/invite with an existing professional session still shows invitation, then accept replaces session", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn((url, _opts = {}) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/invitations/lookup")) {
+        return jsonResponse({
+          status: "pending",
+          email: "nueva@paciente.com",
+          patient_name: "Nueva",
+          age: 68,
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          professional_name: "Dra. Test",
+        });
+      }
+      if (strUrl.match(/\/invitations\/[^/]+\/accept$/)) {
+        return jsonResponse(
+          {
+            user: { id: 999, role: "patient", name: "Nueva", email: "nueva@paciente.com", is_active: true },
+            token: "new-patient-jwt",
+          },
+          201
+        );
+      }
+      return jsonResponse({}, 404);
+    }));
+    setStoredProfessionalSession();
+    window.location.hash = "#/invite/session-collision";
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: /aceptar invitación/i })).toBeInTheDocument();
+    // Prior pro session tokens are still in storage during the invite screen
+    expect(localStorage.getItem("ma_auth_token")).toBe("fake-test-token");
+
+    await user.type(screen.getByLabelText(/crear contraseña/i), "secreto123");
+    await user.type(screen.getByLabelText(/confirmar contraseña/i), "secreto123");
+    await user.click(screen.getByRole("button", { name: /aceptar invitación/i }));
+
+    expect(await screen.findByRole("button", { name: /lista del supermercado/i })).toBeInTheDocument();
+    expect(localStorage.getItem("ma_auth_token")).toBe("new-patient-jwt");
+    const savedUser = JSON.parse(localStorage.getItem("ma_auth_user"));
+    expect(savedUser.role).toBe("patient");
+    expect(savedUser.id).toBe(999);
+  });
+
   test("pending invitations list renders and revoke calls DELETE /api/invitations/:id", async () => {
     const user = userEvent.setup();
     const revokeCalls = [];

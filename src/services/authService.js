@@ -38,6 +38,11 @@ function saveUser(user) {
   localStorage.setItem("ma_auth_user", JSON.stringify(user));
 }
 
+export function persistAuthSession({ user, token }) {
+  setToken(token);
+  saveUser(user);
+}
+
 async function apiRequest(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
