@@ -1,13 +1,16 @@
 import { Router } from "express";
 import crypto from "node:crypto";
+import bcrypt from "bcrypt";
 import db from "../db/connection.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { generateToken, requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_NAME_LENGTH = 200;
 const MAX_EMAIL_LENGTH = 254;
+const MIN_PASSWORD_LENGTH = 6;
+const SALT_ROUNDS = 10;
 const INVITATION_TTL_HOURS = Number(process.env.INVITATION_TTL_HOURS) || 24 * 7;
 
 function normalizeEmail(email) {
@@ -171,5 +174,162 @@ router.delete(
     }
   }
 );
+
+router.get("/invitations/lookup", async (req, res, next) => {
+  try {
+    const rawToken = typeof req.query.token === "string" ? req.query.token : "";
+    if (!rawToken) {
+      return res.status(404).json({ error: "Invitación no encontrada", status: "invalid" });
+    }
+
+    const tokenHash = hashToken(rawToken);
+    const row = await db("patient_invitations")
+      .join("users", "users.id", "patient_invitations.professional_id")
+      .where("patient_invitations.token_hash", tokenHash)
+      .select(
+        "patient_invitations.email",
+        "patient_invitations.patient_name",
+        "patient_invitations.age",
+        "patient_invitations.expires_at",
+        "patient_invitations.accepted_at",
+        "patient_invitations.revoked_at",
+        "users.name as professional_name"
+      )
+      .first();
+
+    if (!row) {
+      return res.status(404).json({ error: "Invitación no encontrada", status: "invalid" });
+    }
+
+    return res.json({
+      status: deriveStatus(row),
+      email: row.email,
+      patient_name: row.patient_name,
+      age: row.age ?? null,
+      expires_at: row.expires_at,
+      professional_name: row.professional_name,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/invitations/:token/accept", async (req, res, next) => {
+  try {
+    const rawToken = typeof req.params.token === "string" ? req.params.token : "";
+    if (!rawToken) {
+      return res.status(404).json({ error: "Invitación no encontrada", status: "invalid" });
+    }
+
+    const { password } = req.body || {};
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({ error: "password es obligatorio", status: "invalid_password" });
+    }
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res
+        .status(400)
+        .json({
+          error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
+          status: "invalid_password",
+        });
+    }
+
+    const tokenHash = hashToken(rawToken);
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+    let outcome;
+    try {
+      outcome = await db.transaction(async (trx) => {
+        const invitation = await trx("patient_invitations")
+          .where({ token_hash: tokenHash })
+          .forUpdate()
+          .first();
+
+        if (!invitation) {
+          return { kind: "error", status: 404, code: "invalid", message: "Invitación no encontrada" };
+        }
+        if (invitation.accepted_at) {
+          return {
+            kind: "error",
+            status: 409,
+            code: "accepted",
+            message: "La invitación ya fue utilizada",
+          };
+        }
+        if (invitation.revoked_at) {
+          return {
+            kind: "error",
+            status: 410,
+            code: "revoked",
+            message: "La invitación fue revocada",
+          };
+        }
+        if (new Date(invitation.expires_at).getTime() <= Date.now()) {
+          return {
+            kind: "error",
+            status: 410,
+            code: "expired",
+            message: "La invitación expiró",
+          };
+        }
+
+        const existingUser = await trx("users").where({ email: invitation.email }).first();
+        if (existingUser) {
+          return {
+            kind: "error",
+            status: 409,
+            code: "email_taken",
+            message: "El email ya está registrado",
+          };
+        }
+
+        const [createdUser] = await trx("users")
+          .insert({
+            role: "patient",
+            name: invitation.patient_name,
+            email: invitation.email,
+            age: invitation.age,
+            professional_id: invitation.professional_id,
+            password_hash: passwordHash,
+            auth_provider: "local",
+            is_active: true,
+          })
+          .returning([
+            "id",
+            "role",
+            "name",
+            "email",
+            "age",
+            "professional_id",
+            "is_active",
+            "created_at",
+          ]);
+
+        await trx("patient_invitations")
+          .where({ id: invitation.id })
+          .update({
+            accepted_at: trx.fn.now(),
+            accepted_user_id: createdUser.id,
+          });
+
+        return { kind: "ok", user: createdUser };
+      });
+    } catch (err) {
+      if (err && err.code === "23505") {
+        return res.status(409).json({ error: "El email ya está registrado", status: "email_taken" });
+      }
+      throw err;
+    }
+
+    if (outcome.kind === "error") {
+      return res.status(outcome.status).json({ error: outcome.message, status: outcome.code });
+    }
+
+    const jwt = generateToken(outcome.user);
+    return res.status(201).json({ user: outcome.user, token: jwt });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

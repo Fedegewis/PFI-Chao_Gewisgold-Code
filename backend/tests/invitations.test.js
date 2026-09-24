@@ -1,6 +1,8 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
@@ -382,6 +384,301 @@ describe("Invitations API", () => {
     it("rejects unauthenticated requests", async () => {
       const res = await request(app).delete("/api/invitations/1");
       assert.equal(res.status, 401);
+    });
+  });
+
+  describe("GET /api/invitations/lookup", () => {
+    async function createInvite(overrides = {}) {
+      const res = await request(app)
+        .post("/api/invitations")
+        .set("Authorization", profAAuth)
+        .send({
+          name: "Lookup Test",
+          age: 71,
+          email: `lookup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}${EMAIL_SUFFIX}`,
+          ...overrides,
+        });
+      assert.equal(res.status, 201);
+      return res.body;
+    }
+
+    it("returns invitation data for a valid token and never exposes token_hash", async () => {
+      const inv = await createInvite();
+      const res = await request(app)
+        .get(`/api/invitations/lookup?token=${encodeURIComponent(inv.token)}`);
+
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "pending");
+      assert.equal(res.body.email, inv.email);
+      assert.equal(res.body.patient_name, inv.patient_name);
+      assert.equal(res.body.age, inv.age);
+      assert.equal(res.body.professional_name, profA.name);
+      assert.ok(res.body.expires_at);
+      assert.equal(res.body.token, undefined);
+      assert.equal(res.body.token_hash, undefined);
+      assert.equal(res.body.professional_id, undefined);
+      assert.equal(res.body.id, undefined);
+      assert.equal(res.body.accepted_user_id, undefined);
+      assert.equal(res.body.password_hash, undefined);
+    });
+
+    it("returns 404 for a non-existent token without leaking information", async () => {
+      const res = await request(app).get(`/api/invitations/lookup?token=does-not-exist`);
+      assert.equal(res.status, 404);
+      assert.equal(res.body.status, "invalid");
+      assert.equal(res.body.email, undefined);
+      assert.equal(res.body.patient_name, undefined);
+      assert.equal(res.body.professional_name, undefined);
+    });
+
+    it("returns 404 when no token is provided", async () => {
+      const res = await request(app).get(`/api/invitations/lookup`);
+      assert.equal(res.status, 404);
+      assert.equal(res.body.status, "invalid");
+    });
+
+    it("returns status=expired when the invitation is past expires_at", async () => {
+      const inv = await createInvite();
+      await db("patient_invitations")
+        .where({ id: inv.id })
+        .update({ expires_at: new Date(Date.now() - 1000) });
+
+      const res = await request(app)
+        .get(`/api/invitations/lookup?token=${encodeURIComponent(inv.token)}`);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "expired");
+    });
+
+    it("returns status=revoked when the invitation was revoked", async () => {
+      const inv = await createInvite();
+      await request(app)
+        .delete(`/api/invitations/${inv.id}`)
+        .set("Authorization", profAAuth);
+
+      const res = await request(app)
+        .get(`/api/invitations/lookup?token=${encodeURIComponent(inv.token)}`);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "revoked");
+    });
+
+    it("returns status=accepted when the invitation has been used", async () => {
+      const inv = await createInvite();
+      const [user] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Ya Aceptado",
+          email: `already-${Date.now()}-${Math.random().toString(36).slice(2, 6)}${EMAIL_SUFFIX}`,
+          professional_id: profA.id,
+        })
+        .returning("*");
+      await db("patient_invitations").where({ id: inv.id }).update({
+        accepted_at: new Date(),
+        accepted_user_id: user.id,
+      });
+
+      const res = await request(app)
+        .get(`/api/invitations/lookup?token=${encodeURIComponent(inv.token)}`);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "accepted");
+    });
+  });
+
+  describe("POST /api/invitations/:token/accept", () => {
+    async function createInvite(overrides = {}) {
+      const res = await request(app)
+        .post("/api/invitations")
+        .set("Authorization", profAAuth)
+        .send({
+          name: "Accept Test",
+          age: 68,
+          email: `accept-${Date.now()}-${Math.random().toString(36).slice(2, 6)}${EMAIL_SUFFIX}`,
+          ...overrides,
+        });
+      assert.equal(res.status, 201);
+      return res.body;
+    }
+
+    it("creates a patient user, hashes password, sanitizes response and returns a valid JWT", async () => {
+      const inv = await createInvite();
+      const res = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({ password: "secreto123" });
+
+      assert.equal(res.status, 201);
+      assert.ok(res.body.user);
+      assert.equal(res.body.user.role, "patient");
+      assert.equal(res.body.user.email, inv.email);
+      assert.equal(res.body.user.name, inv.patient_name);
+      assert.equal(res.body.user.age, inv.age);
+      assert.equal(res.body.user.professional_id, profA.id);
+      assert.equal(res.body.user.password_hash, undefined);
+      assert.equal(res.body.user.token_hash, undefined);
+      assert.equal(res.body.user.google_id, undefined);
+      assert.ok(res.body.token, "must return JWT");
+
+      const decoded = jwt.verify(res.body.token, process.env.JWT_SECRET);
+      assert.equal(decoded.id, res.body.user.id);
+      assert.equal(decoded.role, "patient");
+
+      const dbUser = await db("users").where({ id: res.body.user.id }).first();
+      assert.ok(dbUser.password_hash);
+      assert.notEqual(dbUser.password_hash, "secreto123");
+      assert.ok(await bcrypt.compare("secreto123", dbUser.password_hash));
+      assert.equal(dbUser.role, "patient");
+      assert.equal(dbUser.professional_id, profA.id);
+      assert.equal(dbUser.auth_provider, "local");
+      assert.equal(dbUser.is_active, true);
+
+      const dbInv = await db("patient_invitations").where({ id: inv.id }).first();
+      assert.ok(dbInv.accepted_at);
+      assert.equal(dbInv.accepted_user_id, res.body.user.id);
+    });
+
+    it("ignores role/professional_id/email/name/age sent in body", async () => {
+      const inv = await createInvite();
+      const otherProfessionalId = profB.id;
+      const res = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({
+          password: "secreto123",
+          role: "professional",
+          professional_id: otherProfessionalId,
+          email: `hijack-${Date.now()}${EMAIL_SUFFIX}`,
+          name: "Hacker",
+          age: 5,
+        });
+
+      assert.equal(res.status, 201);
+      assert.equal(res.body.user.role, "patient");
+      assert.equal(res.body.user.professional_id, profA.id);
+      assert.equal(res.body.user.email, inv.email);
+      assert.equal(res.body.user.name, inv.patient_name);
+      assert.equal(res.body.user.age, inv.age);
+    });
+
+    it("consumes the invitation exactly once (single-use)", async () => {
+      const inv = await createInvite();
+      const first = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({ password: "secreto123" });
+      assert.equal(first.status, 201);
+
+      const second = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({ password: "otro456789" });
+      assert.equal(second.status, 409);
+      assert.equal(second.body.status, "accepted");
+
+      const users = await db("users").where({ email: inv.email });
+      assert.equal(users.length, 1, "must be exactly one user for this email");
+    });
+
+    it("rejects an expired invitation without creating the user", async () => {
+      const inv = await createInvite();
+      await db("patient_invitations")
+        .where({ id: inv.id })
+        .update({ expires_at: new Date(Date.now() - 1000) });
+
+      const res = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({ password: "secreto123" });
+      assert.equal(res.status, 410);
+      assert.equal(res.body.status, "expired");
+
+      const users = await db("users").where({ email: inv.email });
+      assert.equal(users.length, 0);
+      const dbInv = await db("patient_invitations").where({ id: inv.id }).first();
+      assert.equal(dbInv.accepted_at, null);
+      assert.equal(dbInv.accepted_user_id, null);
+    });
+
+    it("rejects a revoked invitation without creating the user", async () => {
+      const inv = await createInvite();
+      await request(app)
+        .delete(`/api/invitations/${inv.id}`)
+        .set("Authorization", profAAuth);
+
+      const res = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({ password: "secreto123" });
+      assert.equal(res.status, 410);
+      assert.equal(res.body.status, "revoked");
+
+      const users = await db("users").where({ email: inv.email });
+      assert.equal(users.length, 0);
+    });
+
+    it("rejects an invalid token without creating anything", async () => {
+      const res = await request(app)
+        .post(`/api/invitations/does-not-exist/accept`)
+        .send({ password: "secreto123" });
+      assert.equal(res.status, 404);
+      assert.equal(res.body.status, "invalid");
+    });
+
+    it("returns email_taken when the email was created by another path between invitation and accept", async () => {
+      const inv = await createInvite();
+      await db("users").insert({
+        role: "patient",
+        name: "Racer",
+        email: inv.email,
+        professional_id: profA.id,
+      });
+
+      const res = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({ password: "secreto123" });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.status, "email_taken");
+
+      const dbInv = await db("patient_invitations").where({ id: inv.id }).first();
+      assert.equal(dbInv.accepted_at, null, "invitation must NOT be consumed if email was taken");
+      assert.equal(dbInv.accepted_user_id, null);
+    });
+
+    it("rejects password shorter than the minimum without consuming the invitation", async () => {
+      const inv = await createInvite();
+      const res = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({ password: "abc" });
+      assert.equal(res.status, 400);
+      assert.equal(res.body.status, "invalid_password");
+
+      const users = await db("users").where({ email: inv.email });
+      assert.equal(users.length, 0);
+      const dbInv = await db("patient_invitations").where({ id: inv.id }).first();
+      assert.equal(dbInv.accepted_at, null);
+    });
+
+    it("rejects missing password", async () => {
+      const inv = await createInvite();
+      const res = await request(app)
+        .post(`/api/invitations/${inv.token}/accept`)
+        .send({});
+      assert.equal(res.status, 400);
+      assert.equal(res.body.status, "invalid_password");
+    });
+
+    it("handles concurrent double-accept without creating two users", async () => {
+      const inv = await createInvite();
+      const [a, b] = await Promise.all([
+        request(app)
+          .post(`/api/invitations/${inv.token}/accept`)
+          .send({ password: "secreto123" }),
+        request(app)
+          .post(`/api/invitations/${inv.token}/accept`)
+          .send({ password: "secreto123" }),
+      ]);
+
+      const statuses = [a.status, b.status].sort();
+      assert.deepEqual(statuses, [201, 409]);
+
+      const users = await db("users").where({ email: inv.email });
+      assert.equal(users.length, 1, "must be exactly one user for this email after race");
+
+      const dbInv = await db("patient_invitations").where({ id: inv.id }).first();
+      assert.ok(dbInv.accepted_at);
+      assert.ok(dbInv.accepted_user_id);
     });
   });
 });
