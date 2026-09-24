@@ -22,24 +22,58 @@ function jsonResponse(body, status = 200) {
   return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
 }
 
-function installFetchStub({ patients = [DEMO_PATIENT], loginUser, createPatientResponse, onDelete } = {}) {
+function installFetchStub({
+  patients = [DEMO_PATIENT],
+  loginUser,
+  onDelete,
+  invitations = [],
+  createInvitationResponse,
+  onCreateInvitation,
+  onRevokeInvitation,
+  onCreateUser,
+} = {}) {
   const stub = vi.fn((url, opts = {}) => {
     const method = (opts.method || "GET").toUpperCase();
-    if (url.includes("/auth/login") || url.includes("/auth/register") || url.includes("/auth/google")) {
+    const strUrl = String(url);
+    if (strUrl.includes("/auth/login") || strUrl.includes("/auth/register") || strUrl.includes("/auth/google")) {
       return jsonResponse({
         user: loginUser || { id: DEMO_PROFESSIONAL_ID, role: "professional", name: "Dra. Test", email: "test@demo.com", is_active: true },
         token: "fake-jwt-token",
       });
     }
-    if (url.includes("/patients/") && method === "DELETE") {
-      if (onDelete) onDelete(url);
+    if (strUrl.includes("/patients/") && method === "DELETE") {
+      if (onDelete) onDelete(strUrl);
       return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(null) });
     }
-    if (url.includes("/patients") && method === "GET") {
+    if (strUrl.includes("/patients") && method === "GET") {
       return jsonResponse(patients);
     }
-    if (url.includes("/users") && method === "POST") {
-      return jsonResponse(createPatientResponse || { ...DEMO_PATIENT, id: "maria-perez", name: "Maria Perez", age: 74, email: "maria.perez@demo.com" }, 201);
+    if (strUrl.match(/\/invitations\/\d+$/) && method === "DELETE") {
+      if (onRevokeInvitation) onRevokeInvitation(strUrl);
+      return jsonResponse({ status: "revoked" });
+    }
+    if (strUrl.includes("/invitations") && method === "POST") {
+      if (onCreateInvitation) onCreateInvitation(opts);
+      return jsonResponse(
+        createInvitationResponse || {
+          id: 1001,
+          professional_id: DEMO_PROFESSIONAL_ID,
+          email: "maria.perez@demo.com",
+          patient_name: "Maria Perez",
+          age: 74,
+          token: "fake-invite-token-123",
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          status: "pending",
+        },
+        201
+      );
+    }
+    if (strUrl.includes("/invitations") && method === "GET") {
+      return jsonResponse(invitations);
+    }
+    if (strUrl.includes("/users") && method === "POST") {
+      if (onCreateUser) onCreateUser(opts);
+      return jsonResponse({ ...DEMO_PATIENT, id: "maria-perez", name: "Maria Perez", age: 74, email: "maria.perez@demo.com" }, 201);
     }
     return jsonResponse({}, 404);
   });
@@ -284,31 +318,117 @@ describe("MenteActiva critical flows", () => {
     expect(screen.getByText(/respondidas: 1\/5/i)).toBeInTheDocument();
   });
 
-  test("validates and completes the critical professional patient-creation form", async () => {
+  test("professional creates an invitation: shows link, does not add patient, does not call POST /users", async () => {
+    const user = userEvent.setup();
+    const inviteCalls = [];
+    const userCalls = [];
+    installFetchStub({
+      patients: [],
+      onCreateInvitation: (opts) => inviteCalls.push(JSON.parse(opts.body)),
+      onCreateUser: (opts) => userCalls.push(JSON.parse(opts.body)),
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /invitar paciente/i }));
+    await user.type(screen.getByLabelText(/nombre del paciente/i), "Maria Perez");
+    const ageInput = screen.getByLabelText(/^edad$/i);
+    await user.clear(ageInput);
+    await user.type(ageInput, "74");
+    await user.type(screen.getByLabelText(/email del paciente/i), "maria.perez@demo.com");
+    await user.click(screen.getByRole("button", { name: /crear invitación/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/invitación creada/i);
+    const linkInput = screen.getByRole("textbox", { name: /enlace de invitación/i });
+    expect(linkInput.value).toContain("/#/invite/fake-invite-token-123");
+    expect(linkInput.value.startsWith(window.location.origin)).toBe(true);
+
+    expect(inviteCalls.length).toBe(1);
+    expect(inviteCalls[0]).toEqual({ name: "Maria Perez", age: 74, email: "maria.perez@demo.com" });
+    expect(userCalls.length).toBe(0);
+    expect(screen.queryByRole("button", { name: /maria perez/i })).not.toBeInTheDocument();
+    const localToken = Object.keys(localStorage).some((k) => {
+      try { return String(localStorage.getItem(k)).includes("fake-invite-token-123"); } catch { return false; }
+    });
+    expect(localToken).toBe(false);
+  });
+
+  test("invite form shows validation errors for invalid email and age", async () => {
     const user = userEvent.setup();
     installFetchStub({ patients: [] });
     setStoredProfessionalSession();
     window.location.hash = "#/professional";
     renderApp();
 
-    await user.click(screen.getByRole("button", { name: /agregar paciente/i }));
-    await user.click(screen.getByRole("button", { name: /crear paciente/i }));
-    expect(await screen.findByText(/ingres[aá] un nombre/i)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /invitar paciente/i }));
+    await user.type(screen.getByLabelText(/nombre del paciente/i), "Maria Perez");
+    await user.type(screen.getByLabelText(/email del paciente/i), "not-an-email");
+    await user.click(screen.getByRole("button", { name: /crear invitación/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/email válido/i);
 
-    const nameInput = screen.getByLabelText(/nombre del paciente/i);
+    await user.clear(screen.getByLabelText(/email del paciente/i));
+    await user.type(screen.getByLabelText(/email del paciente/i), "maria.perez@demo.com");
     const ageInput = screen.getByLabelText(/^edad$/i);
-    await user.type(nameInput, "Maria Perez");
     await user.clear(ageInput);
     await user.type(ageInput, "300");
-    await user.click(screen.getByRole("button", { name: /crear paciente/i }));
-    expect(await screen.findByText(/la edad debe ser un n[uú]mero entero entre 1 y 120/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /crear invitación/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/la edad debe ser un n[uú]mero entero entre 1 y 120/i);
+  });
 
-    await user.clear(ageInput);
-    await user.type(ageInput, "74");
-    await user.click(screen.getByRole("button", { name: /crear paciente/i }));
+  test("invite form surfaces backend errors (email already registered)", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patients") && method === "GET") return jsonResponse([]);
+      if (strUrl.includes("/invitations") && method === "GET") return jsonResponse([]);
+      if (strUrl.includes("/invitations") && method === "POST") {
+        return jsonResponse({ error: "El email ya está registrado" }, 409);
+      }
+      return jsonResponse({}, 404);
+    }));
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
 
-    expect(await screen.findByText(/paciente creado correctamente/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /maria perez/i })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /invitar paciente/i }));
+    await user.type(screen.getByLabelText(/nombre del paciente/i), "Ana");
+    await user.type(screen.getByLabelText(/email del paciente/i), "ana@ya-existe.com");
+    await user.click(screen.getByRole("button", { name: /crear invitación/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/ya está registrado/i);
+  });
+
+  test("pending invitations list renders and revoke calls DELETE /api/invitations/:id", async () => {
+    const user = userEvent.setup();
+    const revokeCalls = [];
+    installFetchStub({
+      patients: [],
+      invitations: [
+        {
+          id: 501,
+          patient_name: "Ana Pendiente",
+          email: "ana.pendiente@demo.com",
+          age: 70,
+          status: "pending",
+          expires_at: new Date(Date.now() + 86400000).toISOString(),
+        },
+      ],
+      onRevokeInvitation: (url) => revokeCalls.push(url),
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    expect(await screen.findByText(/ana pendiente/i)).toBeInTheDocument();
+    expect(screen.getByText(/ana\.pendiente@demo\.com/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /revocar invitación a ana\.pendiente@demo\.com/i }));
+
+    expect(revokeCalls.length).toBe(1);
+    expect(revokeCalls[0]).toMatch(/\/invitations\/501$/);
+    expect(screen.queryByText(/ana pendiente/i)).not.toBeInTheDocument();
   });
 
   test("deletes a patient after confirmation and removes it from the list", async () => {

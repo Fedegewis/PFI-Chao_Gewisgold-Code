@@ -13,7 +13,6 @@ export function App() {
   const {
     activities,
     completeActivity,
-    createPatientForProfessional,
     deletePatientForProfessional,
     isAuthenticated,
     isBackendProfessional,
@@ -31,7 +30,6 @@ export function App() {
     selectedActivity,
     selectedPatient,
     sessions,
-    setPatients,
     setScreen,
     setSelectedPatientId,
     updatePatient
@@ -64,11 +62,9 @@ export function App() {
                 professionalId={professionalId}
                 selectedPatient={selectedPatient}
                 sessions={sessions}
-                setPatients={setPatients}
                 setSelectedPatientId={setSelectedPatientId}
                 updatePatient={updatePatient}
                 isBackendProfessional={isBackendProfessional}
-                createPatientForProfessional={createPatientForProfessional}
                 deletePatientForProfessional={deletePatientForProfessional}
               />
             )}

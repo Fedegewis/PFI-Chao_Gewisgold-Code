@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { activities } from "../data/activities.js";
-import { createNewProfessionalPatient, generatePatientId } from "../services/patientService.js";
 import { computeStats, getPatientSessions } from "../services/sessionService.js";
 import { PatientDetail } from "../components/professional/PatientDetail.jsx";
 import { PatientGrid } from "../components/professional/PatientGrid.jsx";
@@ -30,11 +29,9 @@ export function ProfessionalScreen({
   professionalId,
   selectedPatient,
   sessions,
-  setPatients,
   setSelectedPatientId,
   updatePatient,
   isBackendProfessional,
-  createPatientForProfessional,
   deletePatientForProfessional
 }) {
   const patientSessions = useMemo(
@@ -49,24 +46,6 @@ export function ProfessionalScreen({
 
   function handleSelectPatient(patient) {
     setSelectedPatientId(patient.id);
-  }
-
-  async function handleCreatePatient(trimmedName, parsedAge) {
-    if (isBackendProfessional) {
-      const slug = generatePatientId(trimmedName, patients.length + 1);
-      const email = `${slug}-${Date.now()}@menteactiva.local`;
-      await createPatientForProfessional({ name: trimmedName, age: parsedAge, email });
-      return;
-    }
-    const nextPatientId = generatePatientId(trimmedName, patients.length + 1);
-    const nextPatient = createNewProfessionalPatient({
-      patientId: nextPatientId,
-      name: trimmedName,
-      age: parsedAge,
-      professionalId
-    });
-    setPatients((current) => [...current, nextPatient]);
-    setSelectedPatientId(nextPatient.id);
   }
 
   async function handleDeletePatient() {
@@ -86,7 +65,6 @@ export function ProfessionalScreen({
         professionalId={professionalId}
         selectedPatient={selectedPatient}
         onSelectPatient={handleSelectPatient}
-        onCreatePatient={handleCreatePatient}
         useBackendScope={isBackendProfessional}
       />
       {selectedPatient ? (
@@ -106,7 +84,7 @@ export function ProfessionalScreen({
             <h2>Ningún paciente seleccionado</h2>
             <p>
               {patients.length === 0
-                ? "Todavía no tenés pacientes cargados. Usá \"Agregar paciente\" para crear el primero."
+                ? "Todavía no tenés pacientes cargados. Usá \"Invitar paciente\" para enviar la primera invitación."
                 : "Seleccioná un paciente de la lista para ver su ficha, métricas y evolución."}
             </p>
           </div>
