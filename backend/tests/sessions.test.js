@@ -86,67 +86,13 @@ describe("Users API", () => {
     await db.destroy();
   });
 
-  describe("POST /api/users", () => {
-    it("creates a patient owned by the authenticated professional", async () => {
+  describe("POST /api/users (removed in 6C.7)", () => {
+    it("returns 404 for POST /api/users because pacientes se crean sólo por invitación", async () => {
       const res = await request(app)
         .post("/api/users")
         .set("Authorization", profAuth)
-        .send({
-          name: "Elena Test",
-          email: `elena-${Date.now()}@test.com`,
-          age: 72,
-        });
-      assert.equal(res.status, 201);
-      assert.equal(res.body.role, "patient");
-      assert.equal(res.body.name, "Elena Test");
-      assert.equal(res.body.age, 72);
-      assert.equal(res.body.professional_id, professional.id);
-      assert.ok(res.body.id);
-    });
-
-    it("ignores professional_id from body and uses JWT identity", async () => {
-      const res = await request(app)
-        .post("/api/users")
-        .set("Authorization", profAuth)
-        .send({
-          name: "Paciente Falsificado",
-          email: `spoof-${Date.now()}@test.com`,
-          age: 65,
-          professional_id: 999999,
-          role: "professional",
-        });
-      assert.equal(res.status, 201);
-      assert.equal(res.body.role, "patient");
-      assert.equal(res.body.professional_id, professional.id);
-    });
-
-    it("rejects unauthenticated requests", async () => {
-      const res = await request(app).post("/api/users").send({
-        name: "Sin Token",
-        email: `no-token-${Date.now()}@test.com`,
-      });
-      assert.equal(res.status, 401);
-    });
-
-    it("returns 409 for duplicate email", async () => {
-      const email = `dup-${Date.now()}@test.com`;
-      await request(app)
-        .post("/api/users")
-        .set("Authorization", profAuth)
-        .send({ name: "Primero", email });
-      const res = await request(app)
-        .post("/api/users")
-        .set("Authorization", profAuth)
-        .send({ name: "Segundo", email });
-      assert.equal(res.status, 409);
-    });
-
-    it("returns 400 for missing required fields", async () => {
-      const res = await request(app)
-        .post("/api/users")
-        .set("Authorization", profAuth)
-        .send({});
-      assert.equal(res.status, 400);
+        .send({ name: "N", email: `n-${Date.now()}@test.com` });
+      assert.equal(res.status, 404);
     });
   });
 

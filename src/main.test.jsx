@@ -72,8 +72,9 @@ function installFetchStub({
       return jsonResponse(invitations);
     }
     if (strUrl.includes("/users") && method === "POST") {
+      // POST /api/users fue eliminado en 6C.7. La rama queda para atrapar llamadas indebidas.
       if (onCreateUser) onCreateUser(opts);
-      return jsonResponse({ ...DEMO_PATIENT, id: "maria-perez", name: "Maria Perez", age: 74, email: "maria.perez@demo.com" }, 201);
+      return jsonResponse({ error: "Not found" }, 404);
     }
     return jsonResponse({}, 404);
   });

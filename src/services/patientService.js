@@ -282,18 +282,6 @@ export function buildInitialPatients() {
   ];
 }
 
-export function createNewProfessionalPatient({ patientId, name, age, professionalId }) {
-  return createPatient({
-    id: patientId,
-    name,
-    age,
-    email: `${patientId}@demo.com`,
-    aiInstructions: PROFESSIONAL_DEFAULT_INSTRUCTIONS,
-    link: `https://menteactiva.demo/p/${patientId}`,
-    professionalId
-  });
-}
-
 export function patientFromBackendUser(user) {
   return createPatient({
     id: user.id,

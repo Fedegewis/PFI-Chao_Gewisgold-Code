@@ -9,7 +9,7 @@ import {
   patientFromBackendUser,
   refreshDailyPatientState
 } from "../services/patientService.js";
-import { createPatientApi, deletePatientApi, fetchPatients } from "../services/patientsApi.js";
+import { deletePatientApi, fetchPatients } from "../services/patientsApi.js";
 import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
@@ -303,14 +303,6 @@ export function useAppController() {
     }
   }
 
-  async function createPatientForProfessional({ name, age, email }) {
-    const user = await createPatientApi({ name, age, email });
-    const nextPatient = patientFromBackendUser(user);
-    setPatients((current) => [...current, nextPatient]);
-    setSelectedPatientId(nextPatient.id);
-    return nextPatient;
-  }
-
   async function deletePatientForProfessional(patientId) {
     await deletePatientApi(patientId);
     setPatients((current) => {
@@ -402,7 +394,6 @@ export function useAppController() {
   return {
     activities,
     authUser,
-    createPatientForProfessional,
     deletePatientForProfessional,
     isBackendProfessional,
     isAuthenticated,
