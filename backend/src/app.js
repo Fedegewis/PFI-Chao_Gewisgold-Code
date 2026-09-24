@@ -7,6 +7,7 @@ import usersRouter from "./routes/users.js";
 import sessionsRouter from "./routes/sessions.js";
 import authRouter from "./routes/auth.js";
 import googleAuthRouter from "./routes/google-auth.js";
+import invitationsRouter from "./routes/invitations.js";
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.use("/api", googleAuthRouter);
 app.use("/api", sectionsRouter);
 app.use("/api", usersRouter);
 app.use("/api", sessionsRouter);
+app.use("/api", invitationsRouter);
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500;
