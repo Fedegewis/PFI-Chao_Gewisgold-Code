@@ -75,7 +75,7 @@ router.post("/auth/login", async (req, res, next) => {
     const normalizedEmail = normalizeEmail(email);
 
     const user = await db("users")
-      .where({ email: normalizedEmail, role: "professional" })
+      .where({ email: normalizedEmail })
       .first();
 
     if (!user) {
