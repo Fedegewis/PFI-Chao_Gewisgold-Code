@@ -546,93 +546,160 @@ router.post("/sessions/:id/answers", requireAuth, async (req, res, next) => {
   }
 });
 
-router.post("/sessions/:id/complete", async (req, res, next) => {
+router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);
     if (!Number.isFinite(sessionId) || sessionId < 1) {
-      return res.status(400).json({ error: "ID de sesión inválido" });
+      return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+
+    if (req.user.role !== "patient") {
+      return res.status(403).json({ error: "Sólo el paciente puede completar su actividad" });
     }
 
     const session = await db("sessions").where("id", sessionId).first();
-    if (!session) {
+    if (!session || session.patient_id !== req.user.id) {
       return res.status(404).json({ error: "Sesión no encontrada" });
     }
 
     if (session.status !== "in_progress") {
-      return res.status(400).json({
+      return res.status(409).json({
         error: `No se puede completar una sesión en estado '${session.status}'`,
+        status: session.status,
       });
     }
 
-    const updated = await db.transaction(async (trx) => {
-      const sessionSections = await trx("session_sections")
-        .where("session_id", sessionId)
-        .select("id", "section_id");
+    let outcome;
+    try {
+      outcome = await db.transaction(async (trx) => {
+        const sessionSections = await trx("session_sections")
+          .where("session_id", sessionId)
+          .select("id", "section_id");
 
-      const allSessionQuestions = [];
-      const allAnswers = [];
+        const allSessionQuestions = [];
+        const allAnswers = [];
+        const sectionsMissing = [];
 
-      for (const ss of sessionSections) {
-        const sqs = await trx("session_questions")
-          .where("session_section_id", ss.id)
-          .select("id");
+        for (const ss of sessionSections) {
+          const sqs = await trx("session_questions")
+            .where("session_section_id", ss.id)
+            .select("id");
 
-        const sqIds = sqs.map((s) => s.id);
+          const sqIds = sqs.map((s) => s.id);
 
-        const answers =
-          sqIds.length > 0
-            ? await trx("answers")
-                .whereIn("session_question_id", sqIds)
-                .select("is_correct", "response_time_ms")
-            : [];
+          const answers =
+            sqIds.length > 0
+              ? await trx("answers")
+                  .whereIn("session_question_id", sqIds)
+                  .select("is_correct", "response_time_ms")
+              : [];
 
-        allSessionQuestions.push(...sqs);
-        allAnswers.push(...answers);
+          allSessionQuestions.push(...sqs);
+          allAnswers.push(...answers);
 
-        const sectionMetrics = calculateMetrics(sqs, answers);
+          if (answers.length !== sqs.length) {
+            sectionsMissing.push({
+              section_id: ss.section_id,
+              total: sqs.length,
+              answered: answers.length,
+            });
+          }
+
+          const sectionMetrics = calculateMetrics(sqs, answers);
+          if (sectionsMissing.length === 0) {
+            await trx("session_results").insert({
+              session_id: sessionId,
+              section_id: ss.section_id,
+              ...sectionMetrics,
+            });
+          }
+        }
+
+        if (sectionsMissing.length > 0) {
+          return { kind: "incomplete", missing: sectionsMissing };
+        }
+
+        const globalMetrics = calculateMetrics(allSessionQuestions, allAnswers);
         await trx("session_results").insert({
           session_id: sessionId,
-          section_id: ss.section_id,
-          ...sectionMetrics,
+          section_id: null,
+          ...globalMetrics,
+        });
+
+        const [updatedSession] = await trx("sessions")
+          .where("id", sessionId)
+          .update({ status: "completed", completed_at: trx.fn.now() })
+          .returning("*");
+
+        return { kind: "ok", session: updatedSession, global: globalMetrics };
+      });
+    } catch (err) {
+      if (err && err.code === "23505") {
+        return res.status(409).json({
+          error: "La sesión ya fue completada",
+          status: "already_completed",
         });
       }
+      throw err;
+    }
 
-      const globalMetrics = calculateMetrics(allSessionQuestions, allAnswers);
-      await trx("session_results").insert({
-        session_id: sessionId,
-        section_id: null,
-        ...globalMetrics,
+    if (outcome.kind === "incomplete") {
+      return res.status(409).json({
+        error: "Faltan respuestas para completar la sesión",
+        status: "missing_answers",
       });
+    }
 
-      const [updatedSession] = await trx("sessions")
-        .where("id", sessionId)
-        .update({ status: "completed", completed_at: trx.fn.now() })
-        .returning("*");
-
-      return updatedSession;
+    return res.json({
+      id: outcome.session.id,
+      status: outcome.session.status,
+      completed_at: outcome.session.completed_at,
+      started_at: outcome.session.started_at,
+      global: parseNumericFields({
+        total_questions: outcome.global.total_questions,
+        answered_questions: outcome.global.answered_questions,
+        correct_count: outcome.global.correct_count,
+        incorrect_count: outcome.global.incorrect_count,
+        unanswered_count: outcome.global.unanswered_count,
+        accuracy: outcome.global.accuracy,
+        completion_rate: outcome.global.completion_rate,
+        mean_latency_ms: outcome.global.mean_latency_ms,
+        min_latency_ms: outcome.global.min_latency_ms,
+        max_latency_ms: outcome.global.max_latency_ms,
+        latency_std_ms: outcome.global.latency_std_ms,
+      }),
     });
-
-    res.json(updated);
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/sessions/:id/abandon", async (req, res, next) => {
+router.post("/sessions/:id/abandon", requireAuth, async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);
     if (!Number.isFinite(sessionId) || sessionId < 1) {
-      return res.status(400).json({ error: "ID de sesión inválido" });
-    }
-
-    const session = await db("sessions").where("id", sessionId).first();
-    if (!session) {
       return res.status(404).json({ error: "Sesión no encontrada" });
     }
 
-    if (session.status !== "created" && session.status !== "in_progress") {
-      return res.status(400).json({
-        error: `No se puede abandonar una sesión en estado '${session.status}'`,
+    if (req.user.role !== "patient") {
+      return res.status(403).json({ error: "Sólo el paciente puede abandonar su actividad" });
+    }
+
+    const session = await db("sessions").where("id", sessionId).first();
+    if (!session || session.patient_id !== req.user.id) {
+      return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+
+    if (session.status === "completed") {
+      return res.status(409).json({
+        error: "No se puede abandonar una sesión ya completada",
+        status: "completed",
+      });
+    }
+    if (session.status === "abandoned") {
+      return res.status(409).json({
+        error: "La sesión ya fue abandonada",
+        status: "abandoned",
       });
     }
 
@@ -641,7 +708,11 @@ router.post("/sessions/:id/abandon", async (req, res, next) => {
       .update({ status: "abandoned", abandoned_at: db.fn.now() })
       .returning("*");
 
-    res.json(updated);
+    res.json({
+      id: updated.id,
+      status: updated.status,
+      abandoned_at: updated.abandoned_at,
+    });
   } catch (err) {
     next(err);
   }
@@ -655,7 +726,7 @@ router.get("/sessions/:id/results", requireAuth, requireRole("professional"), as
     }
 
     const session = await db("sessions").where("id", sessionId).first();
-    if (!session) {
+    if (!session || session.professional_id !== req.user.id) {
       return res.status(404).json({ error: "Sesión no encontrada" });
     }
 

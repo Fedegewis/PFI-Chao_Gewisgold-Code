@@ -240,7 +240,7 @@ describe("Stimulus support", () => {
       }
       // is_correct ya no se expone al patient; se verifica server-side via results endpoint.
 
-      const completeRes = await request(app).post(`/api/sessions/${sessionId}/complete`);
+      const completeRes = await request(app).post(`/api/sessions/${sessionId}/complete`).set("Authorization", patientAuth);
       assert.equal(completeRes.status, 200);
       assert.equal(completeRes.body.status, "completed");
 

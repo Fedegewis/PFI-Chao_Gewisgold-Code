@@ -21,6 +21,7 @@ async function authRequest(path, options = {}) {
   if (!res.ok) {
     const err = new Error((data && data.error) || "Error del servidor");
     err.status = res.status;
+    err.data = data;
     throw err;
   }
   return data;
@@ -48,4 +49,12 @@ export async function submitAnswerApi({ sessionId, sessionQuestionId, selectedAn
       response_time_ms: responseTimeMs,
     }),
   });
+}
+
+export async function completeSessionApi(sessionId) {
+  return authRequest(`/sessions/${sessionId}/complete`, { method: "POST" });
+}
+
+export async function abandonSessionApi(sessionId) {
+  return authRequest(`/sessions/${sessionId}/abandon`, { method: "POST" });
 }

@@ -508,4 +508,188 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
       }
     });
   });
+
+  describe("POST /api/sessions/:id/complete — 6D.4", () => {
+    async function createStartedSession(count = 2) {
+      const create = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: count }] });
+      const s = create.body;
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
+      return s;
+    }
+
+    async function answerAll(s) {
+      for (const q of s.sections[0].questions) {
+        await request(app)
+          .post(`/api/sessions/${s.id}/answers`)
+          .set("Authorization", patientAuth)
+          .send({ session_question_id: q.id, selected_answer: 0, response_time_ms: 1500 });
+      }
+    }
+
+    it("patient owner completa con todas las respuestas → 200; session_results creado", async () => {
+      const s = await createStartedSession(2);
+      await answerAll(s);
+      const res = await request(app).post(`/api/sessions/${s.id}/complete`).set("Authorization", patientAuth);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "completed");
+      assert.ok(res.body.completed_at);
+      assert.ok(res.body.global);
+      assert.equal(res.body.global.total_questions, 2);
+
+      const sessionRow = await db("sessions").where({ id: s.id }).first();
+      assert.equal(sessionRow.status, "completed");
+      assert.ok(sessionRow.completed_at);
+      const results = await db("session_results").where({ session_id: s.id });
+      assert.ok(results.length >= 2, "at least global + 1 section");
+    });
+
+    it("body malicioso con score/is_correct/patient_id es ignorado", async () => {
+      const s = await createStartedSession(1);
+      await answerAll(s);
+      const res = await request(app)
+        .post(`/api/sessions/${s.id}/complete`)
+        .set("Authorization", patientAuth)
+        .send({ accuracy: 999, correct_count: 999, patient_id: 9999999, professional_id: 8888888, score: 100 });
+      assert.equal(res.status, 200);
+      const gr = await db("session_results")
+        .where({ session_id: s.id })
+        .whereNull("section_id")
+        .first();
+      assert.notEqual(Number(gr.correct_count), 999);
+    });
+
+    it("faltan answers → 409 y session no queda completed", async () => {
+      const s = await createStartedSession(2);
+      // sólo responde una
+      await request(app)
+        .post(`/api/sessions/${s.id}/answers`)
+        .set("Authorization", patientAuth)
+        .send({ session_question_id: s.sections[0].questions[0].id, selected_answer: 0, response_time_ms: 1000 });
+      const res = await request(app).post(`/api/sessions/${s.id}/complete`).set("Authorization", patientAuth);
+      assert.equal(res.status, 409);
+      assert.equal(res.body.status, "missing_answers");
+      const row = await db("sessions").where({ id: s.id }).first();
+      assert.equal(row.status, "in_progress");
+      const results = await db("session_results").where({ session_id: s.id });
+      assert.equal(results.length, 0);
+    });
+
+    it("patient ajeno → 404", async () => {
+      const s = await createStartedSession(1);
+      await answerAll(s);
+      const [other] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Otro Comp",
+          email: `other-comp-${Date.now()}${EMAIL_SUFFIX}`,
+          professional_id: professional.id,
+        })
+        .returning("*");
+      const res = await request(app)
+        .post(`/api/sessions/${s.id}/complete`)
+        .set("Authorization", authHeaderFor(other));
+      assert.equal(res.status, 404);
+    });
+
+    it("professional → 403", async () => {
+      const s = await createStartedSession(1);
+      await answerAll(s);
+      const res = await request(app).post(`/api/sessions/${s.id}/complete`).set("Authorization", profAuth);
+      assert.equal(res.status, 403);
+    });
+
+    it("sin auth → 401", async () => {
+      const s = await createStartedSession(1);
+      await answerAll(s);
+      const res = await request(app).post(`/api/sessions/${s.id}/complete`);
+      assert.equal(res.status, 401);
+    });
+
+    it("doble complete no duplica session_results", async () => {
+      const s = await createStartedSession(1);
+      await answerAll(s);
+      const first = await request(app).post(`/api/sessions/${s.id}/complete`).set("Authorization", patientAuth);
+      assert.equal(first.status, 200);
+      const second = await request(app).post(`/api/sessions/${s.id}/complete`).set("Authorization", patientAuth);
+      assert.equal(second.status, 409);
+
+      const globals = await db("session_results").where({ session_id: s.id }).whereNull("section_id");
+      assert.equal(globals.length, 1);
+    });
+  });
+
+  describe("POST /api/sessions/:id/abandon — 6D.4", () => {
+    async function createSession() {
+      const create = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+      return create.body;
+    }
+
+    it("owner puede abandonar created", async () => {
+      const s = await createSession();
+      const res = await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", patientAuth);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "abandoned");
+      assert.ok(res.body.abandoned_at);
+    });
+
+    it("owner puede abandonar in_progress", async () => {
+      const s = await createSession();
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
+      const res = await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", patientAuth);
+      assert.equal(res.status, 200);
+    });
+
+    it("completed no puede abandonarse (409)", async () => {
+      const s = await createSession();
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
+      await request(app)
+        .post(`/api/sessions/${s.id}/answers`)
+        .set("Authorization", patientAuth)
+        .send({ session_question_id: s.sections[0].questions[0].id, selected_answer: 0, response_time_ms: 1000 });
+      await request(app).post(`/api/sessions/${s.id}/complete`).set("Authorization", patientAuth);
+      const res = await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", patientAuth);
+      assert.equal(res.status, 409);
+    });
+
+    it("ajeno → 404", async () => {
+      const s = await createSession();
+      const [other] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Otro Ab",
+          email: `other-ab-${Date.now()}${EMAIL_SUFFIX}`,
+          professional_id: professional.id,
+        })
+        .returning("*");
+      const res = await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", authHeaderFor(other));
+      assert.equal(res.status, 404);
+    });
+
+    it("professional → 403", async () => {
+      const s = await createSession();
+      const res = await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", profAuth);
+      assert.equal(res.status, 403);
+    });
+
+    it("sin auth → 401", async () => {
+      const s = await createSession();
+      const res = await request(app).post(`/api/sessions/${s.id}/abandon`);
+      assert.equal(res.status, 401);
+    });
+
+    it("no genera session_results", async () => {
+      const s = await createSession();
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
+      await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", patientAuth);
+      const results = await db("session_results").where({ session_id: s.id });
+      assert.equal(results.length, 0);
+    });
+  });
+
 });

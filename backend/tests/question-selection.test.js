@@ -158,13 +158,30 @@ async function startSession(sessionId) {
   assert.equal(res.status, 200);
 }
 
-async function completeSession(sessionId) {
-  const res = await request(app).post(`/api/sessions/${sessionId}/complete`);
-  assert.equal(res.status, 200);
+async function answerAllQuestions(session) {
+  const auth = await authHeaderForSessionPatient(session.id);
+  for (const s of session.sections) {
+    for (const q of s.questions) {
+      await request(app)
+        .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", auth)
+        .send({ session_question_id: q.id, selected_answer: 0, response_time_ms: 1000 });
+    }
+  }
+}
+
+async function completeSession(session) {
+  await answerAllQuestions(session);
+  const auth = await authHeaderForSessionPatient(session.id);
+  const res = await request(app)
+    .post(`/api/sessions/${session.id}/complete`)
+    .set("Authorization", auth);
+  assert.equal(res.status, 200, `Complete failed: ${JSON.stringify(res.body)}`);
 }
 
 async function abandonSession(sessionId) {
-  const res = await request(app).post(`/api/sessions/${sessionId}/abandon`);
+  const auth = await authHeaderForSessionPatient(sessionId);
+  const res = await request(app).post(`/api/sessions/${sessionId}/abandon`).set("Authorization", auth);
   assert.equal(res.status, 200);
 }
 
@@ -486,7 +503,7 @@ describe("Question Selection", () => {
         { section_id: sectionId, question_count: 3 },
       ]);
       await startSession(s1.id);
-      await completeSession(s1.id);
+      await completeSession(s1);
       const recentIds = new Set(getQuestionIds(s1));
 
       const s2 = await createSession(patient.id, [

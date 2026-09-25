@@ -5,7 +5,7 @@ import { COMPLETION_MESSAGES } from "../constants/appConfig.js";
 import { ACTIVITY_DRAFT_MESSAGE } from "../constants/content.js";
 import { clearActivityDraft, loadActivityDraft, saveActivityDraft } from "../storage/appStorage.js";
 import { summarizeAnswers } from "../services/sessionService.js";
-import { startSessionApi, submitAnswerApi } from "../services/patientSessionsApi.js";
+import { abandonSessionApi, completeSessionApi, startSessionApi, submitAnswerApi } from "../services/patientSessionsApi.js";
 import { StatusChip } from "../components/common/StatusChip.jsx";
 import { cx } from "../lib/cx.js";
 
@@ -72,6 +72,11 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
   const [starting, setStarting] = useState(usingBackend && activeSession?.status === "created");
   const [startError, setStartError] = useState("");
   const startedRef = useRef(activeSession?.status === "in_progress");
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState("");
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
+  const [abandonError, setAbandonError] = useState("");
 
   const step = sequence.length - 1;
   const current = pool[sequence[step]];
@@ -135,6 +140,8 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
   }, [activity.id, answers, level, patient.id, sequence, usingBackend]);
 
   function chooseAnswer(optionIndex) {
+    // En modo backend, una vez persistida la respuesta no se permite cambio.
+    if (usingBackend && answers[step]?.submitted) return;
     setAnswers((prev) => {
       const next = [...prev];
       const previous = next[step];
@@ -146,43 +153,58 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
     });
   }
 
+  async function runComplete() {
+    if (completing) return false;
+    setCompleting(true);
+    setCompleteError("");
+    try {
+      await completeSessionApi(activeSession.id);
+      onComplete({ backend: true, total: answers.length });
+      return true;
+    } catch (err) {
+      setCompleteError(err?.message || "No se pudo finalizar la sesión. Reintentá.");
+      return false;
+    } finally {
+      setCompleting(false);
+    }
+  }
+
   async function goNext() {
     if (usingBackend) {
-      if (submitting) return;
-      if (starting) return;
-      if (selectedEntry?.submitted) {
-        // Ya fue persistida; sólo avanzar
-        if (isLast) {
-          onComplete({ backend: true, total: answers.length });
-          return;
+      if (submitting || starting || completing) return;
+      // Si la respuesta ya fue persistida, saltar el submit.
+      if (!selectedEntry?.submitted) {
+        setSubmitting(true);
+        setSubmitError("");
+        try {
+          await submitAnswerApi({
+            sessionId: activeSession.id,
+            sessionQuestionId: current.sessionQuestionId,
+            selectedAnswer: selectedEntry.option,
+            responseTimeMs: Math.max(1, selectedEntry.latencyMs),
+          });
+        } catch (err) {
+          // 409 already_answered contractual → tratamos como éxito (retry seguro).
+          if (err?.status === 409 && err?.data?.status === "already_answered") {
+            // fallthrough: marcar submitted y continuar
+          } else {
+            setSubmitError(err?.message || "No se pudo guardar la respuesta. Reintentá.");
+            setSubmitting(false);
+            return;
+          }
         }
-        setSequence((prev) => [...prev, prev.length]);
-        return;
-      }
-      setSubmitting(true);
-      setSubmitError("");
-      try {
-        await submitAnswerApi({
-          sessionId: activeSession.id,
-          sessionQuestionId: current.sessionQuestionId,
-          selectedAnswer: selectedEntry.option,
-          responseTimeMs: Math.max(1, selectedEntry.latencyMs),
-        });
         setAnswers((prev) => {
           const next = [...prev];
           if (next[step]) next[step] = { ...next[step], submitted: true };
           return next;
         });
-        if (isLast) {
-          onComplete({ backend: true, total: answers.length + 1 });
-          return;
-        }
-        setSequence((prev) => [...prev, prev.length]);
-      } catch (err) {
-        setSubmitError(err?.message || "No se pudo guardar la respuesta. Reintentá.");
-      } finally {
         setSubmitting(false);
       }
+      if (isLast) {
+        await runComplete();
+        return;
+      }
+      setSequence((prev) => [...prev, prev.length]);
       return;
     }
     if (isLast) {
@@ -199,9 +221,62 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
     setSequence((prev) => [...prev, nextIndex < 0 ? prev[prev.length - 1] : nextIndex]);
   }
 
+  async function handleBack() {
+    if (!usingBackend) {
+      onBack();
+      return;
+    }
+    setConfirmingLeave(true);
+  }
+
+  async function handleConfirmAbandon() {
+    if (abandoning) return;
+    setAbandonError("");
+    setAbandoning(true);
+    try {
+      await abandonSessionApi(activeSession.id);
+      onBack();
+    } catch (err) {
+      if (err?.status === 409 && err?.data?.status === "completed") {
+        // Ya está completada: sólo navegar de vuelta.
+        onBack();
+        return;
+      }
+      setAbandonError(err?.message || "No se pudo abandonar la sesión.");
+    } finally {
+      setAbandoning(false);
+    }
+  }
+
   return (
     <section className="panel activity-panel" aria-labelledby="activity-title">
-      <button type="button" onClick={onBack} className="back-link"><ArrowLeft size={22} aria-hidden="true" /> Volver a actividades</button>
+      <button type="button" onClick={handleBack} className="back-link"><ArrowLeft size={22} aria-hidden="true" /> Volver a actividades</button>
+      {confirmingLeave && (
+        <div className="ai-modal-backdrop" onClick={() => { if (!abandoning) setConfirmingLeave(false); }}>
+          <div className="ai-modal" role="dialog" aria-modal="true" aria-labelledby="abandon-title" onClick={(e) => e.stopPropagation()}>
+            <div className="ai-modal-header">
+              <div>
+                <p className="eyebrow">Salir de la actividad</p>
+                <h3 id="abandon-title">¿Querés abandonar esta actividad?</h3>
+              </div>
+            </div>
+            <div className="ai-modal-body">
+              <p>Si salís ahora, la actividad quedará marcada como abandonada y no se registrarán resultados.</p>
+              {abandonError && (
+                <p className="form-feedback form-feedback-error" role="alert">{abandonError}</p>
+              )}
+              <div className="modal-actions">
+                <button type="button" onClick={() => setConfirmingLeave(false)} disabled={abandoning}>
+                  Cancelar
+                </button>
+                <button type="button" className="danger" onClick={handleConfirmAbandon} disabled={abandoning}>
+                  {abandoning ? "Abandonando..." : "Sí, abandonar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="activity-layout">
         <div className="activity-prompt">
           <p>{activity.skill}</p>
@@ -255,9 +330,9 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
                   </div>
                 )}
               </div>
-              {(startError || submitError) && (
+              {(startError || submitError || completeError) && (
                 <div className="error-box" role="alert">
-                  <AlertTriangle size={20} aria-hidden="true" /> {startError || submitError}
+                  <AlertTriangle size={20} aria-hidden="true" /> {startError || submitError || completeError}
                 </div>
               )}
               <div className="activity-actions single">
@@ -265,9 +340,15 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
                   type="button"
                   onClick={goNext}
                   className="primary"
-                  disabled={selected === undefined || submitting || starting}
+                  disabled={selected === undefined || submitting || starting || completing}
                 >
-                  {submitting ? "Guardando..." : starting ? "Iniciando..." : (isLast ? "Finalizar sesión" : "Siguiente")}
+                  {completing
+                    ? "Finalizando..."
+                    : submitting
+                      ? "Guardando..."
+                      : starting
+                        ? "Iniciando..."
+                        : (isLast ? "Finalizar sesión" : "Siguiente")}
                 </button>
               </div>
             </>

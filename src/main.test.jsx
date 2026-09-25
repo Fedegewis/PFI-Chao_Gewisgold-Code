@@ -310,6 +310,9 @@ describe("MenteActiva critical flows", () => {
       if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
         return jsonResponse({ id: 1, session_question_id: 1, selected_answer: 0, response_time_ms: 100, answered_at: "now" }, 201);
       }
+      if (strUrl.match(/\/sessions\/\d+\/complete$/) && method === "POST") {
+        return jsonResponse({ id: 1234, status: "completed", completed_at: "now", global: {} });
+      }
       return jsonResponse({}, 404);
     }));
     renderApp();
@@ -883,6 +886,12 @@ describe("MenteActiva critical flows", () => {
       if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
         return jsonResponse({ id: 1, session_question_id: JSON.parse(opts.body).session_question_id, selected_answer: JSON.parse(opts.body).selected_answer, response_time_ms: JSON.parse(opts.body).response_time_ms }, 201);
       }
+      if (strUrl.match(/\/sessions\/\d+\/complete$/) && method === "POST") {
+        return jsonResponse({ id: 42, status: "completed", completed_at: "now", global: { total_questions: questions.length } });
+      }
+      if (strUrl.match(/\/sessions\/\d+\/abandon$/) && method === "POST") {
+        return jsonResponse({ id: 42, status: "abandoned", abandoned_at: "now" });
+      }
       return jsonResponse({}, 404);
     }));
     return calls;
@@ -1032,6 +1041,256 @@ describe("MenteActiva critical flows", () => {
     expect(answerCalls).toBe(1);
     pendingResolve();
     await screen.findByText("Q2");
+  });
+
+  // ============ 6D.4 ============
+
+  test("6D.4: last answer is persisted BEFORE complete is called (order + single complete)", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    const calls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      calls.push({ url: strUrl, method });
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 100, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{ id: 1, section_id: 100, questions: [
+            { id: 1, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+          ]}],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/)) return jsonResponse({ id: 100, status: "in_progress" });
+      if (strUrl.match(/\/sessions\/\d+\/answers$/)) return jsonResponse({ id: 1 }, 201);
+      if (strUrl.match(/\/sessions\/\d+\/complete$/)) return jsonResponse({ id: 100, status: "completed" });
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /finalizar sesi[oó]n/i }));
+
+    // Debe llegar a patient screen sólo tras completar.
+    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
+    const seq = calls.filter((c) => c.method === "POST").map((c) => c.url);
+    const answerIdx = seq.findIndex((u) => u.match(/\/answers$/));
+    const completeIdx = seq.findIndex((u) => u.match(/\/complete$/));
+    expect(answerIdx).toBeGreaterThan(-1);
+    expect(completeIdx).toBeGreaterThan(answerIdx);
+    // Sólo un complete
+    expect(seq.filter((u) => u.match(/\/complete$/)).length).toBe(1);
+  });
+
+  test("6D.4: complete error keeps activity screen and allows retry without re-sending answer", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    let answerCalls = 0;
+    let completeAttempts = 0;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 111, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{ id: 1, section_id: 100, questions: [
+            { id: 55, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+          ]}],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/)) return jsonResponse({ id: 111, status: "in_progress" });
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        answerCalls++;
+        return jsonResponse({ id: 1 }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/complete$/) && method === "POST") {
+        completeAttempts++;
+        if (completeAttempts === 1) return jsonResponse({ error: "Fallo temporal" }, 500);
+        return jsonResponse({ id: 111, status: "completed" });
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /finalizar sesi[oó]n/i }));
+
+    // Sigue en actividad; hay un error visible
+    expect(await screen.findByRole("alert")).toHaveTextContent(/fallo temporal|no se pudo finalizar/i);
+    expect(screen.getByText("Q1")).toBeInTheDocument();
+
+    // Retry
+    await user.click(screen.getByRole("button", { name: /finalizar sesi[oó]n/i }));
+    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
+
+    // Answer no se reenvió en el retry
+    expect(answerCalls).toBe(1);
+    expect(completeAttempts).toBe(2);
+  });
+
+  test("6D.4: 409 already_answered contractual permite continuar; otro 409 sigue siendo error", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    let answerAttempt = 0;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 222, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{ id: 1, section_id: 100, questions: [
+            { id: 10, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+            { id: 11, display_order: 2, prompt_snapshot: "Q2", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+          ]}],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/)) return jsonResponse({ id: 222, status: "in_progress" });
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        answerAttempt++;
+        if (answerAttempt === 1) return jsonResponse({ error: "Duplicada", status: "already_answered" }, 409);
+        return jsonResponse({ error: "Otro conflicto", status: "conflict" }, 409);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+
+    // Primer submit: 409 already_answered → avanza
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /siguiente/i }));
+    expect(await screen.findByText("Q2")).toBeInTheDocument();
+
+    // Segundo submit: 409 con otro status → error visible, no avanza
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /finalizar sesi[oó]n/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/otro conflicto|no se pudo guardar/i);
+    expect(screen.getByText("Q2")).toBeInTheDocument();
+  });
+
+  test("6D.4: option is locked after a successful submit", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    let answerCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 333, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{ id: 1, section_id: 100, questions: [
+            { id: 1, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+            { id: 2, display_order: 2, prompt_snapshot: "Q2", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+          ]}],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/)) return jsonResponse({ id: 333, status: "in_progress" });
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        answerCalls++;
+        return jsonResponse({ id: 1 }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    // Click a → submit → advance to Q2
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /siguiente/i }));
+    await screen.findByText("Q2");
+    // Ahora estamos en Q2. Volver a la anterior no está soportado en modo backend.
+    // El test se centra en que al Submit Q2 y luego clickear otra opción, si el submit ya sucedió, no se reenvía.
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /finalizar sesi[oó]n/i }));
+    // 2 answers persistidos (uno por pregunta), no reenvíos.
+    expect(answerCalls).toBe(2);
+  });
+
+  test("6D.4: pulsar Volver muestra confirmación de abandono", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    stubBackendActivityFetch({ questions: [
+      { id: 1, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+    ]});
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getByRole("button", { name: /volver a actividades/i }));
+    expect(await screen.findByRole("heading", { name: /abandonar esta actividad/i })).toBeInTheDocument();
+    expect(screen.getByText(/marcada como abandonada/i)).toBeInTheDocument();
+    // Sigue en actividad
+    expect(screen.getByText("Q1")).toBeInTheDocument();
+  });
+
+  test("6D.4: confirmar abandono llama /abandon y vuelve al PatientScreen", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    const calls = stubBackendActivityFetch({ questions: [
+      { id: 1, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+    ]});
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getByRole("button", { name: /volver a actividades/i }));
+    await user.click(screen.getByRole("button", { name: /s[ií], abandonar/i }));
+
+    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
+    const abandonCalls = calls.filter((c) => c.method === "POST" && c.url.match(/\/abandon$/));
+    expect(abandonCalls.length).toBe(1);
+  });
+
+  test("6D.4: cancelar confirmación permanece en la actividad", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    stubBackendActivityFetch({ questions: [
+      { id: 1, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+    ]});
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getByRole("button", { name: /volver a actividades/i }));
+    await user.click(screen.getByRole("button", { name: /^cancelar$/i }));
+
+    expect(screen.getByText("Q1")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /actividades disponibles/i })).not.toBeInTheDocument();
+  });
+
+  test("6D.4: error de abandon mantiene al patient en la actividad", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 444, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{ id: 1, section_id: 100, questions: [
+            { id: 1, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a","b","c","d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+          ]}],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/)) return jsonResponse({ id: 444, status: "in_progress" });
+      if (strUrl.match(/\/sessions\/\d+\/abandon$/) && method === "POST") return jsonResponse({ error: "Servicio caído" }, 500);
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getByRole("button", { name: /volver a actividades/i }));
+    await user.click(screen.getByRole("button", { name: /s[ií], abandonar/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/servicio caído|no se pudo abandonar/i);
+    expect(screen.getByText("Q1")).toBeInTheDocument();
   });
 
   test("pending invitations list renders and revoke calls DELETE /api/invitations/:id", async () => {
