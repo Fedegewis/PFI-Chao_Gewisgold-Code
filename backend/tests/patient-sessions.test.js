@@ -220,4 +220,107 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
       .send({ sections: [{ section_id: 9999999, question_count: 1 }] });
     assert.equal(res.status, 404);
   });
+
+  it("never exposes correct_answer_snapshot in the response", async () => {
+    const res = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId, question_count: 3 }] });
+    assert.equal(res.status, 201);
+    for (const sq of res.body.sections[0].questions) {
+      assert.equal(sq.correct_answer_snapshot, undefined);
+      assert.equal(JSON.stringify(sq).includes("correct_answer"), false);
+    }
+  });
+
+  it("includes prompt/options/stimulus/response_type and respects display_order", async () => {
+    const res = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId, question_count: 3 }] });
+    assert.equal(res.status, 201);
+    const qs = res.body.sections[0].questions;
+    for (const sq of qs) {
+      assert.ok(sq.prompt_snapshot);
+      assert.ok(sq.options_snapshot);
+      assert.equal(sq.response_type, "multiple_choice");
+      assert.equal("stimulus_snapshot" in sq, true);
+    }
+    const orders = qs.map((q) => q.display_order);
+    assert.deepEqual(orders, [...orders].sort((a, b) => a - b));
+  });
+
+  describe("GET /api/sessions/:id — ownership + sanitization", () => {
+    let sessionOfPatient;
+
+    before(async () => {
+      const create = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: 2 }] });
+      sessionOfPatient = create.body;
+    });
+
+    it("patient owner can read the session; correct_answer never exposed", async () => {
+      const res = await request(app)
+        .get(`/api/sessions/${sessionOfPatient.id}`)
+        .set("Authorization", patientAuth);
+      assert.equal(res.status, 200);
+      for (const sq of res.body.sections[0].questions) {
+        assert.equal(sq.correct_answer_snapshot, undefined);
+      }
+    });
+
+    it("another patient cannot read the session (404)", async () => {
+      const [otherPatient] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Otro Paciente",
+          email: `other-${Date.now()}${EMAIL_SUFFIX}`,
+          professional_id: professional.id,
+        })
+        .returning("*");
+      const otherAuth = authHeaderFor(otherPatient);
+      const res = await request(app)
+        .get(`/api/sessions/${sessionOfPatient.id}`)
+        .set("Authorization", otherAuth);
+      assert.equal(res.status, 404);
+    });
+
+    it("professional owner can read the session AND sees correct_answer_snapshot", async () => {
+      const res = await request(app)
+        .get(`/api/sessions/${sessionOfPatient.id}`)
+        .set("Authorization", profAuth);
+      assert.equal(res.status, 200);
+      const sq = res.body.sections[0].questions[0];
+      assert.equal(typeof sq.correct_answer_snapshot, "number");
+    });
+
+    it("another professional cannot read the session (404)", async () => {
+      const [otherProf] = await db("users")
+        .insert({
+          role: "professional",
+          name: "Otro Prof",
+          email: `other-prof-${Date.now()}${EMAIL_SUFFIX}`,
+        })
+        .returning("*");
+      const otherAuth = authHeaderFor(otherProf);
+      const res = await request(app)
+        .get(`/api/sessions/${sessionOfPatient.id}`)
+        .set("Authorization", otherAuth);
+      assert.equal(res.status, 404);
+    });
+
+    it("returns 401 without auth", async () => {
+      const res = await request(app).get(`/api/sessions/${sessionOfPatient.id}`);
+      assert.equal(res.status, 401);
+    });
+
+    it("returns 404 for a non-existent session", async () => {
+      const res = await request(app)
+        .get(`/api/sessions/9999999`)
+        .set("Authorization", patientAuth);
+      assert.equal(res.status, 404);
+    });
+  });
 });

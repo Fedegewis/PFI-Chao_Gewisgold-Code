@@ -109,7 +109,7 @@ export function useAppController() {
   );
   const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(init.hash.activityId));
   const [loginError, setLoginError] = useState("");
-  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
   const [activityStartError, setActivityStartError] = useState("");
 
   const selectedPatient = useMemo(
@@ -380,13 +380,13 @@ export function useAppController() {
           sectionSlug,
           questionCount: selectedPatient.maxQuestions || 4,
         });
-        setActiveSessionId(session.id);
+        setActiveSession(session);
       } catch (err) {
         setActivityStartError(err?.message || "No se pudo iniciar la actividad. Reintentá más tarde.");
         return;
       }
     } else {
-      setActiveSessionId(null);
+      setActiveSession(null);
     }
 
     setSelectedActivity(activity);
@@ -395,6 +395,13 @@ export function useAppController() {
 
   function completeActivity(summary) {
     if (!selectedPatient) return;
+    if (summary && summary.backend) {
+      // Sesión backend: la persistencia de respuestas/metricas se implementa en 6D.3+.
+      // Por ahora, cerrar la actividad sin actualizar el dashboard local.
+      setActiveSession(null);
+      setScreen(SCREEN_NAMES.patient);
+      return;
+    }
     const { nextSessions, patientPatch } = buildCompletedActivityState({
       patient: selectedPatient,
       sessions,
@@ -446,7 +453,7 @@ export function useAppController() {
     inviteToken,
     acceptInvitationSession,
     goToLogin,
-    activeSessionId,
+    activeSession,
     activityStartError
   };
 }

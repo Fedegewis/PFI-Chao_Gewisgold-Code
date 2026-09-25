@@ -124,6 +124,20 @@ async function selectQuestionsForSection(
   return { error: false, questions: selected };
 }
 
+function stripCorrectAnswer(sq) {
+  if (!sq) return sq;
+  // eslint-disable-next-line no-unused-vars
+  const { correct_answer_snapshot: _drop, ...rest } = sq;
+  return rest;
+}
+
+function sanitizeSectionsForPatient(sections) {
+  return (sections || []).map((s) => ({
+    ...s,
+    questions: (s.questions || []).map(stripCorrectAnswer),
+  }));
+}
+
 function parseNumericFields(row) {
   if (!row) return null;
   return {
@@ -347,13 +361,16 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
       return { ...session, sections: sessionSectionsData };
     });
 
-    return res.status(201).json(result);
+    return res.status(201).json({
+      ...result,
+      sections: sanitizeSectionsForPatient(result.sections),
+    });
   } catch (err) {
     next(err);
   }
 });
 
-router.get("/sessions/:id", async (req, res, next) => {
+router.get("/sessions/:id", requireAuth, async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);
     if (!Number.isFinite(sessionId) || sessionId < 1) {
@@ -363,6 +380,18 @@ router.get("/sessions/:id", async (req, res, next) => {
     const session = await db("sessions").where("id", sessionId).first();
     if (!session) {
       return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+
+    if (req.user.role === "patient") {
+      if (session.patient_id !== req.user.id) {
+        return res.status(404).json({ error: "Sesión no encontrada" });
+      }
+    } else if (req.user.role === "professional") {
+      if (session.professional_id !== req.user.id) {
+        return res.status(404).json({ error: "Sesión no encontrada" });
+      }
+    } else {
+      return res.status(403).json({ error: "No tenés permisos para esta acción" });
     }
 
     const sessionSections = await db("session_sections")
@@ -377,7 +406,11 @@ router.get("/sessions/:id", async (req, res, next) => {
         .select("*");
     }
 
-    res.json({ ...session, sections: sessionSections });
+    const payload = req.user.role === "patient"
+      ? { ...session, sections: sanitizeSectionsForPatient(sessionSections) }
+      : { ...session, sections: sessionSections };
+
+    res.json(payload);
   } catch (err) {
     next(err);
   }

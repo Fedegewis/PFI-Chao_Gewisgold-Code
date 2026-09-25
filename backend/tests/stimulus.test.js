@@ -174,7 +174,7 @@ describe("Stimulus support", () => {
       });
       assert.equal(createRes.status, 201);
 
-      const getRes = await request(app).get(`/api/sessions/${createRes.body.id}`);
+      const getRes = await request(app).get(`/api/sessions/${createRes.body.id}`).set("Authorization", profAuth);
       assert.equal(getRes.status, 200);
 
       const questions = getRes.body.sections[0].questions;
@@ -205,7 +205,7 @@ describe("Stimulus support", () => {
         .where("id", stimulusQ.question_id)
         .update({ stimulus: "CHANGED STIMULUS" });
 
-      const getRes = await request(app).get(`/api/sessions/${sessionId}`);
+      const getRes = await request(app).get(`/api/sessions/${sessionId}`).set("Authorization", profAuth);
       const snapshotQ = getRes.body.sections[0].questions.find((q) => q.prompt_snapshot === "¿Dónde dejó los anteojos?");
       assert.equal(snapshotQ.stimulus_snapshot, originalStimulus, "snapshot should not change when source question is modified");
 

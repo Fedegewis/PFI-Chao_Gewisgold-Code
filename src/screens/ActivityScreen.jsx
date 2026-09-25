@@ -22,10 +22,33 @@ function nearestAvailable(level, used, length) {
   return best;
 }
 
-export function ActivityScreen({ activity, onBack, onComplete, patient }) {
-  const pool = activity.questions;
-  const sessionLength = Math.min(patient.maxQuestions, pool.length);
+function extractBackendPool(activeSession) {
+  if (!activeSession || !Array.isArray(activeSession.sections)) return null;
+  const sqs = [];
+  for (const s of activeSession.sections) {
+    if (Array.isArray(s.questions)) sqs.push(...s.questions);
+  }
+  if (sqs.length === 0) return null;
+  const ordered = [...sqs].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+  return ordered.map((sq) => ({
+    prompt: sq.prompt_snapshot,
+    stimulus: sq.stimulus_snapshot || null,
+    options: Array.isArray(sq.options_snapshot)
+      ? sq.options_snapshot
+      : (typeof sq.options_snapshot === "string" ? JSON.parse(sq.options_snapshot) : []),
+    responseType: sq.response_type,
+  }));
+}
+
+export function ActivityScreen({ activity, onBack, onComplete, patient, activeSession }) {
+  const backendPool = extractBackendPool(activeSession);
+  const usingBackend = Boolean(backendPool);
+  const pool = usingBackend ? backendPool : activity.questions;
+  const sessionLength = usingBackend ? backendPool.length : Math.min(patient.maxQuestions, pool.length);
   const [initialState] = useState(() => {
+    if (usingBackend) {
+      return { sequence: [0], answers: [], level: 0 };
+    }
     const draft = loadActivityDraft();
     const canRestore =
       draft &&
@@ -67,6 +90,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
   }
 
   useEffect(() => {
+    if (usingBackend) return;
     saveActivityDraft({
       patientId: patient.id,
       activityId: activity.id,
@@ -74,7 +98,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
       answers,
       level
     });
-  }, [activity.id, answers, level, patient.id, sequence]);
+  }, [activity.id, answers, level, patient.id, sequence, usingBackend]);
 
   function chooseAnswer(optionIndex) {
     setAnswers((prev) => {
@@ -82,15 +106,25 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
       const previous = next[step];
       const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
       const latencyMs = previous ? previous.latencyMs : Math.round(nowMs - shownAt.current);
-      next[step] = { option: optionIndex, correct: optionIndex === current.correct, latencyMs };
+      const correct = usingBackend ? null : optionIndex === current.correct;
+      next[step] = { option: optionIndex, correct, latencyMs };
       return next;
     });
   }
 
   function goNext() {
     if (isLast) {
+      if (usingBackend) {
+        onComplete({ backend: true, total: answers.length });
+        return;
+      }
       clearActivityDraft();
       onComplete(summarizeAnswers(answers));
+      return;
+    }
+    if (usingBackend) {
+      // Modo backend: orden lineal según display_order del backend, sin adaptación.
+      setSequence((prev) => [...prev, prev.length]);
       return;
     }
     const action = heuristicDifficulty({ correct: selectedEntry.correct, latencyMs: selectedEntry.latencyMs });
@@ -139,13 +173,13 @@ export function ActivityScreen({ activity, onBack, onComplete, patient }) {
               <p className="question-text" id="current-question">{current.prompt}</p>
               <div className="answer-grid" role="group" aria-labelledby="current-question">
                 {current.options.map((answer, index) => (
-                  <button key={answer} type="button" aria-pressed={selected === index} onClick={() => chooseAnswer(index)} className={cx("answer-button", selected === index && (isCorrect ? "answer-good" : "answer-review"))}>
+                  <button key={answer} type="button" aria-pressed={selected === index} onClick={() => chooseAnswer(index)} className={cx("answer-button", selected === index && !usingBackend && (isCorrect ? "answer-good" : "answer-review"), selected === index && usingBackend && "answer-selected")}>
                     <span aria-hidden="true">{String.fromCharCode(65 + index)}</span>{answer}{selected === index && <CheckCircle2 size={24} aria-hidden="true" />}
                   </button>
                 ))}
               </div>
               <div aria-live="polite" aria-atomic="true">
-                {selectedEntry && (
+                {!usingBackend && selectedEntry && (
                   <div className={cx("feedback-box", !isCorrect && "feedback-encourage")}>
                     {isCorrect ? <CheckCircle2 size={24} aria-hidden="true" /> : <RefreshCw size={24} aria-hidden="true" />}
                     <p>{isCorrect ? current.patientGood : current.patientTry}</p>

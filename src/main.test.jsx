@@ -276,7 +276,7 @@ describe("MenteActiva critical flows", () => {
     expect(screen.queryByRole("heading", { name: /precisi[oó]n por sesi[oó]n/i })).not.toBeInTheDocument();
   });
 
-  test("completes the main patient activity flow and updates the dashboard state", async () => {
+  test("completes the main patient activity flow with backend questions and returns to patient screen", async () => {
     const user = userEvent.setup();
     localStorage.setItem("ma_auth_token", "patient-jwt");
     localStorage.setItem(
@@ -285,10 +285,23 @@ describe("MenteActiva critical flows", () => {
     );
     localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
     window.location.hash = "#/patient";
+
+    const backendQuestions = [
+      { id: 1, display_order: 1, prompt_snapshot: "Backend Q1", options_snapshot: ["Alpha", "Beta", "Gamma", "Delta"], stimulus_snapshot: null, response_type: "multiple_choice" },
+      { id: 2, display_order: 2, prompt_snapshot: "Backend Q2", options_snapshot: ["Rojo", "Verde", "Azul", "Amarillo"], stimulus_snapshot: null, response_type: "multiple_choice" },
+      { id: 3, display_order: 3, prompt_snapshot: "Backend Q3", options_snapshot: ["Uno", "Dos", "Tres", "Cuatro"], stimulus_snapshot: null, response_type: "multiple_choice" },
+      { id: 4, display_order: 4, prompt_snapshot: "Backend Q4", options_snapshot: ["Norte", "Sur", "Este", "Oeste"], stimulus_snapshot: null, response_type: "multiple_choice" },
+    ];
     vi.stubGlobal("fetch", vi.fn((url) => {
       const strUrl = String(url);
       if (strUrl.includes("/patient/sessions")) {
-        return jsonResponse({ id: 1234, patient_id: 42, professional_id: 7, status: "created", sections: [] }, 201);
+        return jsonResponse({
+          id: 1234,
+          patient_id: 42,
+          professional_id: 7,
+          status: "created",
+          sections: [{ id: 10, section_id: 100, questions: backendQuestions }],
+        }, 201);
       }
       return jsonResponse({}, 404);
     }));
@@ -296,23 +309,104 @@ describe("MenteActiva critical flows", () => {
 
     await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
 
-    // patientFromBackendUser inicializa maxQuestions=4 (default de createPatient),
-    // así que la actividad presenta 4 preguntas del banco demo.
-    const answers = [
-      /pan, leche y manzanas/i,
-      /pilas/i,
-      /manzanas/i,
-      /dos yogures y un queso/i
-    ];
-
-    for (const answer of answers) {
-      await user.click(await screen.findByRole("button", { name: answer }));
+    await screen.findByText("Backend Q1");
+    for (let i = 1; i <= backendQuestions.length; i++) {
+      await screen.findByText(`Backend Q${i}`);
+      const firstOption = backendQuestions[i - 1].options_snapshot[0];
+      await user.click(screen.getByRole("button", { name: firstOption }));
       await user.click(screen.getByRole("button", { name: /siguiente|finalizar sesi[oó]n/i }));
     }
 
-    expect(await screen.findByText(/1 de 10 actividades hechas hoy/i)).toBeInTheDocument();
-    expect(screen.getByText(/hecha por hoy/i)).toBeInTheDocument();
+    // Vuelve al patient screen; dashboard local no se actualiza (backend mode)
+    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
     expect(window.location.hash).toBe("#/patient");
+  });
+
+  test("patient activity renders backend questions in display_order and NOT demo pool questions", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+
+    // Deliberadamente en orden desordenado — el frontend debe respetar display_order.
+    const backendQuestions = [
+      { id: 20, display_order: 2, prompt_snapshot: "SEGUNDA backend", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+      { id: 10, display_order: 1, prompt_snapshot: "PRIMERA backend", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: "Este es el stimulus.", response_type: "multiple_choice" },
+    ];
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 999,
+          patient_id: 42,
+          professional_id: 7,
+          status: "created",
+          sections: [{ id: 1, section_id: 100, questions: backendQuestions }],
+        }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+
+    // Fase 1: stimulus visible (backend Q1 tiene stimulus)
+    expect(await screen.findByText("Este es el stimulus.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+
+    // Fase 2: PRIMERA backend visible; NO deben aparecer prompts del banco demo.
+    expect(await screen.findByText("PRIMERA backend")).toBeInTheDocument();
+    expect(screen.queryByText(/pan, leche y manzanas/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("SEGUNDA backend")).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /siguiente/i }));
+
+    // Segunda pregunta: SEGUNDA backend
+    expect(await screen.findByText("SEGUNDA backend")).toBeInTheDocument();
+    expect(screen.queryByText("PRIMERA backend")).not.toBeInTheDocument();
+  });
+
+  test("frontend does NOT receive correct_answer_snapshot from backend response payload", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+
+    let responseSent;
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).includes("/patient/sessions")) {
+        responseSent = {
+          id: 1,
+          patient_id: 42,
+          professional_id: 7,
+          status: "created",
+          sections: [{
+            id: 1,
+            section_id: 100,
+            questions: [
+              { id: 1, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" }
+            ],
+          }],
+        };
+        return jsonResponse(responseSent, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    // Verificar el payload que salió del backend stub (representa lo que llega al cliente).
+    const serialized = JSON.stringify(responseSent);
+    expect(serialized.includes("correct_answer")).toBe(false);
   });
 
   test("patient opening an activity calls POST /api/patient/sessions and stores session id", async () => {

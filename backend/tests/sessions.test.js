@@ -279,7 +279,7 @@ describe("Users API", () => {
       });
       const sessionId = createRes.body.id;
 
-      const res = await request(app).get(`/api/sessions/${sessionId}`);
+      const res = await request(app).get(`/api/sessions/${sessionId}`).set("Authorization", profAuth);
       assert.equal(res.status, 200);
       assert.equal(res.body.id, sessionId);
       assert.equal(res.body.status, "created");
@@ -294,12 +294,12 @@ describe("Users API", () => {
     });
 
     it("returns 404 for non-existent session", async () => {
-      const res = await request(app).get("/api/sessions/99999");
+      const res = await request(app).get("/api/sessions/99999").set("Authorization", profAuth);
       assert.equal(res.status, 404);
     });
 
     it("returns 400 for invalid session id", async () => {
-      const res = await request(app).get("/api/sessions/abc");
+      const res = await request(app).get("/api/sessions/abc").set("Authorization", profAuth);
       assert.equal(res.status, 400);
     });
   });
