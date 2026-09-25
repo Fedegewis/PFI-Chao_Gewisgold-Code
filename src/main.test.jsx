@@ -285,6 +285,13 @@ describe("MenteActiva critical flows", () => {
     );
     localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
     window.location.hash = "#/patient";
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const strUrl = String(url);
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({ id: 1234, patient_id: 42, professional_id: 7, status: "created", sections: [] }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
     renderApp();
 
     await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
@@ -306,6 +313,59 @@ describe("MenteActiva critical flows", () => {
     expect(await screen.findByText(/1 de 10 actividades hechas hoy/i)).toBeInTheDocument();
     expect(screen.getByText(/hecha por hoy/i)).toBeInTheDocument();
     expect(window.location.hash).toBe("#/patient");
+  });
+
+  test("patient opening an activity calls POST /api/patient/sessions and stores session id", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+
+    const calls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      calls.push({ url: strUrl, method: (opts.method || "GET").toUpperCase(), body: opts.body });
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({ id: 555, patient_id: 42, professional_id: 7, status: "created", sections: [] }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+
+    const call = calls.find((c) => c.url.includes("/patient/sessions"));
+    expect(call).toBeDefined();
+    expect(call.method).toBe("POST");
+    const body = JSON.parse(call.body);
+    expect(body).toEqual({ sections: [{ section_slug: "memoria_de_trabajo", question_count: 4 }] });
+    expect(body.patient_id).toBeUndefined();
+    expect(body.professional_id).toBeUndefined();
+    expect(window.location.hash).toBe("#/activity/market");
+  });
+
+  test("patient activity does NOT start if creating the session fails", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ error: "Servidor caído" }, 500)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/servidor caído|no se pudo iniciar/i);
+    expect(window.location.hash).toBe("#/patient");
+    expect(screen.queryByRole("button", { name: /pan, leche y manzanas/i })).not.toBeInTheDocument();
   });
 
   test("restores an in-progress activity after remounting", async () => {

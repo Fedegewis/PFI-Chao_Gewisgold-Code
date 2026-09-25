@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
+import { ACTIVITY_TO_SECTION_SLUG, DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
+import { createPatientSession } from "../services/patientSessionsApi.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
@@ -108,6 +109,8 @@ export function useAppController() {
   );
   const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(init.hash.activityId));
   const [loginError, setLoginError] = useState("");
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [activityStartError, setActivityStartError] = useState("");
 
   const selectedPatient = useMemo(
     () =>
@@ -361,9 +364,31 @@ export function useAppController() {
     setPatients((current) => current.map((patient) => (patient.id === patientId ? { ...patient, ...patch } : patient)));
   }
 
-  function openActivity(activity) {
+  async function openActivity(activity) {
     if (!selectedPatient) return;
     if (selectedPatient.completed.includes(activity.id)) return;
+    setActivityStartError("");
+
+    if (isBackendPatient) {
+      const sectionSlug = ACTIVITY_TO_SECTION_SLUG[activity.id];
+      if (!sectionSlug) {
+        setActivityStartError("Esta actividad no está disponible todavía en tu banco.");
+        return;
+      }
+      try {
+        const session = await createPatientSession({
+          sectionSlug,
+          questionCount: selectedPatient.maxQuestions || 4,
+        });
+        setActiveSessionId(session.id);
+      } catch (err) {
+        setActivityStartError(err?.message || "No se pudo iniciar la actividad. Reintentá más tarde.");
+        return;
+      }
+    } else {
+      setActiveSessionId(null);
+    }
+
     setSelectedActivity(activity);
     setScreen(SCREEN_NAMES.activity);
   }
@@ -420,6 +445,8 @@ export function useAppController() {
     completeActivity,
     inviteToken,
     acceptInvitationSession,
-    goToLogin
+    goToLogin,
+    activeSessionId,
+    activityStartError
   };
 }

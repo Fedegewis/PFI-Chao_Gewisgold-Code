@@ -251,6 +251,108 @@ router.post("/sessions", requireAuth, requireRole("professional"), async (req, r
   }
 });
 
+router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req, res, next) => {
+  try {
+    const { sections } = req.body || {};
+    if (!Array.isArray(sections) || sections.length === 0) {
+      return res.status(400).json({ error: "sections (array no vacío) es obligatorio" });
+    }
+
+    const patient = await db("users")
+      .where({ id: req.user.id, role: "patient", is_active: true })
+      .first();
+    if (!patient) {
+      return res.status(403).json({ error: "Paciente no activo" });
+    }
+    if (!patient.professional_id) {
+      return res.status(400).json({ error: "El paciente no está asociado a un profesional" });
+    }
+
+    const resolvedSections = [];
+    for (const entry of sections) {
+      const questionCount = Number(entry.question_count);
+      if (!Number.isInteger(questionCount) || questionCount < 1) {
+        return res.status(400).json({ error: "question_count debe ser un entero >= 1" });
+      }
+      let sectionRow;
+      if (entry.section_id != null) {
+        sectionRow = await db("sections").where("id", entry.section_id).first();
+      } else if (entry.section_slug) {
+        sectionRow = await db("sections").where("slug", entry.section_slug).first();
+      } else {
+        return res.status(400).json({ error: "Cada sección requiere section_id o section_slug" });
+      }
+      if (!sectionRow) {
+        return res.status(404).json({ error: "Sección no encontrada" });
+      }
+
+      const availableCount = await db("questions")
+        .where({ section_id: sectionRow.id, is_active: true, is_validated: true })
+        .count("id as count")
+        .first();
+      const available = Number(availableCount.count);
+      if (available < questionCount) {
+        return res.status(400).json({
+          error: `Sección '${sectionRow.name}' tiene ${available} pregunta(s) disponible(s), pero se solicitaron ${questionCount}`,
+        });
+      }
+      resolvedSections.push({ section: sectionRow, questionCount });
+    }
+
+    const result = await db.transaction(async (trx) => {
+      const [session] = await trx("sessions")
+        .insert({ patient_id: patient.id, professional_id: patient.professional_id })
+        .returning("*");
+
+      const sessionSectionsData = [];
+      for (let i = 0; i < resolvedSections.length; i++) {
+        const { section, questionCount } = resolvedSections[i];
+
+        const selection = await selectQuestionsForSection(trx, patient.id, section.id, questionCount);
+        if (selection.error) {
+          throw new Error(
+            `Insufficient eligible questions for section ${section.id}: ` +
+            `${selection.available} available, ${questionCount} requested`
+          );
+        }
+
+        const [sessionSection] = await trx("session_sections")
+          .insert({
+            session_id: session.id,
+            section_id: section.id,
+            requested_count: questionCount,
+            display_order: i + 1,
+          })
+          .returning("*");
+
+        const sessionQuestionsData = [];
+        for (let j = 0; j < selection.questions.length; j++) {
+          const q = selection.questions[j];
+          const [sq] = await trx("session_questions")
+            .insert({
+              session_section_id: sessionSection.id,
+              question_id: q.id,
+              display_order: j + 1,
+              prompt_snapshot: q.prompt,
+              stimulus_snapshot: q.stimulus || null,
+              options_snapshot: JSON.stringify(q.options),
+              correct_answer_snapshot: q.correct_answer,
+              response_type: q.response_type,
+            })
+            .returning("*");
+          sessionQuestionsData.push(sq);
+        }
+        sessionSectionsData.push({ ...sessionSection, questions: sessionQuestionsData });
+      }
+      return { ...session, sections: sessionSectionsData };
+    });
+
+    return res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/sessions/:id", async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);

@@ -36,7 +36,8 @@ export function App() {
     updatePatient,
     inviteToken,
     acceptInvitationSession,
-    goToLogin
+    goToLogin,
+    activityStartError
   } = useAppController();
 
   useEffect(() => {
@@ -65,7 +66,7 @@ export function App() {
               />
             )}
             {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} onGoogleLogin={googleLogin} />}
-            {screen === SCREEN_NAMES.patient && isAuthenticated && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} />}
+            {screen === SCREEN_NAMES.patient && isAuthenticated && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} activityStartError={activityStartError} />}
             {screen === SCREEN_NAMES.activity && isAuthenticated && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} />}
             {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (
               <ProfessionalScreen
