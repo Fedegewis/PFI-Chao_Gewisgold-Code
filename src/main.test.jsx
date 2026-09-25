@@ -1523,6 +1523,70 @@ describe("MenteActiva critical flows", () => {
     expect(deleteCalls[0]).toMatch(/\/patients\/elena$/);
   });
 
+  // ============ 6D.6 ============
+
+  test("6D.6: logout de profesional limpia patients y no muestra datos del anterior tras nuevo login", async () => {
+    const user = userEvent.setup();
+    // Sesión 1: professional A con un paciente real
+    professionalWithPatient({
+      patientsList: [{ id: 700, role: "patient", name: "Paciente Antiguo", email: "old@x.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true }],
+      patientSessionsByPatient: { "700": [] },
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    // Verifica que el paciente del profesional A se ve
+    expect(await screen.findByRole("heading", { level: 2, name: /paciente antiguo/i })).toBeInTheDocument();
+
+    // Logout
+    await user.click(screen.getByRole("button", { name: /salir/i }));
+    expect(await screen.findByRole("button", { name: /entrar como paciente/i })).toBeInTheDocument();
+    expect(localStorage.getItem("ma_auth_token")).toBeNull();
+    expect(localStorage.getItem("ma_auth_user")).toBeNull();
+    // No debe quedar el paciente anterior visible tras logout
+    expect(screen.queryByText(/paciente antiguo/i)).not.toBeInTheDocument();
+  });
+
+  test("6D.6: professional autenticado NO usa ma_patients_v1 aunque exista en localStorage", async () => {
+    // Sembrar localStorage con pacientes demo maliciosos
+    localStorage.setItem(
+      "ma_patients_v1",
+      JSON.stringify([
+        { id: "fake-legacy", name: "Paciente Demo Filtrado", age: 99, professionalId: DEMO_PROFESSIONAL_ID, completed: [], answers: 0, weeklyProgress: [0,0,0,0,0,0,0] },
+      ])
+    );
+    // Backend sólo retorna un paciente real distinto
+    professionalWithPatient({
+      patientsList: [{ id: 800, role: "patient", name: "Paciente Real Backend", email: "r@x.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true }],
+      patientSessionsByPatient: { "800": [] },
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    // Aparece el paciente del backend
+    expect(await screen.findByRole("heading", { level: 2, name: /paciente real backend/i })).toBeInTheDocument();
+    // NO se filtra el paciente de localStorage
+    expect(screen.queryByText(/paciente demo filtrado/i)).not.toBeInTheDocument();
+  });
+
+  test("6D.6: patient backend no hace fallback demo si la API de sesión falla", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    // Stub que rompe TODO — incluyendo POST /patient/sessions
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ error: "Backend caído" }, 500)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+
+    // Debe verse un error, NO debe haber comenzado la actividad con preguntas demo del banco local.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/backend caído|no se pudo iniciar/i);
+    expect(window.location.hash).toBe("#/patient");
+    // No aparecen preguntas del banco legacy (activities.js).
+    expect(screen.queryByText(/pan, leche y manzanas/i)).not.toBeInTheDocument();
+  });
+
   // Tests obsoletos eliminados en 6D.5:
   //   - "shows loading and fallback error handling for AI observations"
   //   - "validates AI configuration inputs before saving"

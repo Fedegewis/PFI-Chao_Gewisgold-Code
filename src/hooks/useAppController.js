@@ -15,7 +15,6 @@ import { buildCompletedActivityState, buildInitialSessions } from "../services/s
 import {
   clearActivityDraft,
   clearAppSession,
-  clearStorage,
   loadAppSession,
   loadPatients,
   loadSessions,
@@ -207,7 +206,7 @@ export function useAppController() {
           if (Array.isArray(parsed)) setPatients(parsed.map(normalizePatient));
         } catch { /* payload inválido, se ignora */ }
       }
-      if (event.key === "ma_sessions_v1" && event.newValue) {
+      if (event.key === "ma_sessions_v1" && event.newValue && !isBackendAuthenticated) {
         try {
           const parsed = JSON.parse(event.newValue);
           if (Array.isArray(parsed)) setSessions(parsed);
@@ -382,6 +381,13 @@ export function useAppController() {
     setAuthUser(null);
     clearAuth();
     clearActivityDraft();
+    // 6D.6: al cerrar sesión limpiamos estado en memoria del usuario anterior
+    // para que el próximo login no vea patients/sesiones del anterior antes del fetch.
+    setPatients([]);
+    setSelectedPatientId(null);
+    setActiveSession(null);
+    setActivityStartError("");
+    setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", buildHash(SCREEN_NAMES.login, selectedActivity.id));
     }
@@ -444,15 +450,6 @@ export function useAppController() {
     setScreen(SCREEN_NAMES.patient);
   }
 
-  function resetDemo() {
-    clearActivityDraft();
-    clearStorage();
-    const initialPatients = buildInitialPatients();
-    setPatients(initialPatients);
-    setSessions(buildInitialSessions());
-    setSelectedPatientId(initialPatients[0].id);
-  }
-
   return {
     activities,
     authUser,
@@ -467,7 +464,6 @@ export function useAppController() {
     motivationMessage,
     openActivity,
     professionalId,
-    resetDemo,
     role,
     screen,
     selectedActivity,
