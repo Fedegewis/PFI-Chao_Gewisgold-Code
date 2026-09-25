@@ -153,26 +153,24 @@ function parseNumericFields(row) {
 
 router.post("/sessions", requireAuth, requireRole("professional"), async (req, res, next) => {
   try {
-    const { patient_id, professional_id, sections } = req.body;
+    const { patient_id, sections } = req.body;
+    // 6E.1 (H1): professional_id se deriva SIEMPRE del JWT. Cualquier valor
+    // enviado en el body se ignora para evitar impersonación cross-professional.
+    const professionalId = req.user.id;
 
-    if (!patient_id || !professional_id || !Array.isArray(sections) || sections.length === 0) {
+    if (!patient_id || !Array.isArray(sections) || sections.length === 0) {
       return res.status(400).json({
-        error: "patient_id, professional_id y sections (array no vacío) son obligatorios",
+        error: "patient_id y sections (array no vacío) son obligatorios",
       });
     }
 
+    // Ownership: el patient debe existir Y pertenecer al profesional autenticado.
+    // Cualquier fallo devuelve 404 uniforme (no revelar existencia cross-profesional).
     const patient = await db("users")
-      .where({ id: patient_id, role: "patient" })
+      .where({ id: patient_id, role: "patient", professional_id: professionalId })
       .first();
     if (!patient) {
       return res.status(404).json({ error: "Paciente no encontrado" });
-    }
-
-    const professional = await db("users")
-      .where({ id: professional_id, role: "professional" })
-      .first();
-    if (!professional) {
-      return res.status(404).json({ error: "Profesional no encontrado" });
     }
 
     for (const entry of sections) {
@@ -204,7 +202,7 @@ router.post("/sessions", requireAuth, requireRole("professional"), async (req, r
 
     const result = await db.transaction(async (trx) => {
       const [session] = await trx("sessions")
-        .insert({ patient_id, professional_id })
+        .insert({ patient_id, professional_id: professionalId })
         .returning("*");
 
       const sessionSectionsData = [];

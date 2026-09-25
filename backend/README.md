@@ -80,6 +80,32 @@ El servidor queda escuchando en `http://localhost:3001`. Verificar con:
 - `http://localhost:3001/api/sections`
 - `http://localhost:3001/api/sections/1/questions`
 
+## Después de `git pull` / cambio de rama / cambio de PC
+
+Git trae los archivos de migración pero **no** los aplica a PostgreSQL. Después de cualquier actualización que traiga migraciones nuevas:
+
+```bash
+cd backend
+npm install
+npm run migrate
+npx knex migrate:status --knexfile src/db/knexfile.js
+```
+
+`migrate:status` debe mostrar todas las migraciones en columna `Completed`. Si alguna aparece como `Pending`, volver a correr `npm run migrate`.
+
+Si nunca corriste migraciones en esta PC, la primera vez usar `npm run db:reset` (rollback total + migrate + seed) o correr `migrate` + `seed` por separado.
+
+## Antes de correr tests
+
+Los backend tests usan la MISMA base de datos que la app (`menteactiva`), no una DB separada. El schema debe estar migrado antes de correr los tests, o fallarán con errores de columna faltante.
+
+```bash
+npm run migrate
+npm test
+```
+
+Si aparece un error tipo `column "..." does not exist` o `relation "..." does not exist`, corré `npm run migrate` primero.
+
 ## Scripts disponibles
 
 | Script | Comando | Qué hace |

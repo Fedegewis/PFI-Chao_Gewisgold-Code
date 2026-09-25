@@ -1,9 +1,11 @@
 {
   "scripts": {
-     "dev": "vite --host 0.0.0.0 --port 5179",
+    "dev": "vite --host 0.0.0.0 --port 5179",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "vitest run",
+    "test": "npm run test:frontend",
+    "test:frontend": "vitest run",
+    "test:backend": "npm --prefix backend test",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

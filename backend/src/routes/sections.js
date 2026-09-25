@@ -1,5 +1,6 @@
 import { Router } from "express";
 import db from "../db/connection.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -16,7 +17,10 @@ router.get("/sections", async (_req, res, next) => {
   }
 });
 
-router.get("/sections/:id/questions", async (req, res, next) => {
+// 6E.1 (H2): requiere auth. NUNCA devuelve correct_answer ni campos que permitan
+// inferirlo. El scoring server-side sigue haciéndose contra `questions.correct_answer`
+// (no expuesto) o `session_questions.correct_answer_snapshot` durante la sesión real.
+router.get("/sections/:id/questions", requireAuth, async (req, res, next) => {
   try {
     const sectionId = Number(req.params.id);
     if (!Number.isFinite(sectionId) || sectionId < 1) {
@@ -34,14 +38,11 @@ router.get("/sections/:id/questions", async (req, res, next) => {
       .select(
         "id",
         "prompt",
+        "stimulus",
         "response_type",
         "options",
-        "correct_answer",
-        "scoring_value",
         "difficulty",
-        "feedback_correct",
-        "feedback_incorrect",
-        "clinician_note",
+        "subdimension",
         "source",
         "is_validated"
       );
