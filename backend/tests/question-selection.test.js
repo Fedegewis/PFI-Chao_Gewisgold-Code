@@ -146,8 +146,15 @@ async function createSession(patientId, sections) {
   return res.body;
 }
 
+async function authHeaderForSessionPatient(sessionId) {
+  const row = await db("sessions").where({ id: sessionId }).first();
+  const p = [patient, patientB].find((u) => u && u.id === row.patient_id);
+  return authHeaderFor(p);
+}
+
 async function startSession(sessionId) {
-  const res = await request(app).post(`/api/sessions/${sessionId}/start`);
+  const auth = await authHeaderForSessionPatient(sessionId);
+  const res = await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", auth);
   assert.equal(res.status, 200);
 }
 

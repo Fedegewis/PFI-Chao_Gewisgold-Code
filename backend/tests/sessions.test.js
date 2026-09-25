@@ -305,7 +305,8 @@ describe("Users API", () => {
   });
 
   describe("POST /api/sessions/:id/start", () => {
-    it("transitions session from created to in_progress", async () => {
+    it("transitions session from created to in_progress (patient owner)", async () => {
+      const patientAuth = authHeaderFor(patient);
       const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
@@ -313,13 +314,14 @@ describe("Users API", () => {
       });
       const sessionId = createRes.body.id;
 
-      const res = await request(app).post(`/api/sessions/${sessionId}/start`);
+      const res = await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
       assert.equal(res.status, 200);
       assert.equal(res.body.status, "in_progress");
       assert.ok(res.body.started_at);
     });
 
-    it("returns 400 when starting an already started session", async () => {
+    it("returns 409 when starting an already started session", async () => {
+      const patientAuth = authHeaderFor(patient);
       const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
@@ -327,13 +329,14 @@ describe("Users API", () => {
       });
       const sessionId = createRes.body.id;
 
-      await request(app).post(`/api/sessions/${sessionId}/start`);
-      const res = await request(app).post(`/api/sessions/${sessionId}/start`);
-      assert.equal(res.status, 400);
+      await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
+      const res = await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
+      assert.equal(res.status, 409);
     });
 
     it("returns 404 for non-existent session", async () => {
-      const res = await request(app).post("/api/sessions/99999/start");
+      const patientAuth = authHeaderFor(patient);
+      const res = await request(app).post("/api/sessions/99999/start").set("Authorization", patientAuth);
       assert.equal(res.status, 404);
     });
   });

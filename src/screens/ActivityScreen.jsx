@@ -1,10 +1,11 @@
-import { ArrowLeft, Bot, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { heuristicDifficulty } from "../ai.js";
 import { COMPLETION_MESSAGES } from "../constants/appConfig.js";
 import { ACTIVITY_DRAFT_MESSAGE } from "../constants/content.js";
 import { clearActivityDraft, loadActivityDraft, saveActivityDraft } from "../storage/appStorage.js";
 import { summarizeAnswers } from "../services/sessionService.js";
+import { startSessionApi, submitAnswerApi } from "../services/patientSessionsApi.js";
 import { StatusChip } from "../components/common/StatusChip.jsx";
 import { cx } from "../lib/cx.js";
 
@@ -31,6 +32,7 @@ function extractBackendPool(activeSession) {
   if (sqs.length === 0) return null;
   const ordered = [...sqs].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
   return ordered.map((sq) => ({
+    sessionQuestionId: sq.id,
     prompt: sq.prompt_snapshot,
     stimulus: sq.stimulus_snapshot || null,
     options: Array.isArray(sq.options_snapshot)
@@ -65,6 +67,11 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
   const [level, setLevel] = useState(initialState.level);
   const [showingStimulus, setShowingStimulus] = useState(false);
   const shownAt = useRef(typeof performance !== "undefined" ? performance.now() : Date.now());
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [starting, setStarting] = useState(usingBackend && activeSession?.status === "created");
+  const [startError, setStartError] = useState("");
+  const startedRef = useRef(activeSession?.status === "in_progress");
 
   const step = sequence.length - 1;
   const current = pool[sequence[step]];
@@ -74,6 +81,33 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
   const isCorrect = selectedEntry ? selectedEntry.correct : false;
   const answeredCount = answers.filter(Boolean).length;
   const isLast = step >= sessionLength - 1;
+
+  useEffect(() => {
+    if (!usingBackend) return;
+    if (startedRef.current) return;
+    if (!activeSession) return;
+    if (activeSession.status !== "created") {
+      startedRef.current = true;
+      setStarting(false);
+      return;
+    }
+    let cancelled = false;
+    startedRef.current = true;
+    setStarting(true);
+    startSessionApi(activeSession.id)
+      .then(() => {
+        if (cancelled) return;
+        setStarting(false);
+        setStartError("");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStarting(false);
+        startedRef.current = false;
+        setStartError(err?.message || "No se pudo iniciar la sesión.");
+      });
+    return () => { cancelled = true; };
+  }, [usingBackend, activeSession]);
 
   useEffect(() => {
     if (hasStimulus) {
@@ -112,19 +146,48 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
     });
   }
 
-  function goNext() {
-    if (isLast) {
-      if (usingBackend) {
-        onComplete({ backend: true, total: answers.length });
+  async function goNext() {
+    if (usingBackend) {
+      if (submitting) return;
+      if (starting) return;
+      if (selectedEntry?.submitted) {
+        // Ya fue persistida; sólo avanzar
+        if (isLast) {
+          onComplete({ backend: true, total: answers.length });
+          return;
+        }
+        setSequence((prev) => [...prev, prev.length]);
         return;
       }
-      clearActivityDraft();
-      onComplete(summarizeAnswers(answers));
+      setSubmitting(true);
+      setSubmitError("");
+      try {
+        await submitAnswerApi({
+          sessionId: activeSession.id,
+          sessionQuestionId: current.sessionQuestionId,
+          selectedAnswer: selectedEntry.option,
+          responseTimeMs: Math.max(1, selectedEntry.latencyMs),
+        });
+        setAnswers((prev) => {
+          const next = [...prev];
+          if (next[step]) next[step] = { ...next[step], submitted: true };
+          return next;
+        });
+        if (isLast) {
+          onComplete({ backend: true, total: answers.length + 1 });
+          return;
+        }
+        setSequence((prev) => [...prev, prev.length]);
+      } catch (err) {
+        setSubmitError(err?.message || "No se pudo guardar la respuesta. Reintentá.");
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
-    if (usingBackend) {
-      // Modo backend: orden lineal según display_order del backend, sin adaptación.
-      setSequence((prev) => [...prev, prev.length]);
+    if (isLast) {
+      clearActivityDraft();
+      onComplete(summarizeAnswers(answers));
       return;
     }
     const action = heuristicDifficulty({ correct: selectedEntry.correct, latencyMs: selectedEntry.latencyMs });
@@ -192,9 +255,19 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
                   </div>
                 )}
               </div>
+              {(startError || submitError) && (
+                <div className="error-box" role="alert">
+                  <AlertTriangle size={20} aria-hidden="true" /> {startError || submitError}
+                </div>
+              )}
               <div className="activity-actions single">
-                <button type="button" onClick={goNext} className="primary" disabled={selected === undefined}>
-                  {isLast ? "Finalizar sesión" : "Siguiente"}
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className="primary"
+                  disabled={selected === undefined || submitting || starting}
+                >
+                  {submitting ? "Guardando..." : starting ? "Iniciando..." : (isLast ? "Finalizar sesión" : "Siguiente")}
                 </button>
               </div>
             </>

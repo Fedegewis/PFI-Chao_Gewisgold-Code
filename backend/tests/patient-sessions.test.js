@@ -323,4 +323,189 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
       assert.equal(res.status, 404);
     });
   });
+
+  describe("POST /api/sessions/:id/start — ownership + idempotencia (6D.3)", () => {
+    async function createOwnedSession() {
+      const res = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+      return res.body;
+    }
+
+    it("patient owner puede iniciar su sesión", async () => {
+      const s = await createOwnedSession();
+      const res = await request(app)
+        .post(`/api/sessions/${s.id}/start`)
+        .set("Authorization", patientAuth);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "in_progress");
+      assert.ok(res.body.started_at);
+    });
+
+    it("start dos veces devuelve 409 con el estado actual", async () => {
+      const s = await createOwnedSession();
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
+      const res = await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
+      assert.equal(res.status, 409);
+      assert.equal(res.body.status, "in_progress");
+    });
+
+    it("patient ajeno no puede iniciar sesión (404)", async () => {
+      const s = await createOwnedSession();
+      const [other] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Otro Start",
+          email: `start-other-${Date.now()}${EMAIL_SUFFIX}`,
+          professional_id: professional.id,
+        })
+        .returning("*");
+      const res = await request(app)
+        .post(`/api/sessions/${s.id}/start`)
+        .set("Authorization", authHeaderFor(other));
+      assert.equal(res.status, 404);
+    });
+
+    it("professional no puede iniciar sesión por este flujo (403)", async () => {
+      const s = await createOwnedSession();
+      const res = await request(app)
+        .post(`/api/sessions/${s.id}/start`)
+        .set("Authorization", profAuth);
+      assert.equal(res.status, 403);
+    });
+
+    it("sin auth → 401", async () => {
+      const s = await createOwnedSession();
+      const res = await request(app).post(`/api/sessions/${s.id}/start`);
+      assert.equal(res.status, 401);
+    });
+  });
+
+  describe("POST /api/sessions/:id/answers — ownership + is_correct server-side (6D.3)", () => {
+    let session;
+    let sqId;
+
+    before(async () => {
+      const create = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: 2 }] });
+      session = create.body;
+      sqId = session.sections[0].questions[0].id;
+      await request(app).post(`/api/sessions/${session.id}/start`).set("Authorization", patientAuth);
+    });
+
+    it("patient owner puede responder pregunta propia; is_correct NO se expone", async () => {
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
+        .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: 1500 });
+      assert.equal(res.status, 201);
+      assert.equal(res.body.is_correct, undefined);
+      assert.equal(res.body.correct_answer_snapshot, undefined);
+      assert.equal(res.body.selected_answer, 0);
+      assert.equal(res.body.response_time_ms, 1500);
+      // is_correct sí queda persistido server-side
+      const row = await db("answers").where({ session_question_id: sqId }).first();
+      assert.equal(row.is_correct, true);
+    });
+
+    it("ignora patient_id/professional_id/is_correct/correct_answer del body", async () => {
+      const sqId2 = session.sections[0].questions[1].id;
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
+        .send({
+          session_question_id: sqId2,
+          selected_answer: 2,
+          response_time_ms: 2000,
+          patient_id: 9999999,
+          professional_id: 8888888,
+          is_correct: true,
+          correct_answer: 2,
+        });
+      assert.equal(res.status, 201);
+      const row = await db("answers").where({ session_question_id: sqId2 }).first();
+      assert.equal(row.selected_answer, 2);
+      // El correct_answer real de la fixture es 0, así que is_correct debe ser false
+      assert.equal(row.is_correct, false);
+    });
+
+    it("respuesta duplicada devuelve 409", async () => {
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
+        .send({ session_question_id: sqId, selected_answer: 1, response_time_ms: 1000 });
+      assert.equal(res.status, 409);
+    });
+
+    it("patient ajeno no puede responder pregunta de otra sesión (404)", async () => {
+      const [other] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Otro Ans",
+          email: `ans-other-${Date.now()}${EMAIL_SUFFIX}`,
+          professional_id: professional.id,
+        })
+        .returning("*");
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", authHeaderFor(other))
+        .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: 1500 });
+      assert.equal(res.status, 404);
+    });
+
+    it("patient no puede responder pregunta que no pertenece a su sesión (404)", async () => {
+      const create2 = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+      const foreignSqId = create2.body.sections[0].questions[0].id;
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
+        .send({ session_question_id: foreignSqId, selected_answer: 0, response_time_ms: 1500 });
+      assert.equal(res.status, 404);
+    });
+
+    it("professional no puede responder por este flujo (403)", async () => {
+      const create3 = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+      const s3 = create3.body;
+      await request(app).post(`/api/sessions/${s3.id}/start`).set("Authorization", patientAuth);
+      const res = await request(app)
+        .post(`/api/sessions/${s3.id}/answers`)
+        .set("Authorization", profAuth)
+        .send({ session_question_id: s3.sections[0].questions[0].id, selected_answer: 0, response_time_ms: 1000 });
+      assert.equal(res.status, 403);
+    });
+
+    it("sin auth → 401", async () => {
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/answers`)
+        .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: 1500 });
+      assert.equal(res.status, 401);
+    });
+
+    it("response_time_ms fuera de rango → 400", async () => {
+      const create = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuth)
+        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+      const s = create.body;
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
+      const sq = s.sections[0].questions[0].id;
+
+      for (const bad of [0, -1, "abc", 1.5, 60 * 60 * 1000]) {
+        const res = await request(app)
+          .post(`/api/sessions/${s.id}/answers`)
+          .set("Authorization", patientAuth)
+          .send({ session_question_id: sq, selected_answer: 0, response_time_ms: bad });
+        assert.equal(res.status, 400);
+      }
+    });
+  });
 });

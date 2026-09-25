@@ -34,3 +34,18 @@ export async function createPatientSession({ sectionSlug, questionCount }) {
     }),
   });
 }
+
+export async function startSessionApi(sessionId) {
+  return authRequest(`/sessions/${sessionId}/start`, { method: "POST" });
+}
+
+export async function submitAnswerApi({ sessionId, sessionQuestionId, selectedAnswer, responseTimeMs }) {
+  return authRequest(`/sessions/${sessionId}/answers`, {
+    method: "POST",
+    body: JSON.stringify({
+      session_question_id: sessionQuestionId,
+      selected_answer: selectedAnswer,
+      response_time_ms: responseTimeMs,
+    }),
+  });
+}

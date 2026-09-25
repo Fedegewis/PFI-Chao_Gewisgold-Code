@@ -10,6 +10,7 @@ let patient;
 let testSectionId1;
 let testSectionId2;
 let profAuth;
+let patientAuth;
 
 async function cleanTestData() {
   await db("answers")
@@ -57,6 +58,7 @@ async function createTestFixtures() {
       professional_id: professional.id,
     })
     .returning("*");
+  patientAuth = authHeaderFor(patient);
 
   const [section1] = await db("sections")
     .insert({
@@ -123,7 +125,7 @@ async function createSession(sections) {
 }
 
 async function startSession(sessionId) {
-  await request(app).post(`/api/sessions/${sessionId}/start`);
+  await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
 }
 
 async function answerQuestion(
@@ -134,11 +136,17 @@ async function answerQuestion(
 ) {
   return request(app)
     .post(`/api/sessions/${sessionId}/answers`)
+    .set("Authorization", patientAuth)
     .send({
       session_question_id: sessionQuestionId,
       selected_answer: selectedAnswer,
       response_time_ms: responseTimeMs,
     });
+}
+
+async function fetchIsCorrect(sessionQuestionId) {
+  const row = await db("answers").where({ session_question_id: sessionQuestionId }).first();
+  return row?.is_correct;
 }
 
 function assertApprox(actual, expected, tolerance = 0.02) {
@@ -170,13 +178,14 @@ describe("Answers & Results API", () => {
       assert.equal(res.status, 201);
       assert.equal(res.body.session_question_id, sqId);
       assert.equal(res.body.selected_answer, 0);
-      assert.equal(res.body.is_correct, true);
+      assert.equal(res.body.is_correct, undefined);
       assert.equal(res.body.response_time_ms, 1500);
       assert.ok(res.body.id);
       assert.ok(res.body.answered_at);
+      assert.equal(await fetchIsCorrect(sqId), true);
     });
 
-    it("registers an incorrect answer with is_correct=false", async () => {
+    it("registers an incorrect answer with is_correct=false (server-side)", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
@@ -185,8 +194,9 @@ describe("Answers & Results API", () => {
 
       const res = await answerQuestion(session.id, sqId, 1, 2000);
       assert.equal(res.status, 201);
-      assert.equal(res.body.is_correct, false);
+      assert.equal(res.body.is_correct, undefined);
       assert.equal(res.body.selected_answer, 1);
+      assert.equal(await fetchIsCorrect(sqId), false);
     });
 
     it("returns 400 for invalid selected_answer", async () => {
@@ -212,16 +222,19 @@ describe("Answers & Results API", () => {
 
       const zero = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: 0 });
       assert.equal(zero.status, 400);
 
       const negative = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: -100 });
       assert.equal(negative.status, 400);
 
       const decimal = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: 1.5 });
       assert.equal(decimal.status, 400);
     });
@@ -234,6 +247,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: 1 });
       assert.equal(res.status, 400);
     });
@@ -262,14 +276,14 @@ describe("Answers & Results API", () => {
       assert.equal(res.status, 404);
     });
 
-    it("returns 400 when session is in created state", async () => {
+    it("returns 409 when session is in created state", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       const sqId = session.sections[0].questions[0].id;
 
       const res = await answerQuestion(session.id, sqId, 0);
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("created"));
     });
 
@@ -285,7 +299,7 @@ describe("Answers & Results API", () => {
       assert.equal(res.status, 409);
     });
 
-    it("returns 400 when session is completed", async () => {
+    it("returns 409 when session is completed", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
@@ -294,11 +308,11 @@ describe("Answers & Results API", () => {
 
       const sqId = session.sections[0].questions[0].id;
       const res = await answerQuestion(session.id, sqId, 0);
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("completed"));
     });
 
-    it("returns 400 when session is abandoned", async () => {
+    it("returns 409 when session is abandoned", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
@@ -307,7 +321,7 @@ describe("Answers & Results API", () => {
 
       const sqId = session.sections[0].questions[0].id;
       const res = await answerQuestion(session.id, sqId, 0);
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("abandoned"));
     });
   });
@@ -444,7 +458,7 @@ describe("Answers & Results API", () => {
 
       const sqId = session.sections[0].questions[0].id;
       const answerRes = await answerQuestion(session.id, sqId, 0);
-      assert.equal(answerRes.status, 400);
+      assert.equal(answerRes.status, 409);
 
       const completeRes = await request(app).post(
         `/api/sessions/${session.id}/complete`

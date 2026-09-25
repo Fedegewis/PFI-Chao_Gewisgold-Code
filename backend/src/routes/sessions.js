@@ -416,21 +416,26 @@ router.get("/sessions/:id", requireAuth, async (req, res, next) => {
   }
 });
 
-router.post("/sessions/:id/start", async (req, res, next) => {
+router.post("/sessions/:id/start", requireAuth, async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);
     if (!Number.isFinite(sessionId) || sessionId < 1) {
-      return res.status(400).json({ error: "ID de sesión inválido" });
+      return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+
+    if (req.user.role !== "patient") {
+      return res.status(403).json({ error: "Sólo el paciente puede iniciar su actividad" });
     }
 
     const session = await db("sessions").where("id", sessionId).first();
-    if (!session) {
+    if (!session || session.patient_id !== req.user.id) {
       return res.status(404).json({ error: "Sesión no encontrada" });
     }
 
     if (session.status !== "created") {
-      return res.status(400).json({
+      return res.status(409).json({
         error: `No se puede iniciar una sesión en estado '${session.status}'`,
+        status: session.status,
       });
     }
 
@@ -445,25 +450,32 @@ router.post("/sessions/:id/start", async (req, res, next) => {
   }
 });
 
-router.post("/sessions/:id/answers", async (req, res, next) => {
+const MAX_RESPONSE_TIME_MS = 10 * 60 * 1000; // 10 minutos
+
+router.post("/sessions/:id/answers", requireAuth, async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);
     if (!Number.isFinite(sessionId) || sessionId < 1) {
-      return res.status(400).json({ error: "ID de sesión inválido" });
+      return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+
+    if (req.user.role !== "patient") {
+      return res.status(403).json({ error: "Sólo el paciente puede responder su actividad" });
     }
 
     const session = await db("sessions").where("id", sessionId).first();
-    if (!session) {
+    if (!session || session.patient_id !== req.user.id) {
       return res.status(404).json({ error: "Sesión no encontrada" });
     }
 
     if (session.status !== "in_progress") {
-      return res.status(400).json({
+      return res.status(409).json({
         error: `No se puede responder en una sesión en estado '${session.status}'`,
+        status: session.status,
       });
     }
 
-    const { session_question_id, selected_answer, response_time_ms } = req.body;
+    const { session_question_id, selected_answer, response_time_ms } = req.body || {};
 
     if (session_question_id == null || selected_answer == null || response_time_ms == null) {
       return res.status(400).json({
@@ -471,9 +483,9 @@ router.post("/sessions/:id/answers", async (req, res, next) => {
       });
     }
 
-    if (!Number.isInteger(response_time_ms) || response_time_ms <= 0) {
+    if (!Number.isInteger(response_time_ms) || response_time_ms <= 0 || response_time_ms > MAX_RESPONSE_TIME_MS) {
       return res.status(400).json({
-        error: "response_time_ms debe ser un entero positivo",
+        error: `response_time_ms debe ser un entero entre 1 y ${MAX_RESPONSE_TIME_MS}`,
       });
     }
 
@@ -490,16 +502,6 @@ router.post("/sessions/:id/answers", async (req, res, next) => {
       });
     }
 
-    const existingAnswer = await db("answers")
-      .where("session_question_id", session_question_id)
-      .first();
-
-    if (existingAnswer) {
-      return res.status(409).json({
-        error: "Esta pregunta ya fue respondida",
-      });
-    }
-
     const options = sq.options_snapshot;
     if (!Number.isInteger(selected_answer) || selected_answer < 0 || selected_answer >= options.length) {
       return res.status(400).json({
@@ -509,16 +511,36 @@ router.post("/sessions/:id/answers", async (req, res, next) => {
 
     const isCorrect = selected_answer === sq.correct_answer_snapshot;
 
-    const [answer] = await db("answers")
-      .insert({
-        session_question_id,
-        selected_answer,
-        is_correct: isCorrect,
-        response_time_ms,
-      })
-      .returning("*");
+    let inserted;
+    try {
+      const [row] = await db("answers")
+        .insert({
+          session_question_id,
+          selected_answer,
+          is_correct: isCorrect,
+          response_time_ms,
+        })
+        .returning("*");
+      inserted = row;
+    } catch (err) {
+      if (err && err.code === "23505") {
+        return res.status(409).json({
+          error: "Esta pregunta ya fue respondida",
+          status: "already_answered",
+        });
+      }
+      throw err;
+    }
 
-    res.status(201).json(answer);
+    // Nunca exponemos is_correct al paciente durante la actividad; el scoring queda
+    // server-side hasta que exista un consumidor autorizado (profesional / results).
+    res.status(201).json({
+      id: inserted.id,
+      session_question_id: inserted.session_question_id,
+      selected_answer: inserted.selected_answer,
+      response_time_ms: inserted.response_time_ms,
+      answered_at: inserted.answered_at,
+    });
   } catch (err) {
     next(err);
   }

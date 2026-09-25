@@ -223,19 +223,22 @@ describe("Stimulus support", () => {
         sections: [{ section_id: testSectionId, question_count: 3 }],
       });
       const sessionId = createRes.body.id;
+      const patientAuth = authHeaderFor(patient);
 
-      await request(app).post(`/api/sessions/${sessionId}/start`);
+      await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
 
       const questions = createRes.body.sections[0].questions;
       for (const q of questions) {
-        const answerRes = await request(app).post(`/api/sessions/${sessionId}/answers`).send({
-          session_question_id: q.id,
-          selected_answer: q.correct_answer_snapshot,
-          response_time_ms: 3000,
-        });
+        const answerRes = await request(app).post(`/api/sessions/${sessionId}/answers`)
+          .set("Authorization", patientAuth)
+          .send({
+            session_question_id: q.id,
+            selected_answer: q.correct_answer_snapshot,
+            response_time_ms: 3000,
+          });
         assert.equal(answerRes.status, 201);
-        assert.equal(answerRes.body.is_correct, true);
       }
+      // is_correct ya no se expone al patient; se verifica server-side via results endpoint.
 
       const completeRes = await request(app).post(`/api/sessions/${sessionId}/complete`);
       assert.equal(completeRes.status, 200);

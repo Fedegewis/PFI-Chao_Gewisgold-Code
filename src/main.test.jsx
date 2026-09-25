@@ -292,8 +292,9 @@ describe("MenteActiva critical flows", () => {
       { id: 3, display_order: 3, prompt_snapshot: "Backend Q3", options_snapshot: ["Uno", "Dos", "Tres", "Cuatro"], stimulus_snapshot: null, response_type: "multiple_choice" },
       { id: 4, display_order: 4, prompt_snapshot: "Backend Q4", options_snapshot: ["Norte", "Sur", "Este", "Oeste"], stimulus_snapshot: null, response_type: "multiple_choice" },
     ];
-    vi.stubGlobal("fetch", vi.fn((url) => {
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
       const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
       if (strUrl.includes("/patient/sessions")) {
         return jsonResponse({
           id: 1234,
@@ -302,6 +303,12 @@ describe("MenteActiva critical flows", () => {
           status: "created",
           sections: [{ id: 10, section_id: 100, questions: backendQuestions }],
         }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/) && method === "POST") {
+        return jsonResponse({ id: 1234, status: "in_progress" });
+      }
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        return jsonResponse({ id: 1, session_question_id: 1, selected_answer: 0, response_time_ms: 100, answered_at: "now" }, 201);
       }
       return jsonResponse({}, 404);
     }));
@@ -337,8 +344,10 @@ describe("MenteActiva critical flows", () => {
       { id: 20, display_order: 2, prompt_snapshot: "SEGUNDA backend", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
       { id: 10, display_order: 1, prompt_snapshot: "PRIMERA backend", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: "Este es el stimulus.", response_type: "multiple_choice" },
     ];
-    vi.stubGlobal("fetch", vi.fn((url) => {
-      if (String(url).includes("/patient/sessions")) {
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patient/sessions")) {
         return jsonResponse({
           id: 999,
           patient_id: 42,
@@ -346,6 +355,12 @@ describe("MenteActiva critical flows", () => {
           status: "created",
           sections: [{ id: 1, section_id: 100, questions: backendQuestions }],
         }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/) && method === "POST") {
+        return jsonResponse({ id: 999, status: "in_progress" });
+      }
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        return jsonResponse({ id: 1, session_question_id: 10, selected_answer: 0, response_time_ms: 100 }, 201);
       }
       return jsonResponse({}, 404);
     }));
@@ -845,6 +860,178 @@ describe("MenteActiva critical flows", () => {
     const savedUser = JSON.parse(localStorage.getItem("ma_auth_user"));
     expect(savedUser.role).toBe("patient");
     expect(savedUser.id).toBe(999);
+  });
+
+  // ============ 6D.3 ============
+
+  function stubBackendActivityFetch({ questions, onCall } = {}) {
+    const calls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      calls.push({ url: strUrl, method, body: opts.body });
+      if (onCall) onCall({ url: strUrl, method, body: opts.body });
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 42, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{ id: 1, section_id: 100, questions }],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/) && method === "POST") {
+        return jsonResponse({ id: 42, status: "in_progress" });
+      }
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        return jsonResponse({ id: 1, session_question_id: JSON.parse(opts.body).session_question_id, selected_answer: JSON.parse(opts.body).selected_answer, response_time_ms: JSON.parse(opts.body).response_time_ms }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    return calls;
+  }
+
+  function setStoredPatientAuth() {
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem("ma_auth_user", JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true }));
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+  }
+
+  test("6D.3: start is called exactly once when patient enters a backend activity", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    const calls = stubBackendActivityFetch({
+      questions: [
+        { id: 100, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+      ],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+
+    const startCalls = calls.filter((c) => c.url.match(/\/sessions\/\d+\/start$/));
+    expect(startCalls.length).toBe(1);
+  });
+
+  test("6D.3: answer body only contains session_question_id + selected_answer + response_time_ms", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    let answerBody;
+    stubBackendActivityFetch({
+      questions: [
+        { id: 100, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["opA", "opB", "opC", "opD"], stimulus_snapshot: null, response_type: "multiple_choice" },
+      ],
+      onCall: ({ url, method, body }) => {
+        if (url.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+          answerBody = JSON.parse(body);
+        }
+      },
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getByRole("button", { name: "opA" }));
+    await user.click(screen.getByRole("button", { name: /finalizar sesi[oó]n/i }));
+
+    expect(await screen.findByRole("heading", { name: /actividades disponibles/i })).toBeInTheDocument();
+    expect(answerBody).toBeDefined();
+    expect(Object.keys(answerBody).sort()).toEqual(["response_time_ms", "selected_answer", "session_question_id"]);
+    expect(answerBody.session_question_id).toBe(100);
+    expect(answerBody.selected_answer).toBe(0);
+    expect(Number.isInteger(answerBody.response_time_ms)).toBe(true);
+    expect(answerBody.response_time_ms).toBeGreaterThanOrEqual(1);
+  });
+
+  test("6D.3: answer error does NOT advance to next question and allows retry", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    let answerAttempt = 0;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 42, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{
+            id: 1, section_id: 100, questions: [
+              { id: 100, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+              { id: 101, display_order: 2, prompt_snapshot: "Q2", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+            ],
+          }],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/) && method === "POST") {
+        return jsonResponse({ id: 42, status: "in_progress" });
+      }
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        answerAttempt++;
+        if (answerAttempt === 1) return jsonResponse({ error: "Servidor caído" }, 500);
+        return jsonResponse({ id: 1 }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+    await user.click(screen.getByRole("button", { name: /siguiente/i }));
+
+    // Error visible, sigue en Q1
+    expect(await screen.findByRole("alert")).toHaveTextContent(/servidor caído|no se pudo guardar/i);
+    expect(screen.getByText("Q1")).toBeInTheDocument();
+    expect(screen.queryByText("Q2")).not.toBeInTheDocument();
+
+    // Retry
+    await user.click(screen.getByRole("button", { name: /siguiente/i }));
+    expect(await screen.findByText("Q2")).toBeInTheDocument();
+    expect(answerAttempt).toBe(2);
+  });
+
+  test("6D.3: double click on Siguiente sends only one answer request", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    let pendingResolve;
+    const pending = new Promise((resolve) => { pendingResolve = resolve; });
+    let answerCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/patient/sessions")) {
+        return jsonResponse({
+          id: 42, patient_id: 42, professional_id: 7, status: "created",
+          sections: [{
+            id: 1, section_id: 100, questions: [
+              { id: 100, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+              { id: 101, display_order: 2, prompt_snapshot: "Q2", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+            ],
+          }],
+        }, 201);
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/) && method === "POST") {
+        return jsonResponse({ id: 42, status: "in_progress" });
+      }
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") {
+        answerCalls++;
+        return pending.then(() => ({ ok: true, status: 201, json: () => Promise.resolve({ id: 1 }) }));
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+    await screen.findByText("Q1");
+    await user.click(screen.getAllByRole("button", { name: "a" })[0]);
+
+    const next = screen.getByRole("button", { name: /siguiente/i });
+    await user.click(next);
+    // Click segundo mientras el primero está en vuelo
+    await user.click(next).catch(() => {});
+    await user.click(next).catch(() => {});
+
+    expect(answerCalls).toBe(1);
+    pendingResolve();
+    await screen.findByText("Q2");
   });
 
   test("pending invitations list renders and revoke calls DELETE /api/invitations/:id", async () => {
