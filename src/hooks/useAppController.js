@@ -10,7 +10,7 @@ import {
   patientFromBackendUser,
   refreshDailyPatientState
 } from "../services/patientService.js";
-import { deletePatientApi, fetchPatients } from "../services/patientsApi.js";
+import { deletePatientApi, fetchPatients, fetchPatientSessionsApi } from "../services/patientsApi.js";
 import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
@@ -111,6 +111,7 @@ export function useAppController() {
   const [loginError, setLoginError] = useState("");
   const [activeSession, setActiveSession] = useState(null);
   const [activityStartError, setActivityStartError] = useState("");
+  const [backendPatientSessions, setBackendPatientSessions] = useState({ patientId: null, list: null, loading: false, error: "" });
 
   const selectedPatient = useMemo(
     () =>
@@ -131,6 +132,35 @@ export function useAppController() {
     if (isBackendAuthenticated) return;
     savePatients(patients);
   }, [patients, isBackendAuthenticated]);
+
+  useEffect(() => {
+    if (!isBackendProfessional) {
+      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
+      return undefined;
+    }
+    if (selectedPatientId == null) {
+      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
+      return undefined;
+    }
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const requestedId = selectedPatientId;
+    setBackendPatientSessions({ patientId: requestedId, list: null, loading: true, error: "" });
+    fetchPatientSessionsApi(requestedId, controller ? { signal: controller.signal } : {})
+      .then((rows) => {
+        setBackendPatientSessions((prev) => {
+          if (prev.patientId !== requestedId) return prev;
+          return { patientId: requestedId, list: Array.isArray(rows) ? rows : [], loading: false, error: "" };
+        });
+      })
+      .catch((err) => {
+        if (err?.name === "AbortError") return;
+        setBackendPatientSessions((prev) => {
+          if (prev.patientId !== requestedId) return prev;
+          return { patientId: requestedId, list: null, loading: false, error: err?.message || "No se pudieron cargar las sesiones." };
+        });
+      });
+    return () => { if (controller) controller.abort(); };
+  }, [isBackendProfessional, selectedPatientId]);
 
   useEffect(() => {
     if (!isBackendProfessional) return;
@@ -454,6 +484,7 @@ export function useAppController() {
     acceptInvitationSession,
     goToLogin,
     activeSession,
-    activityStartError
+    activityStartError,
+    backendPatientSessions
   };
 }

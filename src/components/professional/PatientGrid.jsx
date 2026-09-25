@@ -289,6 +289,7 @@ export function PatientGrid({
               patient={patient}
               selected={selectedPatient ? patient.id === selectedPatient.id : false}
               onSelect={onSelectPatient}
+              isBackend={useBackendScope}
             />
           </div>
         ))}

@@ -38,7 +38,8 @@ export function App() {
     acceptInvitationSession,
     goToLogin,
     activityStartError,
-    activeSession
+    activeSession,
+    backendPatientSessions
   } = useAppController();
 
   useEffect(() => {
@@ -79,6 +80,7 @@ export function App() {
                 updatePatient={updatePatient}
                 isBackendProfessional={isBackendProfessional}
                 deletePatientForProfessional={deletePatientForProfessional}
+                backendPatientSessions={backendPatientSessions}
               />
             )}
           </main>

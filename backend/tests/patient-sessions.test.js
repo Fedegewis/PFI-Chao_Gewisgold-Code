@@ -509,6 +509,126 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
     });
   });
 
+  describe("GET /api/patients/:patientId/sessions — 6D.5", () => {
+    async function createAndCompleteSession(patientAuthLocal) {
+      const create = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuthLocal)
+        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+      const s = create.body;
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuthLocal);
+      await request(app)
+        .post(`/api/sessions/${s.id}/answers`)
+        .set("Authorization", patientAuthLocal)
+        .send({ session_question_id: s.sections[0].questions[0].id, selected_answer: 0, response_time_ms: 1500 });
+      await request(app).post(`/api/sessions/${s.id}/complete`).set("Authorization", patientAuthLocal);
+      return s;
+    }
+
+    async function createAndAbandonSession(patientAuthLocal) {
+      const create = await request(app)
+        .post("/api/patient/sessions")
+        .set("Authorization", patientAuthLocal)
+        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+      const s = create.body;
+      await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuthLocal);
+      await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", patientAuthLocal);
+      return s;
+    }
+
+    it("professional owner obtiene sesiones del paciente ordenadas por created_at desc", async () => {
+      const completedS = await createAndCompleteSession(patientAuth);
+      const abandonedS = await createAndAbandonSession(patientAuth);
+      const res = await request(app)
+        .get(`/api/patients/${patient.id}/sessions`)
+        .set("Authorization", profAuth);
+      assert.equal(res.status, 200);
+      assert.ok(Array.isArray(res.body));
+      const ids = res.body.map((r) => r.id);
+      const idxCompleted = ids.indexOf(completedS.id);
+      const idxAbandoned = ids.indexOf(abandonedS.id);
+      assert.ok(idxAbandoned >= 0);
+      assert.ok(idxCompleted >= 0);
+      // abandoned se creó después, debe venir primero
+      assert.ok(idxAbandoned < idxCompleted);
+    });
+
+    it("incluye summary para completed y no lo incluye para abandoned", async () => {
+      const completedS = await createAndCompleteSession(patientAuth);
+      const abandonedS = await createAndAbandonSession(patientAuth);
+      const res = await request(app)
+        .get(`/api/patients/${patient.id}/sessions`)
+        .set("Authorization", profAuth);
+      const c = res.body.find((r) => r.id === completedS.id);
+      const a = res.body.find((r) => r.id === abandonedS.id);
+      assert.ok(c.summary);
+      assert.equal(c.summary.total_questions, 1);
+      assert.equal(c.summary.correct_count, 1);
+      assert.equal(c.summary.accuracy, 1);
+      assert.equal(a.summary, undefined);
+    });
+
+    it("no expone correct_answer_snapshot ni answers individuales", async () => {
+      await createAndCompleteSession(patientAuth);
+      const res = await request(app)
+        .get(`/api/patients/${patient.id}/sessions`)
+        .set("Authorization", profAuth);
+      const serialized = JSON.stringify(res.body);
+      assert.equal(serialized.includes("correct_answer"), false);
+      assert.equal(serialized.includes("answers"), false);
+      assert.equal(serialized.includes("password"), false);
+    });
+
+    it("otro professional no puede leer sesiones ajenas (404)", async () => {
+      const [otherProf] = await db("users")
+        .insert({
+          role: "professional",
+          name: "Prof Ajeno Sess",
+          email: `other-prof-sess-${Date.now()}${EMAIL_SUFFIX}`,
+        })
+        .returning("*");
+      const res = await request(app)
+        .get(`/api/patients/${patient.id}/sessions`)
+        .set("Authorization", authHeaderFor(otherProf));
+      assert.equal(res.status, 404);
+    });
+
+    it("patient no puede usar el endpoint profesional (403)", async () => {
+      const res = await request(app)
+        .get(`/api/patients/${patient.id}/sessions`)
+        .set("Authorization", patientAuth);
+      assert.equal(res.status, 403);
+    });
+
+    it("sin auth → 401", async () => {
+      const res = await request(app).get(`/api/patients/${patient.id}/sessions`);
+      assert.equal(res.status, 401);
+    });
+
+    it("paciente inexistente → 404", async () => {
+      const res = await request(app)
+        .get(`/api/patients/9999999/sessions`)
+        .set("Authorization", profAuth);
+      assert.equal(res.status, 404);
+    });
+
+    it("paciente sin sesiones devuelve []", async () => {
+      const [freshPatient] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Fresh",
+          email: `fresh-${Date.now()}${EMAIL_SUFFIX}`,
+          professional_id: professional.id,
+        })
+        .returning("*");
+      const res = await request(app)
+        .get(`/api/patients/${freshPatient.id}/sessions`)
+        .set("Authorization", profAuth);
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body, []);
+    });
+  });
+
   describe("POST /api/sessions/:id/complete — 6D.4", () => {
     async function createStartedSession(count = 2) {
       const create = await request(app)

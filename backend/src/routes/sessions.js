@@ -370,6 +370,76 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
   }
 });
 
+router.get(
+  "/patients/:patientId/sessions",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const patientId = Number(req.params.patientId);
+      if (!Number.isInteger(patientId) || patientId < 1) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+
+      const patient = await db("users")
+        .where({ id: patientId, role: "patient", professional_id: req.user.id })
+        .first();
+      if (!patient) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+
+      const rows = await db("sessions as s")
+        .leftJoin("session_results as sr", function joinResults() {
+          this.on("sr.session_id", "=", "s.id").andOnNull("sr.section_id");
+        })
+        .where("s.patient_id", patientId)
+        .orderBy("s.created_at", "desc")
+        .select(
+          "s.id",
+          "s.status",
+          "s.created_at",
+          "s.started_at",
+          "s.completed_at",
+          "s.abandoned_at",
+          "sr.total_questions",
+          "sr.answered_questions",
+          "sr.correct_count",
+          "sr.incorrect_count",
+          "sr.accuracy",
+          "sr.completion_rate",
+          "sr.mean_latency_ms"
+        );
+
+      const payload = rows.map((r) => {
+        const base = {
+          id: r.id,
+          status: r.status,
+          created_at: r.created_at,
+          started_at: r.started_at,
+          completed_at: r.completed_at,
+          abandoned_at: r.abandoned_at,
+        };
+        if (r.status === "completed" && r.total_questions != null) {
+          base.summary = {
+            total_questions: r.total_questions,
+            answered_questions: r.answered_questions,
+            correct_count: r.correct_count,
+            incorrect_count: r.incorrect_count,
+            accuracy: r.accuracy !== null ? Number(r.accuracy) : null,
+            completion_rate: r.completion_rate !== null ? Number(r.completion_rate) : null,
+            mean_latency_ms: r.mean_latency_ms !== null ? Number(r.mean_latency_ms) : null,
+          };
+        }
+        return base;
+      });
+
+      return res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get("/sessions/:id", requireAuth, async (req, res, next) => {
   try {
     const sessionId = Number(req.params.id);

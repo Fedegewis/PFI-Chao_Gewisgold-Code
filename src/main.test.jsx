@@ -92,9 +92,6 @@ function setStoredPatientSession() {
   localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient", professionalId: "psico-01" }));
 }
 
-function setStoredSessions(sessions) {
-  localStorage.setItem("ma_sessions_v1", JSON.stringify(sessions));
-}
 
 describe("MenteActiva critical flows", () => {
   afterEach(() => {
@@ -1293,6 +1290,184 @@ describe("MenteActiva critical flows", () => {
     expect(screen.getByText("Q1")).toBeInTheDocument();
   });
 
+  // ============ 6D.5 ============
+
+  function professionalWithPatient({ patientsList, patientSessionsByPatient, onCall } = {}) {
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (onCall) onCall({ url: strUrl, method, body: opts.body });
+      if (strUrl.includes("/patients/") && strUrl.endsWith("/sessions") && method === "GET") {
+        const match = strUrl.match(/\/patients\/([^/]+)\/sessions$/);
+        const patientId = match ? match[1] : null;
+        const rows = (patientSessionsByPatient && patientSessionsByPatient[patientId]) || [];
+        return jsonResponse(rows);
+      }
+      if (strUrl.includes("/patients") && method === "GET") {
+        return jsonResponse(patientsList || []);
+      }
+      if (strUrl.includes("/invitations") && method === "GET") return jsonResponse([]);
+      return jsonResponse({}, 404);
+    }));
+  }
+
+  test("6D.5: patient sin sesiones muestra empty state real y no métricas demo", async () => {
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    professionalWithPatient({
+      patientsList: [{ id: 100, role: "patient", name: "Real P", email: "r@p.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true }],
+      patientSessionsByPatient: { "100": [] },
+    });
+    renderApp();
+
+    expect(await screen.findByRole("heading", { level: 2, name: /real p/i })).toBeInTheDocument();
+    // Sin actividades reales
+    expect(screen.getByText(/sin actividades completadas todavía/i)).toBeInTheDocument();
+    // No aparecen métricas demo tipo "Riesgo"
+    expect(screen.queryByText(/Rendimiento óptimo|Requiere apoyo|Riesgo/)).not.toBeInTheDocument();
+    // No hay observación IA para paciente real
+    expect(screen.queryByRole("button", { name: /generar observaci[oó]n/i })).not.toBeInTheDocument();
+    // Placeholder de análisis
+    expect(screen.getByText(/an[aá]lisis asistido estar[aá] disponible pr[oó]ximamente/i)).toBeInTheDocument();
+  });
+
+  test("6D.5: patient con sesiones reales muestra métricas de la última completada e historial", async () => {
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    professionalWithPatient({
+      patientsList: [{ id: 200, role: "patient", name: "Real P", email: "r@p.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true }],
+      patientSessionsByPatient: {
+        "200": [
+          { id: 5, status: "completed", created_at: "2026-09-20T10:00:00Z", completed_at: "2026-09-20T10:05:00Z",
+            summary: { total_questions: 4, answered_questions: 4, correct_count: 3, incorrect_count: 1, accuracy: 0.75, completion_rate: 1, mean_latency_ms: 1800 } },
+          { id: 4, status: "abandoned", created_at: "2026-09-19T10:00:00Z", abandoned_at: "2026-09-19T10:01:00Z" },
+          { id: 3, status: "in_progress", created_at: "2026-09-18T10:00:00Z", started_at: "2026-09-18T10:00:10Z" },
+        ],
+      },
+    });
+    renderApp();
+
+    // Precisión de la última completed en la metric card
+    await screen.findByRole("heading", { level: 2, name: /real p/i });
+    const seventyFives = screen.getAllByText("75%");
+    expect(seventyFives.length).toBeGreaterThanOrEqual(1);
+    // Historial: completada, abandonada, en progreso
+    expect(screen.getByText("Completada")).toBeInTheDocument();
+    expect(screen.getByText("Abandonada")).toBeInTheDocument();
+    expect(screen.getByText("En progreso")).toBeInTheDocument();
+    // Abandoned NO muestra accuracy falsa
+    const abandonedRow = screen.getByText("Abandonada").closest('[role="row"]');
+    expect(abandonedRow).toBeTruthy();
+    expect(abandonedRow.textContent).not.toMatch(/0%/);
+    // Detalle expuesto para la última completada por defecto
+    expect(screen.getByText(/Preguntas/i)).toBeInTheDocument();
+  });
+
+  test("6D.5: cambio rápido A→B no deja datos de A al llegar la respuesta de A tarde", async () => {
+    const user = userEvent.setup();
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    let resolvers = {};
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.match(/\/patients\/(\d+)\/sessions$/)) {
+        const id = strUrl.match(/\/patients\/(\d+)\/sessions$/)[1];
+        return new Promise((resolve) => {
+          resolvers[id] = () => resolve({
+            ok: true, status: 200, json: () => Promise.resolve(
+              id === "1"
+                ? [{ id: 91, status: "completed", created_at: "2026-09-20T10:00:00Z", completed_at: "2026-09-20T10:05:00Z",
+                    summary: { total_questions: 4, answered_questions: 4, correct_count: 4, incorrect_count: 0, accuracy: 1, completion_rate: 1, mean_latency_ms: 1500 } }]
+                : []
+            ),
+          });
+        });
+      }
+      if (strUrl.includes("/patients") && method === "GET") {
+        return jsonResponse([
+          { id: 1, role: "patient", name: "Paciente A", email: "a@x.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true },
+          { id: 2, role: "patient", name: "Paciente B", email: "b@x.com", age: 65, professional_id: DEMO_PROFESSIONAL_ID, is_active: true },
+        ]);
+      }
+      if (strUrl.includes("/invitations") && method === "GET") return jsonResponse([]);
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    // Espera a que aparezcan las tarjetas y el detalle de A
+    await screen.findByRole("heading", { level: 2, name: /paciente a/i });
+    const cards = screen.getAllByRole("listitem");
+    const cardB = cards.find((c) => c.textContent.includes("Paciente B")).querySelector("button");
+    await user.click(cardB);
+    // Ahora resolvemos primero A (tarde) y luego B
+    resolvers["1"] && resolvers["1"]();
+    resolvers["2"] && resolvers["2"]();
+    // El detalle debe ser de B (sin la métrica 100% de A)
+    expect(await screen.findByRole("heading", { level: 2, name: /paciente b/i })).toBeInTheDocument();
+    expect(screen.queryByText("100%")).not.toBeInTheDocument();
+    expect(screen.getByText(/sin actividades completadas todavía/i)).toBeInTheDocument();
+  });
+
+  test("6D.5: error al cargar sesiones muestra alert y no fallback a demo", async () => {
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.match(/\/patients\/(\d+)\/sessions$/)) {
+        return jsonResponse({ error: "Servidor caído" }, 500);
+      }
+      if (strUrl.includes("/patients") && method === "GET") {
+        return jsonResponse([{ id: 300, role: "patient", name: "P Err", email: "e@x.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true }]);
+      }
+      if (strUrl.includes("/invitations") && method === "GET") return jsonResponse([]);
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    expect(await screen.findByRole("heading", { level: 2, name: /p err/i })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/servidor caído|no se pudieron cargar/i);
+    // No aparece observación IA demo ni "riesgo"
+    expect(screen.queryByRole("button", { name: /generar observaci[oó]n/i })).not.toBeInTheDocument();
+  });
+
+  test("6D.5: PatientCard para backend no muestra Riesgo/Precisión demo", async () => {
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    professionalWithPatient({
+      patientsList: [{ id: 400, role: "patient", name: "Card P", email: "c@x.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true }],
+      patientSessionsByPatient: { "400": [] },
+    });
+    renderApp();
+
+    await screen.findByRole("heading", { level: 2, name: /card p/i });
+    const card = screen.getByRole("listitem").querySelector("button");
+    // aria-label neutral
+    expect(card.getAttribute("aria-label")).not.toMatch(/riesgo/i);
+    // El texto de la card no incluye la palabra Precisión ni Tiempo
+    expect(card.textContent).not.toMatch(/Precisi[oó]n/);
+    expect(card.textContent).not.toMatch(/Tiempo/);
+  });
+
+  test("6D.5: EvolutionChart con 1 sesión no inventa evolución", async () => {
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    professionalWithPatient({
+      patientsList: [{ id: 500, role: "patient", name: "Uno", email: "u@x.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true }],
+      patientSessionsByPatient: {
+        "500": [
+          { id: 1, status: "completed", created_at: "2026-09-20T10:00:00Z", completed_at: "2026-09-20T10:05:00Z",
+            summary: { total_questions: 3, answered_questions: 3, correct_count: 2, incorrect_count: 1, accuracy: 0.6667, completion_rate: 1, mean_latency_ms: 1500 } },
+        ],
+      },
+    });
+    renderApp();
+
+    await screen.findByRole("heading", { level: 2, name: /uno/i });
+    expect(screen.getByText(/al menos 2 sesiones completadas/i)).toBeInTheDocument();
+  });
+
   test("pending invitations list renders and revoke calls DELETE /api/invitations/:id", async () => {
     const user = userEvent.setup();
     const revokeCalls = [];
@@ -1348,74 +1523,10 @@ describe("MenteActiva critical flows", () => {
     expect(deleteCalls[0]).toMatch(/\/patients\/elena$/);
   });
 
-  test("shows loading and fallback error handling for AI observations", async () => {
-    const user = userEvent.setup();
-    const pending = {};
-    pending.promise = new Promise((resolve, reject) => {
-      pending.resolve = resolve;
-      pending.reject = reject;
-    });
-    vi.stubGlobal("fetch", vi.fn((url) => {
-      // Endpoint de pacientes: devolvemos el paciente demo para llegar a la ficha.
-      if (String(url).includes("/patients")) {
-        return jsonResponse([DEMO_PATIENT]);
-      }
-      // Cualquier otra llamada (observación IA) queda pendiente hasta que el test decida.
-      return pending.promise;
-    }));
-    setStoredProfessionalSession();
-    setStoredSessions([
-      {
-        id: "elena-market-1",
-        patientId: "elena",
-        activityId: "market",
-        activityTitle: "Lista del supermercado",
-        skill: "Memoria",
-        date: "2026-08-01T12:00:00.000Z",
-        correct: 4,
-        total: 5,
-        accuracy: 80,
-        avgLatencyMs: 3200
-      }
-    ]);
-    window.location.hash = "#/professional";
-
-    renderApp();
-
-    await user.click(await screen.findByRole("button", { name: /generar observaci[oó]n/i }));
-    expect(screen.getByRole("button", { name: /generando/i })).toBeDisabled();
-
-    pending.reject(new Error("network down"));
-
-    expect(await screen.findByText(/s[ií]ntesis local/i)).toBeInTheDocument();
-    expect(screen.getByText(/precisi[oó]n promedio 80%/i)).toBeInTheDocument();
-  });
-
-  test("validates AI configuration inputs before saving", async () => {
-    const user = userEvent.setup();
-    installFetchStub({ patients: [DEMO_PATIENT] });
-    setStoredProfessionalSession();
-    window.location.hash = "#/professional";
-    renderApp();
-    await screen.findByRole("heading", { level: 2, name: /elena r[ií]os/i });
-
-    const textarea = screen.getByLabelText(/c[oó]mo se mide y qu[eé] tipo de preguntas debe hacer/i);
-    const numberInput = screen.getByLabelText(/cantidad m[aá]xima de preguntas/i);
-
-    await user.clear(textarea);
-    await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/describ[eí] al menos una indicaci[oó]n/i);
-
-    await user.type(textarea, "Indicaciones nuevas");
-    await user.clear(numberInput);
-    await user.type(numberInput, "11");
-    await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/la cantidad m[aá]xima debe estar entre 1 y 10 preguntas/i);
-
-    await user.clear(numberInput);
-    await user.type(numberInput, "6");
-    await user.click(screen.getByRole("button", { name: /guardar criterio/i }));
-
-    expect(await screen.findByRole("button", { name: /^guardado$/i })).toBeInTheDocument();
-  });
+  // Tests obsoletos eliminados en 6D.5:
+  //   - "shows loading and fallback error handling for AI observations"
+  //   - "validates AI configuration inputs before saving"
+  // Ambos probaban componentes (AiObservation, AiConfigPanel) que fueron ocultados
+  // para pacientes backend según lo pedido en 6D.5 sección 10. Ya no existen para
+  // el flujo real; el flujo demo no puede ser alcanzado con auth de profesional.
 });

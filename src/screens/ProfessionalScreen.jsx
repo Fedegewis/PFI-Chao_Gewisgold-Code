@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { activities } from "../data/activities.js";
 import { computeStats, getPatientSessions } from "../services/sessionService.js";
+import { BackendPatientDetail } from "../components/professional/BackendPatientDetail.jsx";
 import { PatientDetail } from "../components/professional/PatientDetail.jsx";
 import { PatientGrid } from "../components/professional/PatientGrid.jsx";
 
@@ -32,7 +33,8 @@ export function ProfessionalScreen({
   setSelectedPatientId,
   updatePatient,
   isBackendProfessional,
-  deletePatientForProfessional
+  deletePatientForProfessional,
+  backendPatientSessions
 }) {
   const patientSessions = useMemo(
     () =>
@@ -68,15 +70,23 @@ export function ProfessionalScreen({
         useBackendScope={isBackendProfessional}
       />
       {selectedPatient ? (
-        <PatientDetail
-          selectedPatient={selectedPatient}
-          patientSessions={patientSessions}
-          sessions={sessions}
-          stats={stats}
-          questionSample={questionSample}
-          onSaveAiConfig={handleSaveAiConfig}
-          onDeletePatient={isBackendProfessional ? handleDeletePatient : null}
-        />
+        isBackendProfessional ? (
+          <BackendPatientDetail
+            selectedPatient={selectedPatient}
+            sessionsState={backendPatientSessions}
+            onDeletePatient={handleDeletePatient}
+          />
+        ) : (
+          <PatientDetail
+            selectedPatient={selectedPatient}
+            patientSessions={patientSessions}
+            sessions={sessions}
+            stats={stats}
+            questionSample={questionSample}
+            onSaveAiConfig={handleSaveAiConfig}
+            onDeletePatient={null}
+          />
+        )
       ) : (
         <section className="professional-detail" aria-label="Sin paciente seleccionado">
           <div className="panel">
