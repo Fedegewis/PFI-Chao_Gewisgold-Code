@@ -130,3 +130,18 @@ Definidas en `.env` (no comiteado). Copiar `.env.example` como base.
 | `DB_USER` | `postgres` | Usuario de PostgreSQL |
 | `DB_PASSWORD` | `postgres` | Contraseña de PostgreSQL |
 | `PORT` | `3001` | Puerto del servidor Express |
+| `FRONTEND_URL` | `http://localhost:5179` | URL pública del frontend, usada para construir el link en emails de invitación. Sin slash final. |
+| `RESEND_API_KEY` | (opcional) | Clave del proveedor Resend. Si falta, el envío por email responde 503 y sólo funciona "Copiar enlace". |
+| `EMAIL_FROM` | (opcional) | Dirección remitente (ej. `MenteActiva <no-reply@dominio.com>`). Obligatoria si se activa el envío por email. |
+| `EMAIL_REPLY_TO` | (opcional) | Dirección Reply-To para el email de invitación. |
+
+## Envío de invitación por email (opcional)
+
+El envío por email vía Resend es **opcional**. Sin `RESEND_API_KEY` + `EMAIL_FROM` configuradas:
+- `POST /api/invitations` (crear invitación) sigue funcionando.
+- El botón "Copiar enlace" del frontend sigue funcionando.
+- `POST /api/invitations/:id/send-email` responde `503 email_not_configured`.
+
+En producción (Render) hay que configurar `RESEND_API_KEY`, `EMAIL_FROM` y `FRONTEND_URL`. La API key **nunca** debe estar en el frontend (Vercel) ni en variables `VITE_*`.
+
+Detalle de seguridad: el backend nunca persiste el token plaintext. El endpoint de envío por email requiere que el frontend le pase el token temporal (obtenido al crear la invitación) y el backend lo valida por SHA-256 contra `token_hash`. Las invitaciones pendientes recuperadas después de un reload (`GET /api/invitations`) no incluyen el token — por eso el botón "Enviar por email" sólo se ofrece justo después de crear la invitación.

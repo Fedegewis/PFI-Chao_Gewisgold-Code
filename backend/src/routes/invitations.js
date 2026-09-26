@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 import db from "../db/connection.js";
 import { generateToken, requireAuth, requireRole } from "../middleware/auth.js";
+import defaultEmailService from "../services/emailService.js";
 
 const router = Router();
 
@@ -213,6 +214,133 @@ router.get("/invitations/lookup", async (req, res, next) => {
     next(err);
   }
 });
+
+// 6F: envío de invitación por email.
+// El token plaintext NO se persiste en DB (mantenemos H1/H2 hardening y el
+// contrato de invitaciones). Frontend conserva el token temporal justo después
+// de crearlo y lo manda a este endpoint. El backend valida contra token_hash.
+// 6F guard-rail: en producción exigimos FRONTEND_URL explícita. En dev/test
+// mantenemos el fallback a localhost para no romper desarrollo local ni suites.
+function resolveFrontendUrl() {
+  const raw = process.env.FRONTEND_URL;
+  if (raw && raw.trim()) return raw.trim().replace(/\/+$/, "");
+  if (process.env.NODE_ENV === "production") return null;
+  return "http://localhost:5179";
+}
+
+function buildInviteUrl(rawToken, base) {
+  return `${base}/#/invite/${rawToken}`;
+}
+
+router.post(
+  "/invitations/:id/send-email",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const invitationId = Number(req.params.id);
+      if (!Number.isInteger(invitationId) || invitationId < 1) {
+        return res.status(404).json({ error: "Invitación no encontrada" });
+      }
+
+      const rawToken = typeof req.body?.token === "string" ? req.body.token : "";
+      if (!rawToken) {
+        return res
+          .status(400)
+          .json({ error: "token es obligatorio", status: "invalid_token" });
+      }
+
+      const invitation = await db("patient_invitations")
+        .where({ id: invitationId, professional_id: req.user.id })
+        .first();
+      if (!invitation) {
+        // 404 uniforme: no distinguimos entre inexistente y ajena.
+        return res.status(404).json({ error: "Invitación no encontrada" });
+      }
+
+      const providedHash = hashToken(rawToken);
+      // timingSafeEqual sobre strings hex de igual longitud (SHA-256 → 64 chars).
+      const a = Buffer.from(providedHash, "hex");
+      const b = Buffer.from(invitation.token_hash, "hex");
+      const tokenMatches =
+        a.length === b.length && crypto.timingSafeEqual(a, b);
+      if (!tokenMatches) {
+        return res
+          .status(400)
+          .json({ error: "Token de invitación inválido", status: "invalid_token" });
+      }
+
+      if (invitation.accepted_at) {
+        return res
+          .status(409)
+          .json({ error: "La invitación ya fue utilizada", status: "accepted" });
+      }
+      if (invitation.revoked_at) {
+        return res
+          .status(410)
+          .json({ error: "La invitación fue revocada", status: "revoked" });
+      }
+      if (new Date(invitation.expires_at).getTime() <= Date.now()) {
+        return res
+          .status(410)
+          .json({ error: "La invitación expiró", status: "expired" });
+      }
+
+      const emailService = req.app.locals.emailService || defaultEmailService;
+
+      if (!emailService.isConfigured()) {
+        return res.status(503).json({
+          error: "El envío de emails no está configurado",
+          status: "email_not_configured",
+        });
+      }
+
+      // 6F guard-rail: FRONTEND_URL obligatoria en producción.
+      const frontendBase = resolveFrontendUrl();
+      if (!frontendBase) {
+        return res.status(503).json({
+          error: "El envío de emails no está configurado",
+          status: "frontend_url_not_configured",
+        });
+      }
+
+      // Destinatario y nombres SIEMPRE desde DB. Frontend no puede sobreescribirlos.
+      const professional = await db("users")
+        .where({ id: invitation.professional_id })
+        .select("name")
+        .first();
+      const inviteUrl = buildInviteUrl(rawToken, frontendBase);
+
+      try {
+        const result = await emailService.sendInvitationEmail({
+          to: invitation.email,
+          patientName: invitation.patient_name,
+          professionalName: professional?.name || "Tu profesional",
+          inviteUrl,
+          expiresAt: invitation.expires_at,
+        });
+        return res.json({
+          sent: true,
+          ...(result && result.id ? { message_id: result.id } : {}),
+        });
+      } catch (err) {
+        if (err?.code === "email_not_configured") {
+          return res.status(503).json({
+            error: "El envío de emails no está configurado",
+            status: "email_not_configured",
+          });
+        }
+        // No filtrar detalles del provider al cliente.
+        return res.status(502).json({
+          error: "No se pudo enviar el email",
+          status: "email_provider_error",
+        });
+      }
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 router.post("/invitations/:token/accept", async (req, res, next) => {
   try {

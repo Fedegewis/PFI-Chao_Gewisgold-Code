@@ -41,6 +41,16 @@ export async function revokeInvitationApi(invitationId) {
   return apiRequest(`/invitations/${invitationId}`, { method: "DELETE" });
 }
 
+// 6F: envío por email. El token plaintext se conserva en memoria en frontend
+// (justo tras la creación) y viaja acá para que el backend valide contra
+// token_hash. NO se persiste en localStorage.
+export async function sendInvitationEmailApi(invitationId, token) {
+  return apiRequest(`/invitations/${invitationId}/send-email`, {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
 export function buildInviteLink(token) {
   if (!token || typeof window === "undefined") return "";
   return `${window.location.origin}/#/invite/${token}`;

@@ -1587,6 +1587,160 @@ describe("MenteActiva critical flows", () => {
     expect(screen.queryByText(/pan, leche y manzanas/i)).not.toBeInTheDocument();
   });
 
+  // ============ 6F ============
+
+  function installFetchStubEmail({ patients = [], invitations = [], sendEmailResponse, sendEmailStatus = 200, onSendEmail } = {}) {
+    return vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      if (strUrl.includes("/auth/login")) {
+        return jsonResponse({
+          user: { id: DEMO_PROFESSIONAL_ID, role: "professional", name: "Dra. Test", email: "test@demo.com", is_active: true },
+          token: "fake-jwt-token",
+        });
+      }
+      if (strUrl.includes("/patients") && method === "GET") return jsonResponse(patients);
+      if (strUrl.match(/\/invitations\/\d+\/send-email$/) && method === "POST") {
+        if (onSendEmail) onSendEmail(opts);
+        return jsonResponse(sendEmailResponse || { sent: true, message_id: "msg_test_1" }, sendEmailStatus);
+      }
+      if (strUrl.includes("/invitations") && method === "POST") {
+        return jsonResponse({
+          id: 2001,
+          professional_id: DEMO_PROFESSIONAL_ID,
+          email: "nueva@paciente.com",
+          patient_name: "Nueva Paciente",
+          age: 74,
+          token: "plaintext-token-6f-abc",
+          expires_at: new Date(Date.now() + 604800000).toISOString(),
+          status: "pending",
+        }, 201);
+      }
+      if (strUrl.includes("/invitations") && method === "GET") return jsonResponse(invitations);
+      return jsonResponse({}, 404);
+    }));
+  }
+
+  async function createInviteAsPro(user) {
+    await user.click(await screen.findByRole("button", { name: /invitar paciente/i }));
+    await user.type(screen.getByLabelText(/nombre del paciente/i), "Nueva Paciente");
+    await user.type(screen.getByLabelText(/email del paciente/i), "nueva@paciente.com");
+    await user.click(screen.getByRole("button", { name: /crear invitación/i }));
+  }
+
+  test("6F: al crear invitation aparecen ambas acciones Copiar y Enviar por email", async () => {
+    const user = userEvent.setup();
+    installFetchStubEmail({ patients: [] });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    await createInviteAsPro(user);
+
+    expect(await screen.findByRole("button", { name: /copiar enlace de invitación/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /enviar invitación por email a nueva@paciente\.com/i })).toBeInTheDocument();
+  });
+
+  test("6F: click 'Enviar por email' llama al endpoint correcto con el token y muestra éxito", async () => {
+    const user = userEvent.setup();
+    const sendCalls = [];
+    installFetchStubEmail({
+      patients: [],
+      onSendEmail: (opts) => sendCalls.push({ body: opts.body }),
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    await createInviteAsPro(user);
+    await user.click(await screen.findByRole("button", { name: /enviar invitación por email a nueva@paciente\.com/i }));
+
+    // Mientras envía / al terminar, el botón cambia de rótulo
+    expect(await screen.findByText(/invitación enviada a nueva@paciente\.com/i)).toBeInTheDocument();
+    expect(sendCalls.length).toBe(1);
+    const parsed = JSON.parse(sendCalls[0].body);
+    expect(parsed).toEqual({ token: "plaintext-token-6f-abc" });
+  });
+
+  test("6F: error del email mantiene el enlace disponible y muestra mensaje", async () => {
+    const user = userEvent.setup();
+    installFetchStubEmail({
+      patients: [],
+      sendEmailResponse: { error: "El envío de emails no está configurado", status: "email_not_configured" },
+      sendEmailStatus: 503,
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    await createInviteAsPro(user);
+    await user.click(await screen.findByRole("button", { name: /enviar invitación por email a nueva@paciente\.com/i }));
+
+    // Mensaje específico del error de email (evita colisión con el alert de "Invitación creada").
+    expect(await screen.findByText(/no está configurado|no se pudo enviar/i)).toBeInTheDocument();
+    // Copiar sigue disponible
+    expect(screen.getByRole("button", { name: /copiar enlace de invitación/i })).toBeInTheDocument();
+    // El input con el link sigue presente
+    expect(screen.getByRole("textbox", { name: /enlace de invitación/i })).toBeInTheDocument();
+  });
+
+  test("6F: Copiar enlace sigue funcionando junto al botón de email", async () => {
+    const user = userEvent.setup();
+    installFetchStubEmail({ patients: [] });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    renderApp();
+    await createInviteAsPro(user);
+    await user.click(await screen.findByRole("button", { name: /copiar enlace de invitación/i }));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toContain("/#/invite/plaintext-token-6f-abc");
+  });
+
+  test("6F: token plaintext NO se guarda en localStorage", async () => {
+    const user = userEvent.setup();
+    installFetchStubEmail({ patients: [] });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    await createInviteAsPro(user);
+    // Después de que el link es visible, revisar TODAS las claves de localStorage.
+    await screen.findByRole("button", { name: /enviar invitación por email a nueva@paciente\.com/i });
+    const dump = Object.keys(localStorage).map((k) => localStorage.getItem(k)).join("|");
+    expect(dump.includes("plaintext-token-6f-abc")).toBe(false);
+  });
+
+  test("6F: invitaciones cargadas desde GET (sin token) NO muestran botón de email", async () => {
+    installFetchStubEmail({
+      patients: [],
+      invitations: [
+        {
+          id: 999,
+          patient_name: "Vieja Invitación",
+          email: "vieja@paciente.com",
+          age: 70,
+          status: "pending",
+          expires_at: new Date(Date.now() + 86400000).toISOString(),
+        },
+      ],
+    });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    // La lista de pendientes muestra la invitación
+    expect(await screen.findByText(/vieja invitación/i)).toBeInTheDocument();
+    // Pero NO hay un botón "Enviar por email" para ella (sólo el revocar)
+    expect(screen.queryByRole("button", { name: /enviar invitación por email a vieja@paciente\.com/i })).not.toBeInTheDocument();
+    // Sólo aparece "Revocar" en la lista
+    expect(screen.getByRole("button", { name: /revocar invitación a vieja@paciente\.com/i })).toBeInTheDocument();
+  });
+
   // Tests obsoletos eliminados en 6D.5:
   //   - "shows loading and fallback error handling for AI observations"
   //   - "validates AI configuration inputs before saving"
