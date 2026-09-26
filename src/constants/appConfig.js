@@ -63,3 +63,18 @@ export const MIN_AI_QUESTIONS = 1;
 
 // Umbral de latencia (ms) por encima del cual una respuesta se considera lenta.
 export const SLOW_MS = 6000;
+
+// Mapa actividad frontend → slug de sección backend. Necesario para 6D.1 hasta que
+// las actividades pasen a construirse desde el banco real.
+export const ACTIVITY_TO_SECTION_SLUG = {
+  market: "memoria_de_trabajo",
+  bus: "atencion_y_calculo",
+  recipe: "funciones_ejecutivas",
+  calendar: "orientacion_temporal",
+  names: "memoria_asociativa",
+  wellbeing: "metacognicion",
+  medication: "memoria_prospectiva",
+  home: "atencion_visual",
+  phone: "comprension_funcional",
+  orientation: "orientacion_espacial",
+};

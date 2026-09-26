@@ -11,8 +11,23 @@ import invitationsRouter from "./routes/invitations.js";
 
 const app = express();
 
+// 6E.1 (H3): CORS con allowlist explícita.
+// - CORS_ORIGINS: lista separada por comas (allowlist multi-origen, recomendado en prod).
+// - CORS_ORIGIN: single origin (compatibilidad hacia atrás, sigue funcionando).
+// - Default de desarrollo: http://localhost:5173 y http://localhost:5179.
+// NO se usan wildcards ni origin:true. Cada origen productivo o preview debe agregarse
+// explícitamente a CORS_ORIGINS. Requests sin Origin (curl, health checks) se aceptan.
+const corsOriginsRaw = process.env.CORS_ORIGINS || process.env.CORS_ORIGIN;
+const corsAllowlist = corsOriginsRaw
+  ? corsOriginsRaw.split(",").map((o) => o.trim()).filter(Boolean)
+  : ["http://localhost:5173", "http://localhost:5179"];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (corsAllowlist.includes(origin)) return callback(null, true);
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
 }));
 app.use(express.json());
 

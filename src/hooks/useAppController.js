@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
+import { ACTIVITY_TO_SECTION_SLUG, DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
+import { createPatientSession } from "../services/patientSessionsApi.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
@@ -9,12 +10,11 @@ import {
   patientFromBackendUser,
   refreshDailyPatientState
 } from "../services/patientService.js";
-import { deletePatientApi, fetchPatients } from "../services/patientsApi.js";
+import { deletePatientApi, fetchPatients, fetchPatientSessionsApi } from "../services/patientsApi.js";
 import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
   clearAppSession,
-  clearStorage,
   loadAppSession,
   loadPatients,
   loadSessions,
@@ -108,6 +108,9 @@ export function useAppController() {
   );
   const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(init.hash.activityId));
   const [loginError, setLoginError] = useState("");
+  const [activeSession, setActiveSession] = useState(null);
+  const [activityStartError, setActivityStartError] = useState("");
+  const [backendPatientSessions, setBackendPatientSessions] = useState({ patientId: null, list: null, loading: false, error: "" });
 
   const selectedPatient = useMemo(
     () =>
@@ -128,6 +131,35 @@ export function useAppController() {
     if (isBackendAuthenticated) return;
     savePatients(patients);
   }, [patients, isBackendAuthenticated]);
+
+  useEffect(() => {
+    if (!isBackendProfessional) {
+      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
+      return undefined;
+    }
+    if (selectedPatientId == null) {
+      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
+      return undefined;
+    }
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const requestedId = selectedPatientId;
+    setBackendPatientSessions({ patientId: requestedId, list: null, loading: true, error: "" });
+    fetchPatientSessionsApi(requestedId, controller ? { signal: controller.signal } : {})
+      .then((rows) => {
+        setBackendPatientSessions((prev) => {
+          if (prev.patientId !== requestedId) return prev;
+          return { patientId: requestedId, list: Array.isArray(rows) ? rows : [], loading: false, error: "" };
+        });
+      })
+      .catch((err) => {
+        if (err?.name === "AbortError") return;
+        setBackendPatientSessions((prev) => {
+          if (prev.patientId !== requestedId) return prev;
+          return { patientId: requestedId, list: null, loading: false, error: err?.message || "No se pudieron cargar las sesiones." };
+        });
+      });
+    return () => { if (controller) controller.abort(); };
+  }, [isBackendProfessional, selectedPatientId]);
 
   useEffect(() => {
     if (!isBackendProfessional) return;
@@ -174,7 +206,7 @@ export function useAppController() {
           if (Array.isArray(parsed)) setPatients(parsed.map(normalizePatient));
         } catch { /* payload inválido, se ignora */ }
       }
-      if (event.key === "ma_sessions_v1" && event.newValue) {
+      if (event.key === "ma_sessions_v1" && event.newValue && !isBackendAuthenticated) {
         try {
           const parsed = JSON.parse(event.newValue);
           if (Array.isArray(parsed)) setSessions(parsed);
@@ -349,6 +381,13 @@ export function useAppController() {
     setAuthUser(null);
     clearAuth();
     clearActivityDraft();
+    // 6D.6: al cerrar sesión limpiamos estado en memoria del usuario anterior
+    // para que el próximo login no vea patients/sesiones del anterior antes del fetch.
+    setPatients([]);
+    setSelectedPatientId(null);
+    setActiveSession(null);
+    setActivityStartError("");
+    setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", buildHash(SCREEN_NAMES.login, selectedActivity.id));
     }
@@ -361,15 +400,44 @@ export function useAppController() {
     setPatients((current) => current.map((patient) => (patient.id === patientId ? { ...patient, ...patch } : patient)));
   }
 
-  function openActivity(activity) {
+  async function openActivity(activity) {
     if (!selectedPatient) return;
     if (selectedPatient.completed.includes(activity.id)) return;
+    setActivityStartError("");
+
+    if (isBackendPatient) {
+      const sectionSlug = ACTIVITY_TO_SECTION_SLUG[activity.id];
+      if (!sectionSlug) {
+        setActivityStartError("Esta actividad no está disponible todavía en tu banco.");
+        return;
+      }
+      try {
+        const session = await createPatientSession({
+          sectionSlug,
+          questionCount: selectedPatient.maxQuestions || 4,
+        });
+        setActiveSession(session);
+      } catch (err) {
+        setActivityStartError(err?.message || "No se pudo iniciar la actividad. Reintentá más tarde.");
+        return;
+      }
+    } else {
+      setActiveSession(null);
+    }
+
     setSelectedActivity(activity);
     setScreen(SCREEN_NAMES.activity);
   }
 
   function completeActivity(summary) {
     if (!selectedPatient) return;
+    if (summary && summary.backend) {
+      // Sesión backend: la persistencia de respuestas/metricas se implementa en 6D.3+.
+      // Por ahora, cerrar la actividad sin actualizar el dashboard local.
+      setActiveSession(null);
+      setScreen(SCREEN_NAMES.patient);
+      return;
+    }
     const { nextSessions, patientPatch } = buildCompletedActivityState({
       patient: selectedPatient,
       sessions,
@@ -380,15 +448,6 @@ export function useAppController() {
     setSessions(nextSessions);
     updatePatient(selectedPatient.id, patientPatch);
     setScreen(SCREEN_NAMES.patient);
-  }
-
-  function resetDemo() {
-    clearActivityDraft();
-    clearStorage();
-    const initialPatients = buildInitialPatients();
-    setPatients(initialPatients);
-    setSessions(buildInitialSessions());
-    setSelectedPatientId(initialPatients[0].id);
   }
 
   return {
@@ -405,7 +464,6 @@ export function useAppController() {
     motivationMessage,
     openActivity,
     professionalId,
-    resetDemo,
     role,
     screen,
     selectedActivity,
@@ -420,6 +478,9 @@ export function useAppController() {
     completeActivity,
     inviteToken,
     acceptInvitationSession,
-    goToLogin
+    goToLogin,
+    activeSession,
+    activityStartError,
+    backendPatientSessions
   };
 }

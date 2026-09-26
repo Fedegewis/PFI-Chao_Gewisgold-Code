@@ -10,6 +10,7 @@ let patient;
 let testSectionId1;
 let testSectionId2;
 let profAuth;
+let patientAuth;
 
 async function cleanTestData() {
   await db("answers")
@@ -57,6 +58,7 @@ async function createTestFixtures() {
       professional_id: professional.id,
     })
     .returning("*");
+  patientAuth = authHeaderFor(patient);
 
   const [section1] = await db("sections")
     .insert({
@@ -123,7 +125,7 @@ async function createSession(sections) {
 }
 
 async function startSession(sessionId) {
-  await request(app).post(`/api/sessions/${sessionId}/start`);
+  await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
 }
 
 async function answerQuestion(
@@ -134,11 +136,25 @@ async function answerQuestion(
 ) {
   return request(app)
     .post(`/api/sessions/${sessionId}/answers`)
+    .set("Authorization", patientAuth)
     .send({
       session_question_id: sessionQuestionId,
       selected_answer: selectedAnswer,
       response_time_ms: responseTimeMs,
     });
+}
+
+async function fetchIsCorrect(sessionQuestionId) {
+  const row = await db("answers").where({ session_question_id: sessionQuestionId }).first();
+  return row?.is_correct;
+}
+
+async function completeSession(sessionId) {
+  return request(app).post(`/api/sessions/${sessionId}/complete`).set("Authorization", patientAuth);
+}
+
+async function abandonSession(sessionId) {
+  return request(app).post(`/api/sessions/${sessionId}/abandon`).set("Authorization", patientAuth);
 }
 
 function assertApprox(actual, expected, tolerance = 0.02) {
@@ -170,13 +186,14 @@ describe("Answers & Results API", () => {
       assert.equal(res.status, 201);
       assert.equal(res.body.session_question_id, sqId);
       assert.equal(res.body.selected_answer, 0);
-      assert.equal(res.body.is_correct, true);
+      assert.equal(res.body.is_correct, undefined);
       assert.equal(res.body.response_time_ms, 1500);
       assert.ok(res.body.id);
       assert.ok(res.body.answered_at);
+      assert.equal(await fetchIsCorrect(sqId), true);
     });
 
-    it("registers an incorrect answer with is_correct=false", async () => {
+    it("registers an incorrect answer with is_correct=false (server-side)", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
@@ -185,8 +202,9 @@ describe("Answers & Results API", () => {
 
       const res = await answerQuestion(session.id, sqId, 1, 2000);
       assert.equal(res.status, 201);
-      assert.equal(res.body.is_correct, false);
+      assert.equal(res.body.is_correct, undefined);
       assert.equal(res.body.selected_answer, 1);
+      assert.equal(await fetchIsCorrect(sqId), false);
     });
 
     it("returns 400 for invalid selected_answer", async () => {
@@ -212,16 +230,19 @@ describe("Answers & Results API", () => {
 
       const zero = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: 0 });
       assert.equal(zero.status, 400);
 
       const negative = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: -100 });
       assert.equal(negative.status, 400);
 
       const decimal = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: sqId, selected_answer: 0, response_time_ms: 1.5 });
       assert.equal(decimal.status, 400);
     });
@@ -234,6 +255,7 @@ describe("Answers & Results API", () => {
 
       const res = await request(app)
         .post(`/api/sessions/${session.id}/answers`)
+        .set("Authorization", patientAuth)
         .send({ session_question_id: 1 });
       assert.equal(res.status, 400);
     });
@@ -262,14 +284,14 @@ describe("Answers & Results API", () => {
       assert.equal(res.status, 404);
     });
 
-    it("returns 400 when session is in created state", async () => {
+    it("returns 409 when session is in created state", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       const sqId = session.sections[0].questions[0].id;
 
       const res = await answerQuestion(session.id, sqId, 0);
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("created"));
     });
 
@@ -285,29 +307,30 @@ describe("Answers & Results API", () => {
       assert.equal(res.status, 409);
     });
 
-    it("returns 400 when session is completed", async () => {
+    it("returns 409 when session is completed", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/complete`);
-
       const sqId = session.sections[0].questions[0].id;
+      await answerQuestion(session.id, sqId, 0);
+      await completeSession(session.id);
+
       const res = await answerQuestion(session.id, sqId, 0);
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("completed"));
     });
 
-    it("returns 400 when session is abandoned", async () => {
+    it("returns 409 when session is abandoned", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/abandon`);
+      await abandonSession(session.id);
 
       const sqId = session.sections[0].questions[0].id;
       const res = await answerQuestion(session.id, sqId, 0);
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("abandoned"));
     });
   });
@@ -323,77 +346,75 @@ describe("Answers & Results API", () => {
         await answerQuestion(session.id, sq.id, 0);
       }
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/complete`
-      );
+      const res = await completeSession(session.id);
       assert.equal(res.status, 200);
       assert.equal(res.body.status, "completed");
       assert.ok(res.body.completed_at);
     });
 
-    it("completes a partially answered session", async () => {
+    it("rejects completion when answers are missing (partial)", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 3 },
       ]);
       await startSession(session.id);
       await answerQuestion(session.id, session.sections[0].questions[0].id, 0);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/complete`
-      );
-      assert.equal(res.status, 200);
-      assert.equal(res.body.status, "completed");
+      const res = await completeSession(session.id);
+      assert.equal(res.status, 409);
+      assert.equal(res.body.status, "missing_answers");
+
+      const row = await db("sessions").where({ id: session.id }).first();
+      assert.equal(row.status, "in_progress");
+      const results = await db("session_results").where({ session_id: session.id });
+      assert.equal(results.length, 0);
     });
 
-    it("completes a session with zero answers", async () => {
+    it("rejects completion when zero answers", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       await startSession(session.id);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/complete`
-      );
-      assert.equal(res.status, 200);
-      assert.equal(res.body.status, "completed");
+      const res = await completeSession(session.id);
+      assert.equal(res.status, 409);
+      assert.equal(res.body.status, "missing_answers");
     });
 
-    it("returns 400 for double complete", async () => {
+    it("returns 409 for double complete", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/complete`);
+      await answerQuestion(session.id, session.sections[0].questions[0].id, 0);
+      await completeSession(session.id);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/complete`
-      );
-      assert.equal(res.status, 400);
-      assert.ok(res.body.error.includes("completed"));
+      const res = await completeSession(session.id);
+      assert.equal(res.status, 409);
+      assert.ok(res.body.error);
+
+      const results = await db("session_results").where({ session_id: session.id });
+      const globalRows = results.filter((r) => r.section_id === null);
+      assert.equal(globalRows.length, 1);
     });
 
-    it("returns 400 for completing abandoned session", async () => {
+    it("returns 409 for completing abandoned session", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/abandon`);
+      await abandonSession(session.id);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/complete`
-      );
-      assert.equal(res.status, 400);
+      const res = await completeSession(session.id);
+      assert.equal(res.status, 409);
     });
 
-    it("returns 400 for completing session in created state", async () => {
+    it("returns 409 for completing session in created state", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/complete`
-      );
-      assert.equal(res.status, 400);
+      const res = await completeSession(session.id);
+      assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("created"));
     });
   });
@@ -404,13 +425,10 @@ describe("Answers & Results API", () => {
         { section_id: testSectionId1, question_count: 1 },
       ]);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/abandon`
-      );
+      const res = await abandonSession(session.id);
       assert.equal(res.status, 200);
       assert.equal(res.body.status, "abandoned");
       assert.ok(res.body.abandoned_at);
-      assert.equal(res.body.completed_at, null);
     });
 
     it("abandons from in_progress preserving answers", async () => {
@@ -421,9 +439,7 @@ describe("Answers & Results API", () => {
       const sqId = session.sections[0].questions[0].id;
       await answerQuestion(session.id, sqId, 0, 1500);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/abandon`
-      );
+      const res = await abandonSession(session.id);
       assert.equal(res.status, 200);
       assert.equal(res.body.status, "abandoned");
       assert.ok(res.body.abandoned_at);
@@ -435,33 +451,39 @@ describe("Answers & Results API", () => {
       assert.equal(answers[0].is_correct, true);
     });
 
+    it("no genera session_results al abandonar", async () => {
+      const session = await createSession([
+        { section_id: testSectionId1, question_count: 1 },
+      ]);
+      await startSession(session.id);
+      await abandonSession(session.id);
+      const results = await db("session_results").where({ session_id: session.id });
+      assert.equal(results.length, 0);
+    });
+
     it("prevents answering and completing after abandon", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
       await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/abandon`);
+      await abandonSession(session.id);
 
       const sqId = session.sections[0].questions[0].id;
       const answerRes = await answerQuestion(session.id, sqId, 0);
-      assert.equal(answerRes.status, 400);
+      assert.equal(answerRes.status, 409);
 
-      const completeRes = await request(app).post(
-        `/api/sessions/${session.id}/complete`
-      );
-      assert.equal(completeRes.status, 400);
+      const completeRes = await completeSession(session.id);
+      assert.equal(completeRes.status, 409);
     });
 
-    it("returns 400 for double abandon", async () => {
+    it("returns 409 for double abandon", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
       ]);
-      await request(app).post(`/api/sessions/${session.id}/abandon`);
+      await abandonSession(session.id);
 
-      const res = await request(app).post(
-        `/api/sessions/${session.id}/abandon`
-      );
-      assert.equal(res.status, 400);
+      const res = await abandonSession(session.id);
+      assert.equal(res.status, 409);
     });
   });
 
@@ -474,7 +496,7 @@ describe("Answers & Results API", () => {
       for (const sq of session.sections[0].questions) {
         await answerQuestion(session.id, sq.id, 0, 2000);
       }
-      await request(app).post(`/api/sessions/${session.id}/complete`);
+      await completeSession(session.id);
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
@@ -507,6 +529,39 @@ describe("Answers & Results API", () => {
       ).set("Authorization", profAuth);
       assert.equal(res.status, 400);
     });
+
+    it("otro professional no puede leer results (404)", async () => {
+      const [otherProf] = await db("users")
+        .insert({
+          role: "professional",
+          name: "Prof Ajeno",
+          email: `other-prof-${Date.now()}@test.com`,
+        })
+        .returning("*");
+      const session = await createSession([
+        { section_id: testSectionId1, question_count: 1 },
+      ]);
+      await startSession(session.id);
+      await answerQuestion(session.id, session.sections[0].questions[0].id, 0);
+      await completeSession(session.id);
+      const res = await request(app)
+        .get(`/api/sessions/${session.id}/results`)
+        .set("Authorization", authHeaderFor(otherProf));
+      assert.equal(res.status, 404);
+    });
+
+    it("patient no puede acceder al endpoint profesional (403)", async () => {
+      const session = await createSession([
+        { section_id: testSectionId1, question_count: 1 },
+      ]);
+      await startSession(session.id);
+      await answerQuestion(session.id, session.sections[0].questions[0].id, 0);
+      await completeSession(session.id);
+      const res = await request(app)
+        .get(`/api/sessions/${session.id}/results`)
+        .set("Authorization", patientAuth);
+      assert.equal(res.status, 403);
+    });
   });
 
   describe("Metrics calculation", () => {
@@ -524,8 +579,9 @@ describe("Answers & Results API", () => {
 
       const s2Qs = session.sections[1].questions;
       await answerQuestion(session.id, s2Qs[0].id, 0, 1500);
+      await answerQuestion(session.id, s2Qs[1].id, 1, 2500);
 
-      await request(app).post(`/api/sessions/${session.id}/complete`);
+      await completeSession(session.id);
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
@@ -547,37 +603,35 @@ describe("Answers & Results API", () => {
 
       const s2 = res.body.sections[1];
       assert.equal(s2.total_questions, 2);
-      assert.equal(s2.answered_questions, 1);
+      assert.equal(s2.answered_questions, 2);
       assert.equal(s2.correct_count, 1);
-      assert.equal(s2.incorrect_count, 0);
-      assert.equal(s2.unanswered_count, 1);
-      assert.equal(s2.accuracy, 1);
-      assert.equal(s2.completion_rate, 0.5);
-      assert.equal(s2.mean_latency_ms, 1500);
+      assert.equal(s2.incorrect_count, 1);
+      assert.equal(s2.unanswered_count, 0);
+      assert.equal(s2.accuracy, 0.5);
+      assert.equal(s2.completion_rate, 1);
+      assert.equal(s2.mean_latency_ms, 2000);
       assert.equal(s2.min_latency_ms, 1500);
-      assert.equal(s2.max_latency_ms, 1500);
-      assert.equal(s2.latency_std_ms, 0);
+      assert.equal(s2.max_latency_ms, 2500);
+      assert.ok(s2.latency_std_ms > 0);
 
       const g = res.body.global;
       assert.equal(g.total_questions, 5);
-      assert.equal(g.answered_questions, 4);
+      assert.equal(g.answered_questions, 5);
       assert.equal(g.correct_count, 3);
-      assert.equal(g.incorrect_count, 1);
-      assert.equal(g.unanswered_count, 1);
-      assert.equal(g.accuracy, 0.75);
-      assert.equal(g.completion_rate, 0.8);
+      assert.equal(g.incorrect_count, 2);
+      assert.equal(g.unanswered_count, 0);
+      assert.equal(g.accuracy, 0.6);
+      assert.equal(g.completion_rate, 1);
 
-      assert.notEqual(g.accuracy, (2 / 3 + 1) / 2);
-
-      assert.equal(g.mean_latency_ms, 1875);
+      assert.equal(g.mean_latency_ms, 2000);
       assert.equal(g.min_latency_ms, 1000);
       assert.equal(g.max_latency_ms, 3000);
 
       const expectedGlobalStd = Math.sqrt(
-        ([1000, 2000, 3000, 1500].reduce(
-          (s, v) => s + (v - 1875) ** 2,
+        ([1000, 2000, 3000, 1500, 2500].reduce(
+          (s, v) => s + (v - 2000) ** 2,
           0
-        )) / 4
+        )) / 5
       );
       assertApprox(g.latency_std_ms, expectedGlobalStd, 0.1);
 
@@ -587,40 +641,9 @@ describe("Answers & Results API", () => {
       assertApprox(s1.latency_std_ms, s1Std, 0.1);
     });
 
-    it("accuracy is NULL when no answers exist", async () => {
+    it("latency_std_ms is 0 with single answer (fully answered)", async () => {
       const session = await createSession([
         { section_id: testSectionId1, question_count: 1 },
-      ]);
-      await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/complete`);
-
-      const res = await request(app).get(
-        `/api/sessions/${session.id}/results`
-      ).set("Authorization", profAuth);
-      assert.equal(res.body.global.accuracy, null);
-      assert.equal(res.body.global.completion_rate, 0);
-      assert.equal(res.body.global.unanswered_count, 1);
-    });
-
-    it("latency metrics are NULL when no answers exist", async () => {
-      const session = await createSession([
-        { section_id: testSectionId1, question_count: 1 },
-      ]);
-      await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/complete`);
-
-      const res = await request(app).get(
-        `/api/sessions/${session.id}/results`
-      ).set("Authorization", profAuth);
-      assert.equal(res.body.global.mean_latency_ms, null);
-      assert.equal(res.body.global.min_latency_ms, null);
-      assert.equal(res.body.global.max_latency_ms, null);
-      assert.equal(res.body.global.latency_std_ms, null);
-    });
-
-    it("latency_std_ms is 0 with single answer", async () => {
-      const session = await createSession([
-        { section_id: testSectionId1, question_count: 2 },
       ]);
       await startSession(session.id);
       await answerQuestion(
@@ -629,7 +652,7 @@ describe("Answers & Results API", () => {
         0,
         5000
       );
-      await request(app).post(`/api/sessions/${session.id}/complete`);
+      await completeSession(session.id);
 
       const res = await request(app).get(
         `/api/sessions/${session.id}/results`
@@ -645,7 +668,7 @@ describe("Answers & Results API", () => {
         { section_id: testSectionId1, question_count: 1 },
       ]);
       await startSession(session.id);
-      await request(app).post(`/api/sessions/${session.id}/abandon`);
+      await abandonSession(session.id);
 
       const results = await db("session_results")
         .where("session_id", session.id)

@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Copy, Search, Send, Trash2, UserPlus, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Mail, Search, Send, Trash2, UserPlus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MAX_PATIENT_AGE } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";
@@ -7,6 +7,7 @@ import {
   createInvitationApi,
   fetchInvitationsApi,
   revokeInvitationApi,
+  sendInvitationEmailApi,
 } from "../../services/invitationsApi.js";
 import { PatientCard } from "./PatientCard.jsx";
 
@@ -47,6 +48,12 @@ export function PatientGrid({
   const [submitting, setSubmitting] = useState(false);
   const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
+  // 6F: token plaintext temporal en memoria (nunca en localStorage) para poder
+  // usarlo en "Enviar por email". Se limpia al cerrar el formulario.
+  const [inviteToken, setInviteToken] = useState("");
+  const [inviteId, setInviteId] = useState(null);
+  const [inviteRecipient, setInviteRecipient] = useState("");
+  const [emailStatus, setEmailStatus] = useState({ state: "idle", message: "" });
 
   const [pendingInvites, setPendingInvites] = useState([]);
   const [loadingInvites, setLoadingInvites] = useState(false);
@@ -90,6 +97,10 @@ export function PatientGrid({
     setFeedback({ text: "", type: "" });
     setInviteLink("");
     setCopied(false);
+    setInviteToken("");
+    setInviteId(null);
+    setInviteRecipient("");
+    setEmailStatus({ state: "idle", message: "" });
   }
 
   async function handleCreateInvite() {
@@ -122,8 +133,13 @@ export function PatientGrid({
       });
       const link = buildInviteLink(invite.token);
       setInviteLink(link);
+      // Token plaintext queda sólo en memoria del componente para "Enviar por email".
+      setInviteToken(invite.token);
+      setInviteId(invite.id);
+      setInviteRecipient(invite.email);
+      setEmailStatus({ state: "idle", message: "" });
       setFeedback({
-        text: "Invitación creada. Copiá el enlace y enviáselo al paciente. Aparecerá en tu lista cuando la acepte.",
+        text: "Invitación creada. Podés copiar el enlace o enviarlo por email. Aparecerá en tu lista cuando la acepte.",
         type: "success",
       });
       setCopied(false);
@@ -144,6 +160,21 @@ export function PatientGrid({
       setCopied(true);
     } catch {
       setCopied(false);
+    }
+  }
+
+  async function handleSendEmail() {
+    if (!inviteId || !inviteToken) return;
+    setEmailStatus({ state: "sending", message: "" });
+    try {
+      await sendInvitationEmailApi(inviteId, inviteToken);
+      setEmailStatus({
+        state: "sent",
+        message: `Invitación enviada a ${inviteRecipient}.`,
+      });
+    } catch (err) {
+      const message = err?.message || "No se pudo enviar el email. Podés seguir usando el enlace.";
+      setEmailStatus({ state: "error", message });
     }
   }
 
@@ -271,9 +302,33 @@ export function PatientGrid({
                   onClick={handleCopyLink}
                   aria-label="Copiar enlace de invitación"
                 >
-                  <Copy size={16} aria-hidden="true" /> {copied ? "Copiado" : "Copiar"}
+                  <Copy size={16} aria-hidden="true" /> {copied ? "Copiado" : "Copiar enlace"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={handleSendEmail}
+                  disabled={emailStatus.state === "sending" || emailStatus.state === "sent" || !inviteToken}
+                  aria-label={`Enviar invitación por email a ${inviteRecipient}`}
+                >
+                  <Mail size={16} aria-hidden="true" />
+                  {emailStatus.state === "sending"
+                    ? "Enviando..."
+                    : emailStatus.state === "sent"
+                      ? "Enviado"
+                      : "Enviar por email"}
                 </button>
               </div>
+              {emailStatus.state === "sent" && (
+                <p className="form-feedback form-feedback-success" role="status">
+                  <CheckCircle2 size={14} aria-hidden="true" /> {emailStatus.message}
+                </p>
+              )}
+              {emailStatus.state === "error" && (
+                <p className="form-feedback form-feedback-error" role="alert">
+                  <AlertTriangle size={14} aria-hidden="true" /> {emailStatus.message}
+                </p>
+              )}
               <small className="ai-hint">
                 Este enlace sólo se muestra ahora. Si lo perdés, generá una nueva invitación para ese email (la anterior se revocará).
               </small>
@@ -289,6 +344,7 @@ export function PatientGrid({
               patient={patient}
               selected={selectedPatient ? patient.id === selectedPatient.id : false}
               onSelect={onSelectPatient}
+              isBackend={useBackendScope}
             />
           </div>
         ))}

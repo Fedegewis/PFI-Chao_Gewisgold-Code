@@ -293,6 +293,12 @@ textarea { min-height: 150px; resize: vertical; }
 .session-table-head span { font-size: 0.75rem; font-weight: 950; text-transform: uppercase; letter-spacing: 0.06em; color: #3f5639; }
 .session-table-row { border-bottom: 1px solid #eef1ea; padding: 8px 0; }
 .session-table-row span { font-size: 0.9375rem; font-weight: 850; color: #33422e; }
+.session-table-row--interactive { all: unset; display: grid; grid-template-columns: 0.7fr 1.6fr 0.8fr 0.8fr; gap: 10px; align-items: center; cursor: pointer; padding: 8px 6px; border-bottom: 1px solid #eef1ea; }
+.session-table-row--interactive:hover { background: rgba(97, 122, 88, 0.06); }
+.session-table-row--selected { background: rgba(97, 122, 88, 0.12); }
+.status-chip--good { background: #617a58; }
+.status-chip--warn { background: #b48a2b; }
+.status-chip--muted { background: #7a7f75; }
 .ai-config-panel { display: grid; gap: 14px; grid-template-rows: auto auto 1fr auto auto auto auto; }
 .ai-config-panel textarea { flex: 1; min-height: 100px; height: 100%; resize: vertical; }
 .ai-observation { display: grid; gap: 14px; }

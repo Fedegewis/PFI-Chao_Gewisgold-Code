@@ -174,7 +174,7 @@ describe("Stimulus support", () => {
       });
       assert.equal(createRes.status, 201);
 
-      const getRes = await request(app).get(`/api/sessions/${createRes.body.id}`);
+      const getRes = await request(app).get(`/api/sessions/${createRes.body.id}`).set("Authorization", profAuth);
       assert.equal(getRes.status, 200);
 
       const questions = getRes.body.sections[0].questions;
@@ -205,7 +205,7 @@ describe("Stimulus support", () => {
         .where("id", stimulusQ.question_id)
         .update({ stimulus: "CHANGED STIMULUS" });
 
-      const getRes = await request(app).get(`/api/sessions/${sessionId}`);
+      const getRes = await request(app).get(`/api/sessions/${sessionId}`).set("Authorization", profAuth);
       const snapshotQ = getRes.body.sections[0].questions.find((q) => q.prompt_snapshot === "¿Dónde dejó los anteojos?");
       assert.equal(snapshotQ.stimulus_snapshot, originalStimulus, "snapshot should not change when source question is modified");
 
@@ -223,21 +223,24 @@ describe("Stimulus support", () => {
         sections: [{ section_id: testSectionId, question_count: 3 }],
       });
       const sessionId = createRes.body.id;
+      const patientAuth = authHeaderFor(patient);
 
-      await request(app).post(`/api/sessions/${sessionId}/start`);
+      await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
 
       const questions = createRes.body.sections[0].questions;
       for (const q of questions) {
-        const answerRes = await request(app).post(`/api/sessions/${sessionId}/answers`).send({
-          session_question_id: q.id,
-          selected_answer: q.correct_answer_snapshot,
-          response_time_ms: 3000,
-        });
+        const answerRes = await request(app).post(`/api/sessions/${sessionId}/answers`)
+          .set("Authorization", patientAuth)
+          .send({
+            session_question_id: q.id,
+            selected_answer: q.correct_answer_snapshot,
+            response_time_ms: 3000,
+          });
         assert.equal(answerRes.status, 201);
-        assert.equal(answerRes.body.is_correct, true);
       }
+      // is_correct ya no se expone al patient; se verifica server-side via results endpoint.
 
-      const completeRes = await request(app).post(`/api/sessions/${sessionId}/complete`);
+      const completeRes = await request(app).post(`/api/sessions/${sessionId}/complete`).set("Authorization", patientAuth);
       assert.equal(completeRes.status, 200);
       assert.equal(completeRes.body.status, "completed");
 

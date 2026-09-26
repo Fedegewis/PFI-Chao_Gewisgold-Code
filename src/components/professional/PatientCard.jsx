@@ -6,35 +6,42 @@ const RISK_TONE = {
   Bajo: "risk-chip--low"
 };
 
-export function PatientCard({ patient, selected, onSelect }) {
+export function PatientCard({ patient, selected, onSelect, isBackend = false }) {
   const risk = patient.risk || "Bajo";
+  const ariaLabel = isBackend
+    ? `${patient.name}${patient.age ? `, ${patient.age} años` : ""}. Datos reales`
+    : `${patient.name}, ${patient.age} años. Riesgo ${risk}. ${patient.status}`;
   return (
     <button
       type="button"
       className={cx("patient-card", selected && "patient-card--selected")}
       onClick={() => onSelect(patient)}
       aria-current={selected ? "true" : undefined}
-      aria-label={`${patient.name}, ${patient.age} años. Riesgo ${risk}. ${patient.status}`}
+      aria-label={ariaLabel}
     >
       <div className="patient-card-head">
         <div className="patient-card-avatar" aria-hidden="true">{patient.name[0]}</div>
-        <span className={cx("risk-chip", RISK_TONE[risk] ?? "risk-chip--low")}>{risk}</span>
+        {!isBackend && (
+          <span className={cx("risk-chip", RISK_TONE[risk] ?? "risk-chip--low")}>{risk}</span>
+        )}
       </div>
       <div className="patient-card-body">
         <strong>{patient.name}</strong>
-        <span>{patient.age} años</span>
-        <small>{patient.status}</small>
+        <span>{patient.age ? `${patient.age} años` : ""}</span>
+        {!isBackend && <small>{patient.status}</small>}
       </div>
-      <div className="patient-card-foot">
-        <span className="patient-card-metric">
-          <small>Precisión</small>
-          <em>{patient.score ?? 0}%</em>
-        </span>
-        <span className="patient-card-metric patient-card-metric--right">
-          <small>Tiempo</small>
-          <em>{patient.responseTime && patient.responseTime !== "-" ? patient.responseTime : "—"}</em>
-        </span>
-      </div>
+      {!isBackend && (
+        <div className="patient-card-foot">
+          <span className="patient-card-metric">
+            <small>Precisión</small>
+            <em>{patient.score ?? 0}%</em>
+          </span>
+          <span className="patient-card-metric patient-card-metric--right">
+            <small>Tiempo</small>
+            <em>{patient.responseTime && patient.responseTime !== "-" ? patient.responseTime : "—"}</em>
+          </span>
+        </div>
+      )}
     </button>
   );
 }

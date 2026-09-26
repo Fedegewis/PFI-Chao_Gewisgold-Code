@@ -33,3 +33,7 @@ export async function fetchPatients() {
 export async function deletePatientApi(patientId) {
   return apiRequest(`/patients/${patientId}`, { method: "DELETE" });
 }
+
+export async function fetchPatientSessionsApi(patientId, { signal } = {}) {
+  return apiRequest(`/patients/${patientId}/sessions`, { method: "GET", signal });
+}

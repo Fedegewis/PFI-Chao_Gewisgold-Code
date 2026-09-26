@@ -202,13 +202,47 @@ describe("Users API", () => {
       assert.equal(res.status, 404);
     });
 
-    it("returns 404 for non-existent professional", async () => {
+    // 6E.1 (H1): professional_id del body es ignorado — se deriva del JWT.
+    it("ignores professional_id from body and uses JWT identity (6E.1 H1)", async () => {
       const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
-        professional_id: 99999,
+        professional_id: 99999,  // valor falso, debe ser ignorado
+        sections: [{ section_id: testSectionId, question_count: 1 }],
+      });
+      assert.equal(res.status, 201);
+      assert.equal(res.body.professional_id, professional.id);
+    });
+
+    // 6E.1 (H1): ownership — profesional A NO puede crear sesión para paciente de B.
+    it("professional A cannot create session for patient of professional B (6E.1 H1)", async () => {
+      const [profB] = await db("users")
+        .insert({ role: "professional", name: "Prof B", email: `profB-${Date.now()}@test.com` })
+        .returning("*");
+      const [patientB] = await db("users")
+        .insert({
+          role: "patient",
+          name: "Paciente de B",
+          email: `patB-${Date.now()}@test.com`,
+          professional_id: profB.id,
+          age: 70,
+        })
+        .returning("*");
+
+      const res = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
+        patient_id: patientB.id,
         sections: [{ section_id: testSectionId, question_count: 1 }],
       });
       assert.equal(res.status, 404);
+
+      // También si se intenta impersonar a B mediante body:
+      const res2 = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
+        patient_id: patientB.id,
+        professional_id: profB.id,
+        sections: [{ section_id: testSectionId, question_count: 1 }],
+      });
+      assert.equal(res2.status, 404);
+
+      await db("users").whereIn("id", [patientB.id, profB.id]).del();
     });
 
     it("returns 404 for non-existent section", async () => {
@@ -279,7 +313,7 @@ describe("Users API", () => {
       });
       const sessionId = createRes.body.id;
 
-      const res = await request(app).get(`/api/sessions/${sessionId}`);
+      const res = await request(app).get(`/api/sessions/${sessionId}`).set("Authorization", profAuth);
       assert.equal(res.status, 200);
       assert.equal(res.body.id, sessionId);
       assert.equal(res.body.status, "created");
@@ -294,18 +328,19 @@ describe("Users API", () => {
     });
 
     it("returns 404 for non-existent session", async () => {
-      const res = await request(app).get("/api/sessions/99999");
+      const res = await request(app).get("/api/sessions/99999").set("Authorization", profAuth);
       assert.equal(res.status, 404);
     });
 
     it("returns 400 for invalid session id", async () => {
-      const res = await request(app).get("/api/sessions/abc");
+      const res = await request(app).get("/api/sessions/abc").set("Authorization", profAuth);
       assert.equal(res.status, 400);
     });
   });
 
   describe("POST /api/sessions/:id/start", () => {
-    it("transitions session from created to in_progress", async () => {
+    it("transitions session from created to in_progress (patient owner)", async () => {
+      const patientAuth = authHeaderFor(patient);
       const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
@@ -313,13 +348,14 @@ describe("Users API", () => {
       });
       const sessionId = createRes.body.id;
 
-      const res = await request(app).post(`/api/sessions/${sessionId}/start`);
+      const res = await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
       assert.equal(res.status, 200);
       assert.equal(res.body.status, "in_progress");
       assert.ok(res.body.started_at);
     });
 
-    it("returns 400 when starting an already started session", async () => {
+    it("returns 409 when starting an already started session", async () => {
+      const patientAuth = authHeaderFor(patient);
       const createRes = await request(app).post("/api/sessions").set("Authorization", profAuth).send({
         patient_id: patient.id,
         professional_id: professional.id,
@@ -327,13 +363,14 @@ describe("Users API", () => {
       });
       const sessionId = createRes.body.id;
 
-      await request(app).post(`/api/sessions/${sessionId}/start`);
-      const res = await request(app).post(`/api/sessions/${sessionId}/start`);
-      assert.equal(res.status, 400);
+      await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
+      const res = await request(app).post(`/api/sessions/${sessionId}/start`).set("Authorization", patientAuth);
+      assert.equal(res.status, 409);
     });
 
     it("returns 404 for non-existent session", async () => {
-      const res = await request(app).post("/api/sessions/99999/start");
+      const patientAuth = authHeaderFor(patient);
+      const res = await request(app).post("/api/sessions/99999/start").set("Authorization", patientAuth);
       assert.equal(res.status, 404);
     });
   });

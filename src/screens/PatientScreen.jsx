@@ -16,7 +16,7 @@ function computeStreak(weeklyProgress) {
   return count;
 }
 
-export function PatientScreen({ activities, motivationMessage, onOpenActivity, onUpdatePatient, patient }) {
+export function PatientScreen({ activities, motivationMessage, onOpenActivity, onUpdatePatient, patient, activityStartError }) {
   const completedCount = patient.completed.length;
   const streak = computeStreak(patient.weeklyProgress);
 
@@ -26,6 +26,9 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
         <div className="garden-welcome"><span>Hola, {patient.name.split(" ")[0]}. {motivationMessage}</span></div>
         <GardenStrip activities={activities} completedIds={patient.completed} />
         <div className="section-head"><div><p className="eyebrow">Tu entrenamiento de hoy</p><h2>Actividades disponibles</h2></div><span className="streak-pill">Continuidad: {streak} {streak === 1 ? "día" : "días"}</span></div>
+        {activityStartError && (
+          <div className="error-box" role="alert">{activityStartError}</div>
+        )}
         <div className="activity-grid" role="list" aria-label="Lista de actividades">
           {activities.map((activity, index) => <ActivityCard key={activity.id} activity={activity} index={index} completed={patient.completed.includes(activity.id)} onClick={() => onOpenActivity(activity)} />)}
         </div>

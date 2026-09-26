@@ -1,11 +1,31 @@
-import { after, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
+import { authHeaderFor } from "./helpers.js";
+
+let professionalAuth;
+let patientAuth;
+let cleanupUserIds = [];
 
 describe("API", () => {
+  before(async () => {
+    const [prof] = await db("users")
+      .insert({ role: "professional", name: "Dr. Sections", email: `sections-prof-${Date.now()}@test.com` })
+      .returning("*");
+    const [pat] = await db("users")
+      .insert({ role: "patient", name: "Pac Sections", email: `sections-pat-${Date.now()}@test.com`, professional_id: prof.id, age: 70 })
+      .returning("*");
+    professionalAuth = authHeaderFor(prof);
+    patientAuth = authHeaderFor(pat);
+    cleanupUserIds = [pat.id, prof.id];
+  });
+
   after(async () => {
+    if (cleanupUserIds.length > 0) {
+      await db("users").whereIn("id", cleanupUserIds).del();
+    }
     await db.destroy();
   });
 
@@ -183,15 +203,15 @@ describe("API", () => {
   });
 
   describe("GET /api/sections/:id/questions", () => {
-    it("returns questions for a valid section", async () => {
+    it("returns questions for a valid section (professional auth)", async () => {
       const sectionsRes = await request(app).get("/api/sections");
       const memoriaSection = sectionsRes.body.find(
         (s) => s.slug === "memoria_de_trabajo"
       );
 
-      const res = await request(app).get(
-        `/api/sections/${memoriaSection.id}/questions`
-      );
+      const res = await request(app)
+        .get(`/api/sections/${memoriaSection.id}/questions`)
+        .set("Authorization", professionalAuth);
       assert.equal(res.status, 200);
       assert.ok(res.body.section);
       assert.equal(res.body.section.slug, "memoria_de_trabajo");
@@ -212,17 +232,57 @@ describe("API", () => {
       assert.ok(q.prompt);
       assert.ok(Array.isArray(q.options));
       assert.equal(q.response_type, "multiple_choice");
-      assert.equal(typeof q.correct_answer, "number");
       assert.equal(q.is_validated, false);
     });
 
+    // 6E.1 (H2): endpoint requiere auth y no debe exponer correct_answer.
+    it("returns 401 without auth (6E.1 H2)", async () => {
+      const sectionsRes = await request(app).get("/api/sections");
+      const memoriaSection = sectionsRes.body.find((s) => s.slug === "memoria_de_trabajo");
+      const res = await request(app).get(`/api/sections/${memoriaSection.id}/questions`);
+      assert.equal(res.status, 401);
+    });
+
+    it("does NOT return correct_answer to professional (6E.1 H2)", async () => {
+      const sectionsRes = await request(app).get("/api/sections");
+      const memoriaSection = sectionsRes.body.find((s) => s.slug === "memoria_de_trabajo");
+      const res = await request(app)
+        .get(`/api/sections/${memoriaSection.id}/questions`)
+        .set("Authorization", professionalAuth);
+      assert.equal(res.status, 200);
+      for (const q of res.body.questions) {
+        assert.equal(q.correct_answer, undefined, "correct_answer must not appear");
+        assert.equal(q.correct_answer_snapshot, undefined, "correct_answer_snapshot must not appear");
+        assert.equal(q.scoring_value, undefined, "scoring_value must not appear (could leak scoring)");
+        assert.equal(q.feedback_correct, undefined, "feedback_correct must not appear (identifica opción correcta)");
+        assert.equal(q.feedback_incorrect, undefined, "feedback_incorrect must not appear");
+      }
+    });
+
+    it("does NOT return correct_answer to patient (6E.1 H2)", async () => {
+      const sectionsRes = await request(app).get("/api/sections");
+      const memoriaSection = sectionsRes.body.find((s) => s.slug === "memoria_de_trabajo");
+      const res = await request(app)
+        .get(`/api/sections/${memoriaSection.id}/questions`)
+        .set("Authorization", patientAuth);
+      assert.equal(res.status, 200);
+      for (const q of res.body.questions) {
+        assert.equal(q.correct_answer, undefined);
+        assert.equal(q.correct_answer_snapshot, undefined);
+      }
+    });
+
     it("returns 404 for non-existent section", async () => {
-      const res = await request(app).get("/api/sections/99999/questions");
+      const res = await request(app)
+        .get("/api/sections/99999/questions")
+        .set("Authorization", professionalAuth);
       assert.equal(res.status, 404);
     });
 
     it("returns 400 for invalid section id", async () => {
-      const res = await request(app).get("/api/sections/abc/questions");
+      const res = await request(app)
+        .get("/api/sections/abc/questions")
+        .set("Authorization", professionalAuth);
       assert.equal(res.status, 400);
     });
   });
