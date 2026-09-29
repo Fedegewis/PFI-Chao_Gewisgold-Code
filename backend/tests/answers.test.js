@@ -13,24 +13,20 @@ let profAuth;
 let patientAuth;
 
 async function cleanTestData() {
-  await db("answers")
-    .whereIn("session_question_id", db("session_questions").select("id"))
-    .del();
-  await db("session_results")
-    .whereIn("session_id", db("sessions").select("id"))
-    .del();
-  await db("session_questions")
-    .whereIn(
-      "session_section_id",
-      db("session_sections")
-        .select("id")
-        .whereIn("session_id", db("sessions").select("id"))
-    )
-    .del();
-  await db("session_sections")
-    .whereIn("session_id", db("sessions").select("id"))
-    .del();
-  await db("sessions").del();
+  // Defensa en profundidad: los deletes se acotan al scope propio del test
+  // (pacientes con email "%@test.com"). La barrera principal es la DB
+  // separada `menteactiva_test`, pero mantener el scope evita colisiones si
+  // alguien corriera esto en otra DB por error.
+  const testPatientIds = () => db("users").select("id").where("email", "like", "%@test.com");
+  const testSessionIds = () => db("sessions").select("id").whereIn("patient_id", testPatientIds());
+  const testSectionIds = () => db("session_sections").select("id").whereIn("session_id", testSessionIds());
+  const testSqIds = () => db("session_questions").select("id").whereIn("session_section_id", testSectionIds());
+
+  await db("answers").whereIn("session_question_id", testSqIds()).del();
+  await db("session_results").whereIn("session_id", testSessionIds()).del();
+  await db("session_questions").whereIn("session_section_id", testSectionIds()).del();
+  await db("session_sections").whereIn("session_id", testSessionIds()).del();
+  await db("sessions").whereIn("patient_id", testPatientIds()).del();
   await db("questions").where("source", "test_fixture").del();
   await db("sections").where("slug", "like", "test_%").del();
   await db("users").where("email", "like", "%@test.com").del();

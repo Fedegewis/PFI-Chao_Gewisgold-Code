@@ -1,6 +1,7 @@
 import { AlertTriangle, BarChart3, CalendarDays, CheckCircle2, Clock3, Target, Timer, Trash2, TrendingUp, User } from "lucide-react";
 import { useMemo, useState } from "react";
 import { MetricCard } from "../common/MetricCard.jsx";
+import { AnalysisAsistidoPanel } from "./AnalysisAsistidoPanel.jsx";
 import { cx } from "../../lib/cx.js";
 import { formatLatency, formatShortDate } from "../../lib/format.js";
 
@@ -275,17 +276,7 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
               )}
             </div>
 
-            <div className="panel">
-              <div className="section-head compact">
-                <div>
-                  <p className="eyebrow">Análisis asistido</p>
-                  <h3>Síntesis clínica</h3>
-                </div>
-              </div>
-              <p className="ai-hint">
-                El análisis asistido estará disponible próximamente. Los datos que ves acá provienen exclusivamente de las sesiones reales del paciente.
-              </p>
-            </div>
+            <AnalysisAsistidoPanel session={highlightSession} />
           </div>
         </div>
       )}

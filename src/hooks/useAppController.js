@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ACTIVITY_TO_SECTION_SLUG, DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
-import { createPatientSession } from "../services/patientSessionsApi.js";
+import { createPatientSession, fetchMySessionsApi } from "../services/patientSessionsApi.js";
+import { deriveCompletedTodayFromSessions, latestCompletedAt } from "../services/patientProgress.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
 import {
@@ -184,6 +185,52 @@ export function useAppController() {
       cancelled = true;
     };
   }, [isBackendProfessional, authUser?.id]);
+
+  // 7H.2: paciente backend autenticado — sincronizar progreso "hecho hoy"
+  // desde PostgreSQL. Se dispara al montar y luego se refetchea después de
+  // completar una actividad (ver refreshBackendPatientProgress).
+  async function refreshBackendPatientProgress() {
+    if (!isBackendPatient || !authUser?.id) return;
+    try {
+      const rows = await fetchMySessionsApi();
+      const list = Array.isArray(rows) ? rows : [];
+      const completed = deriveCompletedTodayFromSessions(list);
+      const lastSessionAt = latestCompletedAt(list);
+      setPatients((current) =>
+        current.map((p) =>
+          p.id === authUser.id
+            ? { ...p, completed, lastSessionAt: lastSessionAt || p.lastSessionAt }
+            : p
+        )
+      );
+    } catch {
+      // Falla silenciosa: la sesión ya está persistida en PostgreSQL. No
+      // reintentamos aquí ni volvemos a llamar /complete. La UI seguirá
+      // mostrando lo último que pudo derivarse; F5 vuelve a intentar.
+    }
+  }
+
+  useEffect(() => {
+    if (!isBackendPatient) return undefined;
+    if (!authUser?.id) return undefined;
+    let cancelled = false;
+    fetchMySessionsApi()
+      .then((rows) => {
+        if (cancelled) return;
+        const list = Array.isArray(rows) ? rows : [];
+        const completed = deriveCompletedTodayFromSessions(list);
+        const lastSessionAt = latestCompletedAt(list);
+        setPatients((current) =>
+          current.map((p) =>
+            p.id === authUser.id
+              ? { ...p, completed, lastSessionAt: lastSessionAt || p.lastSessionAt }
+              : p
+          )
+        );
+      })
+      .catch(() => { /* fallback silencioso: patient.completed queda [] */ });
+    return () => { cancelled = true; };
+  }, [isBackendPatient, authUser?.id]);
 
   useEffect(() => {
     saveSessions(sessions);
@@ -432,9 +479,12 @@ export function useAppController() {
   function completeActivity(summary) {
     if (!selectedPatient) return;
     if (summary && summary.backend) {
-      // Sesión backend: la persistencia de respuestas/metricas se implementa en 6D.3+.
-      // Por ahora, cerrar la actividad sin actualizar el dashboard local.
+      // 7H.2: sesión backend ya persistida. Refrescar el historial propio
+      // para reconstruir "completadas hoy" desde PostgreSQL antes de volver
+      // al dashboard. No re-emite /complete; si el refetch falla, la sesión
+      // sigue guardada y F5 volverá a intentar.
       setActiveSession(null);
+      refreshBackendPatientProgress();
       setScreen(SCREEN_NAMES.patient);
       return;
     }

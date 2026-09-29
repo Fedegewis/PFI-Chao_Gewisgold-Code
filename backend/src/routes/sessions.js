@@ -1,6 +1,39 @@
 import { Router } from "express";
 import db from "../db/connection.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { generateSessionAnalysis } from "../services/ai/analysisService.js";
+import { isAiEnabled } from "../services/ai/ollamaClient.js";
+
+// 7J.2 — Fire-and-forget del análisis IA después de que /complete responde.
+// Inyectable para tests para poder observar/mockear la disparo sin llamar
+// Ollama real. Ver setAutoAnalysisTrigger.
+function defaultAutoTrigger(sessionId) {
+  // Skip cuando AI está apagado (env de test, integración desconectada).
+  if (!isAiEnabled()) return;
+  // Salvaguarda para la suite de tests: por default no dispara Ollama real
+  // aunque AI_ENABLED=true. Tests que quieran ejercer el auto-trigger deben
+  // usar setAutoAnalysisTrigger explícitamente. Evita colas Ollama de 60s+
+  // en cada /complete durante la suite.
+  if (process.env.NODE_ENV === "test") return;
+  // Fire-and-forget: la promesa se ejecuta fuera del handler HTTP. Cualquier
+  // error se silencia — la sesión ya fue completada correctamente y no
+  // debe verse afectada por el pipeline IA. El estado del intento queda
+  // reflejado en session_analyses (ok/failed/generating).
+  setImmediate(() => {
+    generateSessionAnalysis({ sessionId, force: false }).catch(() => {
+      /* aislado del /complete — nunca propaga hacia el handler HTTP */
+    });
+  });
+}
+
+const autoAnalysisState = { trigger: defaultAutoTrigger };
+
+export function setAutoAnalysisTrigger(fn) {
+  autoAnalysisState.trigger = fn;
+}
+export function resetAutoAnalysisTrigger() {
+  autoAnalysisState.trigger = defaultAutoTrigger;
+}
 
 const router = Router();
 
@@ -368,6 +401,83 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
   }
 });
 
+// Compartido entre la listing profesional y la nueva listing del paciente.
+// Devuelve las sesiones del paciente en orden desc con `summary` inline
+// cuando existe session_results global (section_id NULL).
+async function fetchPatientSessionsCore(patientId) {
+  const rows = await db("sessions as s")
+    .leftJoin("session_results as sr", function joinResults() {
+      this.on("sr.session_id", "=", "s.id").andOnNull("sr.section_id");
+    })
+    .where("s.patient_id", patientId)
+    .orderBy("s.created_at", "desc")
+    .select(
+      "s.id",
+      "s.status",
+      "s.created_at",
+      "s.started_at",
+      "s.completed_at",
+      "s.abandoned_at",
+      "sr.total_questions",
+      "sr.answered_questions",
+      "sr.correct_count",
+      "sr.incorrect_count",
+      "sr.accuracy",
+      "sr.completion_rate",
+      "sr.mean_latency_ms"
+    );
+
+  return rows.map((r) => {
+    const base = {
+      id: r.id,
+      status: r.status,
+      created_at: r.created_at,
+      started_at: r.started_at,
+      completed_at: r.completed_at,
+      abandoned_at: r.abandoned_at,
+    };
+    if (r.status === "completed" && r.total_questions != null) {
+      base.summary = {
+        total_questions: r.total_questions,
+        answered_questions: r.answered_questions,
+        correct_count: r.correct_count,
+        incorrect_count: r.incorrect_count,
+        accuracy: r.accuracy !== null ? Number(r.accuracy) : null,
+        completion_rate: r.completion_rate !== null ? Number(r.completion_rate) : null,
+        mean_latency_ms: r.mean_latency_ms !== null ? Number(r.mean_latency_ms) : null,
+      };
+    }
+    return base;
+  });
+}
+
+// Adjunta `sections: [{ section_slug, section_name }]` a cada sesión del
+// payload. Se hace en una query separada para no duplicar el LEFT JOIN cuando
+// el consumidor no lo necesita (ej: la vista profesional actual).
+async function attachSectionsToSessions(payload) {
+  if (payload.length === 0) return payload;
+  const sessionIds = payload.map((p) => p.id);
+  const rows = await db("session_sections as ss")
+    .join("sections as sec", "sec.id", "ss.section_id")
+    .whereIn("ss.session_id", sessionIds)
+    .orderBy("ss.session_id")
+    .orderBy("ss.display_order")
+    .select(
+      "ss.session_id",
+      "sec.slug as section_slug",
+      "sec.name as section_name"
+    );
+  const bySessionId = new Map();
+  for (const r of rows) {
+    if (!bySessionId.has(r.session_id)) bySessionId.set(r.session_id, []);
+    bySessionId.get(r.session_id).push({
+      section_slug: r.section_slug,
+      section_name: r.section_name,
+    });
+  }
+  return payload.map((p) => ({ ...p, sections: bySessionId.get(p.id) || [] }));
+}
+
 router.get(
   "/patients/:patientId/sessions",
   requireAuth,
@@ -386,52 +496,33 @@ router.get(
         return res.status(404).json({ error: "Paciente no encontrado" });
       }
 
-      const rows = await db("sessions as s")
-        .leftJoin("session_results as sr", function joinResults() {
-          this.on("sr.session_id", "=", "s.id").andOnNull("sr.section_id");
-        })
-        .where("s.patient_id", patientId)
-        .orderBy("s.created_at", "desc")
-        .select(
-          "s.id",
-          "s.status",
-          "s.created_at",
-          "s.started_at",
-          "s.completed_at",
-          "s.abandoned_at",
-          "sr.total_questions",
-          "sr.answered_questions",
-          "sr.correct_count",
-          "sr.incorrect_count",
-          "sr.accuracy",
-          "sr.completion_rate",
-          "sr.mean_latency_ms"
-        );
-
-      const payload = rows.map((r) => {
-        const base = {
-          id: r.id,
-          status: r.status,
-          created_at: r.created_at,
-          started_at: r.started_at,
-          completed_at: r.completed_at,
-          abandoned_at: r.abandoned_at,
-        };
-        if (r.status === "completed" && r.total_questions != null) {
-          base.summary = {
-            total_questions: r.total_questions,
-            answered_questions: r.answered_questions,
-            correct_count: r.correct_count,
-            incorrect_count: r.incorrect_count,
-            accuracy: r.accuracy !== null ? Number(r.accuracy) : null,
-            completion_rate: r.completion_rate !== null ? Number(r.completion_rate) : null,
-            mean_latency_ms: r.mean_latency_ms !== null ? Number(r.mean_latency_ms) : null,
-          };
-        }
-        return base;
-      });
-
+      const payload = await fetchPatientSessionsCore(patientId);
       return res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/patient/sessions
+// Historial propio del paciente autenticado (7H.2). patient_id se deriva
+// SIEMPRE de req.user.id; jamás se acepta del cliente. La derivación
+// "completada hoy" es responsabilidad del frontend.
+router.get(
+  "/patient/sessions",
+  requireAuth,
+  requireRole("patient"),
+  async (req, res, next) => {
+    try {
+      const patient = await db("users")
+        .where({ id: req.user.id, role: "patient", is_active: true })
+        .first();
+      if (!patient) {
+        return res.status(403).json({ error: "Paciente no activo" });
+      }
+      const base = await fetchPatientSessionsCore(patient.id);
+      const withSections = await attachSectionsToSessions(base);
+      return res.json(withSections);
     } catch (err) {
       next(err);
     }
@@ -717,6 +808,12 @@ router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
         status: "missing_answers",
       });
     }
+
+    // 7J.2 — La transacción de complete YA hizo commit. Disparar generación
+    // automática del análisis IA sin bloquear la respuesta al paciente. Si
+    // Ollama está offline, timea o rechaza el output, el estado failed queda
+    // registrado en session_analyses pero la sesión permanece completed.
+    autoAnalysisState.trigger(outcome.session.id);
 
     return res.json({
       id: outcome.session.id,

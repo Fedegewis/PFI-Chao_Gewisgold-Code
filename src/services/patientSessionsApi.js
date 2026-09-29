@@ -58,3 +58,9 @@ export async function completeSessionApi(sessionId) {
 export async function abandonSessionApi(sessionId) {
   return authRequest(`/sessions/${sessionId}/abandon`, { method: "POST" });
 }
+
+// 7H.2: historial propio del paciente autenticado. patient_id se deriva
+// server-side desde el JWT; no se envía nada desde el cliente.
+export async function fetchMySessionsApi({ signal } = {}) {
+  return authRequest("/patient/sessions", { method: "GET", signal });
+}

@@ -332,3 +332,28 @@ textarea { min-height: 150px; resize: vertical; }
 .footer-heart svg { color: #c58f73; }
 @media (max-width: 1024px) { .login-layout, .patient-layout, .activity-layout { grid-template-columns: minmax(0, 1fr); } .detail-columns { grid-template-columns: minmax(0, 1fr); } .login-copy { min-height: unset; } .app-footer { grid-template-columns: minmax(0, 1fr); gap: 22px; } .footer-legal { justify-items: start; text-align: left; } }
 @media (max-width: 760px) { .app-inner { padding: 16px; gap: 20px; } .topbar, .section-head { align-items: stretch; flex-direction: column; } nav, .login-tabs { display: grid; grid-template-columns: minmax(0, 1fr); } .login-copy { padding: 22px 6px; } .patient-main, .activity-panel { padding: 12px; } .garden-strip { padding: 12px; } .plant-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; } .plant-pot { justify-items: stretch; align-items: center; padding: 6px 0; min-width: 0; } .plant-pot span { min-width: 0; overflow-wrap: break-word; hyphens: auto; } .activity-grid, .activity-actions { grid-template-columns: minmax(0, 1fr); } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .activity-card, .patient-row, .answer-button { align-items: flex-start; } .app-footer { padding: 22px; } .footer-meta { grid-template-columns: minmax(0, 1fr); gap: 14px; } }
+
+/* 7J.3 — Panel Análisis asistido */
+.analysis-body { display: grid; gap: 18px; margin-top: 8px; }
+.analysis-block { display: grid; gap: 8px; }
+.analysis-block .eyebrow { margin-bottom: 4px; }
+.analysis-summary { margin: 0; color: #223a1e; font-size: 0.9375rem; line-height: 1.55; font-weight: 500; }
+.analysis-observations { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.analysis-observations > li { display: grid; gap: 4px; padding: 12px 14px; background: rgba(97, 122, 88, 0.06); border: 1px solid rgba(97, 122, 88, 0.14); border-radius: 8px; }
+.analysis-section-label { margin: 0; color: #1e411c; font-size: 0.8125rem; font-weight: 900; letter-spacing: 0.02em; }
+.analysis-observation-text { margin: 0; color: #30442a; font-size: 0.9375rem; line-height: 1.5; font-weight: 500; }
+.analysis-aspects { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.analysis-aspects > li { position: relative; padding: 8px 10px 8px 22px; color: #30442a; font-size: 0.9375rem; line-height: 1.45; font-weight: 550; background: rgba(255, 250, 241, 0.7); border-radius: 6px; }
+.analysis-aspects > li::before { content: "•"; position: absolute; left: 8px; top: 8px; color: #617a58; font-weight: 900; }
+.analysis-evidence-groups { display: grid; gap: 12px; }
+.analysis-evidence-group { display: grid; gap: 6px; padding: 10px 12px; background: rgba(97, 122, 88, 0.04); border: 1px solid rgba(97, 122, 88, 0.1); border-radius: 8px; }
+.analysis-evidence-list { margin: 0; padding: 0; display: grid; gap: 4px; }
+.analysis-evidence-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed rgba(97, 122, 88, 0.15); }
+.analysis-evidence-item:last-child { border-bottom: none; }
+.analysis-evidence-item dt { margin: 0; color: #52624d; font-size: 0.875rem; font-weight: 700; overflow-wrap: anywhere; hyphens: auto; }
+.analysis-evidence-item dd { margin: 0; color: #1e411c; font-size: 0.9375rem; font-weight: 900; white-space: nowrap; }
+@media (max-width: 480px) {
+  .analysis-evidence-item { grid-template-columns: minmax(0, 1fr); }
+  .analysis-evidence-item dd { white-space: normal; }
+  .analysis-observations > li { padding: 10px 12px; }
+}

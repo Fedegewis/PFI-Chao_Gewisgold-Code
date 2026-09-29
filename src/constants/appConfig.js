@@ -78,3 +78,12 @@ export const ACTIVITY_TO_SECTION_SLUG = {
   phone: "comprension_funcional",
   orientation: "orientacion_espacial",
 };
+
+// 7H.2: mapping inverso derivado programáticamente de ACTIVITY_TO_SECTION_SLUG
+// para evitar tener dos fuentes de verdad. Uso: dado el section_slug de una
+// sesión backend, resolver el activity.id de la vista del paciente.
+export const SECTION_SLUG_TO_ACTIVITY_ID = Object.freeze(
+  Object.fromEntries(
+    Object.entries(ACTIVITY_TO_SECTION_SLUG).map(([activityId, slug]) => [slug, activityId])
+  )
+);
