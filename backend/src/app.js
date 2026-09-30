@@ -27,10 +27,21 @@ app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (corsAllowlist.includes(origin)) return callback(null, true);
+    // [DEBUG-TEMP google-auth] Origen rechazado. Retirar cuando se cierre el bug.
+    // eslint-disable-next-line no-console
+    console.debug(`[google-auth][cors] REJECTED origin="${origin}" allowlist=${JSON.stringify(corsAllowlist)}`);
     return callback(new Error(`Origin ${origin} not allowed by CORS`));
   },
 }));
 app.use(express.json());
+
+// [DEBUG-TEMP google-auth] Log de TODA request al endpoint problemático (incluye OPTIONS preflight).
+// Retirar cuando se cierre el bug.
+app.use("/api/auth/google", (req, _res, next) => {
+  // eslint-disable-next-line no-console
+  console.debug(`[google-auth][http] ${req.method} /api/auth/google origin=${req.headers.origin || "(none)"} acrm=${req.headers["access-control-request-method"] || "-"} t=${Date.now()}`);
+  next();
+});
 
 app.use("/api", healthRouter);
 app.use("/api", authRouter);

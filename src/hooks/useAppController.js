@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIVITY_TO_SECTION_SLUG, DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
 import { createPatientSession, fetchMySessionsApi } from "../services/patientSessionsApi.js";
 import { deriveCompletedTodayFromSessions, latestCompletedAt } from "../services/patientProgress.js";
@@ -363,9 +363,26 @@ export function useAppController() {
     }
   }
 
-  async function googleLogin(credential) {
+  const googleLoginInFlightRef = useRef(false);
+  const googleLogin = useCallback(async (credential) => {
+    // [DEBUG-TEMP google-auth] instrumentación para diagnosticar "Failed to fetch" en primer intento.
+    // Retirar cuando se cierre el bug.
+    const attempt = typeof window !== "undefined" ? (window.__gAuthAttempt ?? "?") : "?";
+    const tag = `[google-auth][attempt-${attempt}]`;
+    // eslint-disable-next-line no-console
+    console.debug(`${tag} googleLogin START inFlight=${googleLoginInFlightRef.current}`);
+    // Guard: un único credential no debe producir dos POST concurrentes
+    // aunque el SDK de Google dispare el callback más de una vez.
+    if (googleLoginInFlightRef.current) {
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} googleLogin SKIPPED (concurrent)`);
+      return;
+    }
+    googleLoginInFlightRef.current = true;
     try {
       const data = await loginWithGoogle(credential);
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} googleLogin loginWithGoogle resolved, setting auth state`);
       setPatients([]);
       setSelectedPatientId(null);
       setAuthUser(data.user);
@@ -377,10 +394,18 @@ export function useAppController() {
       }
       setScreen(SCREEN_NAMES.professional);
       setLoginError("");
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} googleLogin AUTH STATE UPDATED (screen -> professional)`);
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} googleLogin CAUGHT err.name=${err?.name} err.status=${err?.status} err.message=${err?.message}`);
       setLoginError(err.message || "Error al iniciar sesión con Google");
+    } finally {
+      googleLoginInFlightRef.current = false;
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} googleLogin END`);
     }
-  }
+  }, [selectedActivity.id]);
 
   async function deletePatientForProfessional(patientId) {
     await deletePatientApi(patientId);

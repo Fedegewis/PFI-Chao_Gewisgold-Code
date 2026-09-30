@@ -286,16 +286,35 @@ textarea { min-height: 150px; resize: vertical; }
 .bar-mid { background: linear-gradient(180deg, #e2c281, #b98a3d); }
 .bar-low { background: linear-gradient(180deg, #dea187, #9a5d3f); }
 .evolution-slot small { color: #405238; font-size: 0.8125rem; font-weight: 900; }
-.session-table-wrap { overflow-x: auto; }
-.session-table { display: grid; gap: 6px; margin-top: 16px; min-width: 360px; min-height: 230px; }
-.session-table-head, .session-table-row { display: grid; grid-template-columns: 0.7fr 1.6fr 0.8fr 0.8fr; gap: 10px; align-items: center; }
-.session-table-head { border-bottom: 2px solid rgba(97,122,88,0.28); padding-bottom: 8px; }
+.session-table-wrap { }
+.session-table { display: grid; gap: 6px; margin-top: 16px; min-height: 230px; }
+/* Header y filas comparten exactamente el mismo grid y el mismo padding
+   horizontal para que las columnas queden alineadas verticalmente. */
+.session-table-head, .session-table-row, .session-table-row--interactive { display: grid; grid-template-columns: 0.7fr 1.6fr 0.8fr 0.8fr; gap: 10px; align-items: center; padding: 8px 6px; }
+.session-table-head { border-bottom: 2px solid rgba(97,122,88,0.28); }
 .session-table-head span { font-size: 0.75rem; font-weight: 950; text-transform: uppercase; letter-spacing: 0.06em; color: #3f5639; }
-.session-table-row { border-bottom: 1px solid #eef1ea; padding: 8px 0; }
-.session-table-row span { font-size: 0.9375rem; font-weight: 850; color: #33422e; }
-.session-table-row--interactive { all: unset; display: grid; grid-template-columns: 0.7fr 1.6fr 0.8fr 0.8fr; gap: 10px; align-items: center; cursor: pointer; padding: 8px 6px; border-bottom: 1px solid #eef1ea; }
+.session-table-row { border-bottom: 1px solid #eef1ea; }
+.session-table-row span, .session-table-row--interactive span { font-size: 0.9375rem; font-weight: 850; color: #33422e; min-width: 0; overflow-wrap: anywhere; }
+/* La fila es un <button>: los form controls tienen width intrínseco (fit-content)
+   y `all: unset` no lo cambia. Sin `width: 100%` el grid con fr colapsa al
+   contenido y las columnas quedan comprimidas a la izquierda del panel. */
+.session-table-row--interactive { all: unset; box-sizing: border-box; width: 100%; display: grid; grid-template-columns: 0.7fr 1.6fr 0.8fr 0.8fr; gap: 10px; align-items: center; padding: 8px 6px; cursor: pointer; border-bottom: 1px solid #eef1ea; }
 .session-table-row--interactive:hover { background: rgba(97, 122, 88, 0.06); }
 .session-table-row--selected { background: rgba(97, 122, 88, 0.12); }
+
+/* Mobile ≤ 480px: transformar cada fila en una tarjeta stackeada con
+   labels por celda. Mantiene toda la información y evita scroll horizontal. */
+@media (max-width: 480px) {
+  .session-table { gap: 10px; min-height: unset; }
+  .session-table-head { display: none; }
+  .session-table-row, .session-table-row--interactive { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 10px 12px; background: rgba(97, 122, 88, 0.04); border: 1px solid rgba(97, 122, 88, 0.12); border-radius: 8px; }
+  .session-table-row > span, .session-table-row--interactive > span { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 2px 0; }
+  .session-table-row > span::before, .session-table-row--interactive > span::before { color: #3f5639; font-size: 0.75rem; font-weight: 950; text-transform: uppercase; letter-spacing: 0.06em; }
+  .session-table-row > span:nth-child(1)::before, .session-table-row--interactive > span:nth-child(1)::before { content: "Fecha"; }
+  .session-table-row > span:nth-child(2)::before, .session-table-row--interactive > span:nth-child(2)::before { content: "Estado"; }
+  .session-table-row > span:nth-child(3)::before, .session-table-row--interactive > span:nth-child(3)::before { content: "Precisión"; }
+  .session-table-row > span:nth-child(4)::before, .session-table-row--interactive > span:nth-child(4)::before { content: "Latencia media"; }
+}
 .status-chip--good { background: #617a58; }
 .status-chip--warn { background: #b48a2b; }
 .status-chip--muted { background: #7a7f75; }

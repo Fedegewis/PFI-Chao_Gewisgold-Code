@@ -21,6 +21,10 @@ export function createGoogleAuthRouter(verifyGoogleToken = defaultVerifier) {
   const router = Router();
 
   router.post("/auth/google", async (req, res, next) => {
+    // [DEBUG-TEMP google-auth] Retirar cuando se cierre el bug.
+    const tRoute0 = Date.now();
+    // eslint-disable-next-line no-console
+    console.debug(`[google-auth][route] POST enter t=${tRoute0} hasCred=${!!req.body?.credential}`);
     try {
       if (!verifyGoogleToken) {
         return res.status(501).json({ error: "Google Auth no está configurado en el servidor" });
@@ -33,8 +37,13 @@ export function createGoogleAuthRouter(verifyGoogleToken = defaultVerifier) {
 
       let payload;
       try {
+        const tVerify0 = Date.now();
         payload = await verifyGoogleToken(credential);
-      } catch {
+        // eslint-disable-next-line no-console
+        console.debug(`[google-auth][route] verifyIdToken OK in ${Date.now() - tVerify0}ms`);
+      } catch (verifyErr) {
+        // eslint-disable-next-line no-console
+        console.debug(`[google-auth][route] verifyIdToken FAILED after ${Date.now() - tRoute0}ms name=${verifyErr?.name} message=${verifyErr?.message}`);
         return res.status(401).json({ error: "Token de Google inválido" });
       }
 
@@ -57,6 +66,8 @@ export function createGoogleAuthRouter(verifyGoogleToken = defaultVerifier) {
         }
 
         const token = generateToken(existingByGoogleId);
+        // eslint-disable-next-line no-console
+        console.debug(`[google-auth][route] responding 200 existing-by-google_id total=${Date.now() - tRoute0}ms userId=${existingByGoogleId.id}`);
         return res.json({
           user: {
             id: existingByGoogleId.id,
@@ -83,6 +94,8 @@ export function createGoogleAuthRouter(verifyGoogleToken = defaultVerifier) {
         await db("users").where("id", existingByEmail.id).update({ google_id: googleId });
 
         const token = generateToken(existingByEmail);
+        // eslint-disable-next-line no-console
+        console.debug(`[google-auth][route] responding 200 linked-by-email total=${Date.now() - tRoute0}ms userId=${existingByEmail.id}`);
         return res.json({
           user: {
             id: existingByEmail.id,
@@ -107,8 +120,12 @@ export function createGoogleAuthRouter(verifyGoogleToken = defaultVerifier) {
         .returning(["id", "role", "name", "email", "is_active", "created_at"]);
 
       const token = generateToken(newUser);
+      // eslint-disable-next-line no-console
+      console.debug(`[google-auth][route] responding 201 new user total=${Date.now() - tRoute0}ms`);
       res.status(201).json({ user: newUser, token });
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.debug(`[google-auth][route] ROUTE THREW after ${Date.now() - tRoute0}ms name=${err?.name} message=${err?.message}`);
       next(err);
     }
   });
