@@ -13,10 +13,14 @@ export const AnalysisValidationCodes = Object.freeze({
 });
 
 export class AnalysisValidationError extends Error {
-  constructor(code, message, { path } = {}) {
+  constructor(code, message, { path, info } = {}) {
     super(message);
     this.name = "AnalysisValidationError";
     this.code = code;
     if (path !== undefined) this.path = path;
+    // `info` es metadata estructurada opcional para que el orquestador
+    // (analysisService) pueda decidir reintentos sin parsear mensajes.
+    // Convención: { reason: "max_length_exceeded" } para fallos por tamaño.
+    if (info !== undefined) this.info = info;
   }
 }

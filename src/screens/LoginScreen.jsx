@@ -38,7 +38,6 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
     // Retirar cuando se cierre el bug.
     if (typeof window !== "undefined") {
       window.__gAuthAttempt = (window.__gAuthAttempt || 0) + 1;
-      // eslint-disable-next-line no-console
       console.debug(`[google-auth][attempt-${window.__gAuthAttempt}] callback recibido; hasCredential=${!!response?.credential} t=${Date.now()}`);
     }
     if (response.credential) {

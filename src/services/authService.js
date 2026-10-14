@@ -85,7 +85,6 @@ export async function loginWithGoogle(credential) {
   const attempt = typeof window !== "undefined" ? (window.__gAuthAttempt ?? "?") : "?";
   const tag = `[google-auth][attempt-${attempt}]`;
   const t0 = Date.now();
-  // eslint-disable-next-line no-console
   console.debug(`${tag} loginWithGoogle START url=${API_URL}/auth/google origin=${typeof window !== "undefined" ? window.location.origin : "(no-window)"}`);
   let res;
   try {
@@ -95,22 +94,18 @@ export async function loginWithGoogle(credential) {
       body: JSON.stringify({ credential }),
     });
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.debug(`${tag} FETCH THREW (network/CORS/aborted) after ${Date.now() - t0}ms name=${err?.name} message=${err?.message}`);
     throw err;
   }
-  // eslint-disable-next-line no-console
   console.debug(`${tag} fetch RESPONSE received status=${res.status} ok=${res.ok} after ${Date.now() - t0}ms`);
   let data;
   try {
     data = await res.json();
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.debug(`${tag} JSON PARSE FAILED after ${Date.now() - t0}ms name=${err?.name} message=${err?.message}`);
     throw err;
   }
   if (!res.ok) {
-    // eslint-disable-next-line no-console
     console.debug(`${tag} response NOT OK status=${res.status} error=${data?.error}`);
     const err = new Error(data.error || "Error del servidor");
     err.status = res.status;
@@ -118,7 +113,6 @@ export async function loginWithGoogle(credential) {
   }
   setToken(data.token);
   saveUser(data.user);
-  // eslint-disable-next-line no-console
   console.debug(`${tag} loginWithGoogle OK total=${Date.now() - t0}ms userId=${data?.user?.id}`);
   return data;
 }

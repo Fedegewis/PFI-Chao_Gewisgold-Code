@@ -366,13 +366,44 @@ textarea { min-height: 150px; resize: vertical; }
 .analysis-aspects > li::before { content: "•"; position: absolute; left: 8px; top: 8px; color: #617a58; font-weight: 900; }
 .analysis-evidence-groups { display: grid; gap: 12px; }
 .analysis-evidence-group { display: grid; gap: 6px; padding: 10px 12px; background: rgba(97, 122, 88, 0.04); border: 1px solid rgba(97, 122, 88, 0.1); border-radius: 8px; }
-.analysis-evidence-list { margin: 0; padding: 0; display: grid; gap: 4px; }
-.analysis-evidence-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed rgba(97, 122, 88, 0.15); }
+.analysis-evidence-list { margin: 0; padding: 0; display: grid; gap: 6px; }
+/* Dos columnas: la etiqueta (dt) mantiene un mínimo cómodo para no colapsar
+   letra por letra; el valor (dd) ocupa el resto con wrap natural. */
+.analysis-evidence-item { display: grid; grid-template-columns: minmax(150px, auto) minmax(0, 1fr); gap: 6px 16px; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed rgba(97, 122, 88, 0.15); }
 .analysis-evidence-item:last-child { border-bottom: none; }
-.analysis-evidence-item dt { margin: 0; color: #52624d; font-size: 0.875rem; font-weight: 700; overflow-wrap: anywhere; hyphens: auto; }
-.analysis-evidence-item dd { margin: 0; color: #1e411c; font-size: 0.9375rem; font-weight: 900; white-space: nowrap; }
-@media (max-width: 480px) {
+.analysis-evidence-item dt { margin: 0; color: #52624d; font-size: 0.875rem; font-weight: 700; overflow-wrap: break-word; word-break: normal; hyphens: auto; min-width: 0; }
+.analysis-evidence-item dd { margin: 0; color: #1e411c; font-size: 0.9375rem; font-weight: 900; text-align: right; overflow-wrap: break-word; word-break: normal; min-width: 0; }
+@media (max-width: 640px) {
+  /* En anchos reducidos la etiqueta pasa a estar sobre el valor; evita
+     quiebres forzados y mejora la lectura en móvil / tablet angosto. */
   .analysis-evidence-item { grid-template-columns: minmax(0, 1fr); }
-  .analysis-evidence-item dd { white-space: normal; }
+  .analysis-evidence-item dd { text-align: left; }
   .analysis-observations > li { padding: 10px 12px; }
+}
+
+/* Configuración de entrenamiento (integrada en el panel de Historial) */
+.panel-divider { border: none; border-top: 1px solid rgba(97, 122, 88, 0.18); margin: 20px 0 18px; }
+.training-config-inline { display: grid; gap: 14px; }
+.training-config-inline__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #3f5639; }
+.training-config-inline__head h3 { margin: 2px 0 0; font-size: 1.0625rem; }
+.training-config-inline__head svg { color: #617a58; flex-shrink: 0; }
+.training-config-inline__body { display: grid; gap: 16px; }
+.training-field { display: grid; gap: 8px; }
+.training-field > label { font-size: 0.875rem; font-weight: 700; color: #3f5639; }
+.training-hint { margin: 0 0 4px; color: #52624d; font-size: 0.8125rem; }
+.training-stepper { display: inline-flex; align-items: center; gap: 8px; }
+.training-stepper__btn { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid rgba(97, 122, 88, 0.34); border-radius: 8px; background: white; color: #3f5639; cursor: pointer; transition: background 150ms, border-color 150ms; }
+.training-stepper__btn:hover:not(:disabled) { background: #f0f4ed; border-color: #617a58; }
+.training-stepper__btn:focus-visible { outline: 2px solid #617a58; outline-offset: 2px; }
+.training-stepper__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.training-stepper__input { width: 56px; height: 36px; padding: 4px 6px; border: 1px solid rgba(97, 122, 88, 0.34); border-radius: 8px; background: white; color: #172114; font-size: 1rem; font-weight: 900; text-align: center; -moz-appearance: textfield; }
+.training-stepper__input::-webkit-outer-spin-button,
+.training-stepper__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.training-stepper__input:focus-visible { outline: 2px solid #617a58; outline-offset: 2px; }
+.training-warning { margin: 0; }
+.training-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 4px; }
+.training-actions .training-save { flex: 0 0 auto; }
+@media (max-width: 480px) {
+  .training-config-inline__head { flex-wrap: wrap; }
+  .training-actions .training-save { width: 100%; justify-content: center; }
 }

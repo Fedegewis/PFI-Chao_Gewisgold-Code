@@ -197,10 +197,10 @@ describe("7J.2 — Generación automática y estado generating", () => {
     await db("session_analyses").where({ id: gen.id }).update({
       status: "ok",
       analysis: {
-        schema_version: "1",
+        schema_version: "3",
         summary: "s",
-        observations_by_section: [{ section_slug: sectionRow.slug, observation: "obs" }],
         aspects_to_review: [],
+        activities: [{ slug: sectionRow.slug, name: sectionRow.name, cognitive_domain_slugs: [] }],
         evidence: [{ scope: "global", metric: "accuracy", value: 1 }],
       },
       latency_ms: 100,
@@ -236,10 +236,10 @@ describe("7J.2 — Generación automática y estado generating", () => {
     await db("session_analyses").insert({
       session_id: session.id, status: "ok",
       analysis: {
-        schema_version: "1",
+        schema_version: "3",
         summary: "s",
-        observations_by_section: [{ section_slug: sectionRow.slug, observation: "obs" }],
         aspects_to_review: [],
+        activities: [{ slug: sectionRow.slug, name: sectionRow.name, cognitive_domain_slugs: [] }],
         evidence: [{ scope: "global", metric: "accuracy", value: 1 }],
       },
       model: MODEL, schema_version: "1", prompt_version: PROMPT_BUILDER_VERSION, latency_ms: 100,

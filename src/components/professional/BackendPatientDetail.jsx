@@ -2,6 +2,7 @@ import { AlertTriangle, BarChart3, CalendarDays, CheckCircle2, Clock3, Target, T
 import { useMemo, useState } from "react";
 import { MetricCard } from "../common/MetricCard.jsx";
 import { AnalysisAsistidoPanel } from "./AnalysisAsistidoPanel.jsx";
+import { TrainingConfigPanel } from "./TrainingConfigPanel.jsx";
 import { cx } from "../../lib/cx.js";
 import { formatLatency, formatShortDate } from "../../lib/format.js";
 
@@ -23,6 +24,18 @@ function pctFromRate(rate) {
   if (rate == null) return "—";
   return `${Math.round(Number(rate) * 100)}%`;
 }
+
+// Mapeo slug → label legible para el profesional. Los slugs coinciden con el
+// CHECK constraint de sessions.patient_reported_mood (migración 014) y con
+// MOOD_OPTIONS del frontend. Si la sesión no tiene mood (null) el detalle
+// omite el bloque enteramente — no muestra "Sin datos" ni "No registrado".
+const MOOD_LABELS = {
+  alegria: "Alegría",
+  bien: "Bien",
+  calma: "Calma",
+  cansancio: "Cansancio",
+  tristeza: "Tristeza",
+};
 
 function EvolutionChartBackend({ completedSessions }) {
   if (completedSessions.length < 2) {
@@ -243,6 +256,8 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
                 selectedId={highlightId}
                 onSelect={(s) => setSelectedSessionId(s.id)}
               />
+              <hr className="panel-divider" />
+              <TrainingConfigPanel patientId={selectedPatient.id} />
             </div>
           </div>
 
@@ -266,6 +281,12 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
                   <dt>Precisión</dt><dd>{pctFromRate(highlightSummary.accuracy)}</dd>
                   <dt>Completitud</dt><dd>{pctFromRate(highlightSummary.completion_rate)}</dd>
                   <dt>Latencia media</dt><dd>{highlightSummary.mean_latency_ms != null ? formatLatency(highlightSummary.mean_latency_ms) : "—"}</dd>
+                  {MOOD_LABELS[highlightSession.patient_reported_mood] && (
+                    <>
+                      <dt>Estado de ánimo registrado</dt>
+                      <dd>{MOOD_LABELS[highlightSession.patient_reported_mood]}</dd>
+                    </>
+                  )}
                 </dl>
               ) : highlightSession && highlightSession.status === "abandoned" ? (
                 <p className="ai-hint">Sesión abandonada — sin métricas registradas.</p>

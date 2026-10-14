@@ -80,19 +80,14 @@ async function makeSessionWithStatus(patient, professional, sectionId, status) {
   return session;
 }
 
-// Respuesta válida del modelo (schema v1) para el fixture creado.
+// Respuesta válida del modelo (schema v3). Sólo summary + aspects.
+// Las comparaciones, métricas, actividades, dominios y mood los expone el
+// backend aparte en la fila persistida.
 function fakeValidResponseText() {
   return JSON.stringify({
-    schema_version: "1",
-    summary: "Sesión completa. Se respondió la pregunta.",
-    observations_by_section: [
-      { section_slug: sectionRow.slug, observation: "1/1 respondida sin dejar preguntas en blanco." },
-    ],
+    schema_version: "3",
+    summary: "Sesión completa. Se trabajó la actividad asignada.",
     aspects_to_review: [],
-    evidence: [
-      { scope: "global", metric: "accuracy", value: 1 },
-      { scope: "section", metric: "mean_latency_ms", value: 4200, section_slug: sectionRow.slug },
-    ],
   });
 }
 
@@ -212,9 +207,9 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
       assert.equal(res.body.analysis.session_id, ses.id);
       assert.equal(res.body.analysis.model, "llama3.2:3b");
       assert.equal(res.body.analysis.latency_ms, 6500);
-      assert.equal(res.body.analysis.schema_version, "1");
-      assert.equal(res.body.analysis.prompt_version, "1.2");
-      assert.equal(res.body.analysis.content.schema_version, "1");
+      assert.equal(res.body.analysis.schema_version, "3");
+      assert.equal(res.body.analysis.prompt_version, "3.4");
+      assert.equal(res.body.analysis.content.schema_version, "3");
       assert.equal(res.body.analysis.content.summary.length > 0, true);
       // no raw/prompt/context/error_message expuestos:
       assert.equal(res.body.analysis.error_code, undefined);
@@ -331,8 +326,9 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
 
     it("schema inválido → ANALYSIS_SCHEMA_INVALID conservando latency", async () => {
       const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      // v3: summary vacío dispara SCHEMA_INVALID.
       analysisRouteDeps.generate = async () => ({
-        text: JSON.stringify({ schema_version: "2", summary: "x", observations_by_section: [], aspects_to_review: [], evidence: [] }),
+        text: JSON.stringify({ schema_version: "3", summary: "" }),
         raw: {}, latencyMs: 9100, model: "llama3.2:3b",
       });
       const res = await request(app).post(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
@@ -342,25 +338,23 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
       assert.equal(row.latency_ms, 9100);
     });
 
-    it("evidence inválida → ANALYSIS_EVIDENCE_INVALID conservando latency; NO persiste raw", async () => {
+    it("unexpected_field → ANALYSIS_UNEXPECTED_FIELD conservando latency; NO persiste raw", async () => {
       const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      // v3: cualquier campo fuera del contrato dispara UNEXPECTED_FIELD.
       const badText = JSON.stringify({
-        schema_version: "1",
-        summary: "s",
-        observations_by_section: [{ section_slug: sectionRow.slug, observation: "x" }],
-        aspects_to_review: [],
-        evidence: [{ scope: "global", metric: "accuracy", value: 0.42 }], // real: 1
+        schema_version: "3",
+        summary: "Un resumen cualquiera.",
+        comparison: "no permitida en v3",
       });
       analysisRouteDeps.generate = async () => ({ text: badText, raw: {}, latencyMs: 7700, model: "llama3.2:3b" });
       const res = await request(app).post(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
       assert.equal(res.status, 502);
       const row = await db("session_analyses").where({ session_id: ses.id, status: "failed" }).first();
-      assert.equal(row.error_code, "ANALYSIS_EVIDENCE_INVALID");
+      assert.equal(row.error_code, "ANALYSIS_UNEXPECTED_FIELD");
       assert.equal(row.latency_ms, 7700);
-      // Nunca persistimos el raw output del modelo:
       assert.ok(!(row.error_message || "").includes("badText"));
       const rowJson = JSON.stringify(row);
-      assert.ok(!rowJson.includes("\"summary\":\"s\""));
+      assert.ok(!rowJson.includes("Un resumen cualquiera"));
     });
   });
 
@@ -388,6 +382,40 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
       const r = await request(app).get(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
       assert.equal(r.status, 404);
       assert.equal(r.body.status, "no_analysis");
+    });
+
+    it("GET expone error_code cuando status=last_failed (sin error_message crudo)", async () => {
+      const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      await db("session_analyses").insert({
+        session_id: ses.id,
+        status: "failed",
+        error_code: "ANALYSIS_SCHEMA_INVALID",
+        error_message: "detalle interno con posibles fragmentos del output",
+      });
+      const r = await request(app).get(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
+      assert.equal(r.status, 200);
+      assert.equal(r.body.status, "last_failed");
+      assert.equal(r.body.error_code, "ANALYSIS_SCHEMA_INVALID");
+      // El error_message interno NUNCA se expone.
+      assert.equal(r.body.error_message, undefined);
+      assert.ok(!JSON.stringify(r.body).includes("detalle interno"));
+    });
+
+    it("POST con AnalysisValidationError expone validation_code tipado", async () => {
+      const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      // v3: un campo extra dispara UNEXPECTED_FIELD.
+      analysisRouteDeps.generate = async () => ({
+        text: JSON.stringify({
+          schema_version: "3",
+          summary: "Un resumen cualquiera largo.",
+          observations_by_section: [],
+        }),
+        raw: {}, latencyMs: 100, model: "llama3.2:3b",
+      });
+      const r = await request(app).post(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
+      assert.equal(r.status, 502);
+      assert.equal(r.body.status, "ai_invalid_output");
+      assert.equal(r.body.validation_code, "UNEXPECTED_FIELD");
     });
 
     it("devuelve el último ok y NO devuelve el failed más reciente", async () => {

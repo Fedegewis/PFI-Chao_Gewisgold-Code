@@ -1,567 +1,379 @@
-// 7E: tests del responseValidator — sin Ollama, sin DB.
+// Tests del responseValidator — schema v3.
+//
+// Cubren: happy path, JSON inválido, campos adicionales rechazados, tipos,
+// límites, aspects_to_review opcional, términos clínicos y métricas numéricas
+// bloqueadas en el texto generado por el modelo.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildSessionAnalysisContext } from "../src/services/ai/contextBuilder.js";
 import {
   parseAndValidateSessionAnalysis,
-  ANALYSIS_LIMITS,
   ANALYSIS_SCHEMA_VERSION,
+  ANALYSIS_LIMITS,
 } from "../src/services/ai/responseValidator.js";
-import {
-  AnalysisValidationError,
-  AnalysisValidationCodes as CODES,
-} from "../src/services/ai/validationErrors.js";
+import { AnalysisValidationCodes as CODES } from "../src/services/ai/validationErrors.js";
 
-// ---- Helpers ----
-
-function metricsRow(overrides = {}) {
+function metrics() {
   return {
-    total_questions: 5, answered_questions: 5,
-    correct_count: 4, incorrect_count: 1, unanswered_count: 0,
-    accuracy: 0.8, completion_rate: 1,
-    mean_latency_ms: 4200, min_latency_ms: 2100, max_latency_ms: 6300,
-    latency_std_ms: 1200.5,
-    ...overrides,
+    total_questions: 4,
+    answered_questions: 4,
+    correct_count: 2,
+    incorrect_count: 2,
+    unanswered_count: 0,
+    accuracy: 0.5,
+    completion_rate: 1,
+    mean_latency_ms: 3233,
+    min_latency_ms: 2046,
+    max_latency_ms: 5072,
+    latency_std_ms: 1200,
   };
 }
 
-function ctxOneSection() {
-  return buildSessionAnalysisContext({
-    session: { duration_seconds: 300 },
-    patient: { age: 72 },
-    global: metricsRow(),
+function ctx(extra = {}) {
+  return Object.freeze({
+    schema_version: "2",
+    language: "es",
+    duration_seconds: 21,
+    global: { metrics: metrics() },
     sections: [
       {
-        slug: "atencion_visual",
-        name: "Objetos de la casa",
-        cognitive_domain_slugs: ["atencion", "memoria"],
-        result: metricsRow(),
-      },
-    ],
-  });
-}
-
-function ctxTwoSections() {
-  return buildSessionAnalysisContext({
-    session: { duration_seconds: 600 },
-    patient: null,
-    global: metricsRow({ accuracy: 0.72, mean_latency_ms: 4200 }),
-    sections: [
-      {
-        slug: "atencion_visual",
-        name: "Objetos de la casa",
-        cognitive_domain_slugs: ["atencion"],
-        result: metricsRow({ accuracy: 0.8, mean_latency_ms: 3800 }),
-      },
-      {
-        slug: "orientacion_espacial",
-        name: "Camino al barrio",
+        slug: "orientacion_temporal",
+        name: "Agenda de turnos",
         cognitive_domain_slugs: ["orientacion"],
-        result: metricsRow({ accuracy: 0.6, mean_latency_ms: 5000, correct_count: 3, incorrect_count: 2 }),
+        metrics: metrics(),
       },
     ],
+    cognitive_domains_touched: ["orientacion"],
+    ...extra,
   });
 }
 
-function validPayloadOneSection() {
+function valid() {
   return {
-    schema_version: "1",
-    summary: "Sesión completa. La persona respondió las 5 preguntas.",
-    observations_by_section: [
-      { section_slug: "atencion_visual", observation: "Respondió las 5 preguntas de la sección." },
-    ],
-    aspects_to_review: [],
-    evidence: [
-      { scope: "global", metric: "accuracy", value: 0.8 },
-      { scope: "section", metric: "mean_latency_ms", value: 4200, section_slug: "atencion_visual" },
-    ],
+    schema_version: "3",
+    summary: "Síntesis breve descriptiva de la sesión trabajada.",
+    aspects_to_review: ["Revisar continuidad del foco durante la actividad."],
   };
 }
 
-function validPayloadTwoSections() {
-  return {
-    schema_version: "1",
-    summary: "Sesión con dos secciones completadas.",
-    observations_by_section: [
-      // El contextBuilder ordena sections por slug: atencion_visual antes que orientacion_espacial.
-      { section_slug: "atencion_visual", observation: "Respondió sin dejar preguntas sin contestar." },
-      { section_slug: "orientacion_espacial", observation: "Completó todas las preguntas." },
-    ],
-    aspects_to_review: ["Continuar con la misma cadencia semanal."],
-    evidence: [
-      { scope: "global", metric: "accuracy", value: 0.72 },
-      { scope: "section", metric: "accuracy", value: 0.8, section_slug: "atencion_visual" },
-      { scope: "section", metric: "accuracy", value: 0.6, section_slug: "orientacion_espacial" },
-    ],
-  };
-}
+const raw = (p) => JSON.stringify(p);
 
-// ---------- Happy path ----------
-
-describe("responseValidator — happy path", () => {
-  it("acepta output válido con 1 sección", () => {
-    const ctx = ctxOneSection();
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(validPayloadOneSection()), ctx);
+describe("responseValidator v3 — happy path", () => {
+  it("acepta payload mínimo: schema_version + summary", () => {
+    const out = parseAndValidateSessionAnalysis(
+      raw({ schema_version: "3", summary: "Síntesis breve." }),
+      ctx()
+    );
     assert.equal(out.schema_version, ANALYSIS_SCHEMA_VERSION);
-    assert.equal(out.summary.length > 0, true);
-    assert.equal(out.observations_by_section.length, 1);
+    assert.equal(out.summary, "Síntesis breve.");
     assert.deepEqual(out.aspects_to_review, []);
-    assert.equal(out.evidence.length, 2);
-    assert.ok(Object.isFrozen(out));
   });
 
-  it("acepta output válido con múltiples secciones y aspects", () => {
-    const ctx = ctxTwoSections();
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(validPayloadTwoSections()), ctx);
-    assert.equal(out.observations_by_section.length, 2);
+  it("acepta aspects_to_review array no vacío", () => {
+    const out = parseAndValidateSessionAnalysis(raw(valid()), ctx());
     assert.equal(out.aspects_to_review.length, 1);
-    assert.equal(out.evidence.length, 3);
   });
 
-  it("acepta evidence.value=null cuando el contexto tiene null", () => {
-    const ctx = buildSessionAnalysisContext({
-      global: metricsRow({ accuracy: null, mean_latency_ms: null, min_latency_ms: null, max_latency_ms: null, latency_std_ms: null }),
-      sections: [
-        {
-          slug: "s1", name: "S1", cognitive_domain_slugs: [],
-          result: metricsRow({ accuracy: null, mean_latency_ms: null, min_latency_ms: null, max_latency_ms: null, latency_std_ms: null }),
-        },
-      ],
-    });
-    const payload = {
-      schema_version: "1",
-      summary: "sin métricas puntuables.",
-      observations_by_section: [{ section_slug: "s1", observation: "no hubo respuestas puntuables." }],
-      aspects_to_review: [],
-      evidence: [
-        { scope: "global", metric: "accuracy", value: null },
-        { scope: "section", metric: "mean_latency_ms", value: null, section_slug: "s1" },
-      ],
-    };
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(payload), ctx);
-    assert.equal(out.evidence[0].value, null);
+  it("acepta aspects_to_review ausente", () => {
+    const p = { schema_version: "3", summary: "Síntesis." };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.deepEqual(out.aspects_to_review, []);
   });
 
-  it("acepta evidence sólo global (sin section)", () => {
-    const ctx = ctxOneSection();
-    const payload = validPayloadOneSection();
-    payload.evidence = [
-      { scope: "global", metric: "accuracy", value: 0.8 },
-      { scope: "global", metric: "completion_rate", value: 1 },
-    ];
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(payload), ctx);
-    assert.equal(out.evidence.length, 2);
+  it("acepta aspects_to_review null (lo normaliza a [])", () => {
+    const p = { schema_version: "3", summary: "s.", aspects_to_review: null };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.deepEqual(out.aspects_to_review, []);
   });
 
-  it("acepta evidence sólo por sección", () => {
-    const ctx = ctxOneSection();
-    const payload = validPayloadOneSection();
-    payload.evidence = [
-      { scope: "section", metric: "accuracy", value: 0.8, section_slug: "atencion_visual" },
-    ];
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(payload), ctx);
-    assert.equal(out.evidence.length, 1);
-  });
-
-  it("acepta pequeña tolerancia numérica (0.7999999 ≈ 0.8)", () => {
-    const ctx = ctxOneSection();
-    const payload = validPayloadOneSection();
-    payload.evidence = [{ scope: "global", metric: "accuracy", value: 0.7999999999 }];
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(payload), ctx);
-    assert.equal(out.evidence[0].value, 0.7999999999);
+  it("ANALYSIS_SCHEMA_VERSION exportado es '3'", () => {
+    assert.equal(ANALYSIS_SCHEMA_VERSION, "3");
   });
 });
 
-// ---------- JSON parsing ----------
-
-describe("responseValidator — JSON parsing", () => {
-  it("rechaza rawText no string", () => {
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(null, ctxOneSection()),
-      (e) => e instanceof AnalysisValidationError && e.code === CODES.INVALID_JSON
-    );
+describe("responseValidator v3 — JSON y estructura inválidos", () => {
+  it("INVALID_JSON si el string no parsea", () => {
+    try {
+      parseAndValidateSessionAnalysis("no es json {", ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.INVALID_JSON);
+    }
   });
 
-  it("rechaza JSON malformado", () => {
-    assert.throws(
-      () => parseAndValidateSessionAnalysis("{oops", ctxOneSection()),
-      (e) => e.code === CODES.INVALID_JSON
-    );
+  it("SCHEMA_INVALID si el root es un array", () => {
+    try {
+      parseAndValidateSessionAnalysis("[]", ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+    }
   });
 
-  it("rechaza root no-objeto", () => {
-    assert.throws(
-      () => parseAndValidateSessionAnalysis("[1,2,3]", ctxOneSection()),
-      (e) => e.code === CODES.SCHEMA_INVALID && e.message.includes("root")
-    );
-    assert.throws(
-      () => parseAndValidateSessionAnalysis("42", ctxOneSection()),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-    assert.throws(
-      () => parseAndValidateSessionAnalysis("null", ctxOneSection()),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
+  it("UNEXPECTED_FIELD si trae observations_by_section (campo v2)", () => {
+    const p = { ...valid(), observations_by_section: [] };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.UNEXPECTED_FIELD);
+    }
   });
 
-  it("valida context en tiempo de dev (TypeError si mal)", () => {
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(validPayloadOneSection()), null),
-      TypeError
-    );
-  });
-});
-
-// ---------- schema_version ----------
-
-describe("responseValidator — schema_version", () => {
-  it("rechaza schema_version distinto de '1'", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection(); p.schema_version = "2";
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID && e.path === "schema_version"
-    );
+  it("UNEXPECTED_FIELD si trae comparison (campo v2)", () => {
+    const p = { ...valid(), comparison: "cambio" };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.UNEXPECTED_FIELD);
+    }
   });
 
-  it("rechaza schema_version faltante", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection(); delete p.schema_version;
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-  });
-});
-
-// ---------- Strict mode ----------
-
-describe("responseValidator — strict mode (§4)", () => {
-  it("rechaza campo extra en root: confidence", () => {
-    const ctx = ctxOneSection();
-    const p = { ...validPayloadOneSection(), confidence: "high" };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.UNEXPECTED_FIELD
-    );
+  it("UNEXPECTED_FIELD si trae evidence (debe generarla backend)", () => {
+    const p = { ...valid(), evidence: [] };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.UNEXPECTED_FIELD);
+    }
   });
 
-  it("rechaza campo extra en root: diagnosis", () => {
-    const ctx = ctxOneSection();
-    const p = { ...validPayloadOneSection(), diagnosis: "..." };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.UNEXPECTED_FIELD
-    );
+  it("UNEXPECTED_FIELD si trae cualquier campo desconocido", () => {
+    const p = { ...valid(), diagnosis: "" };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.UNEXPECTED_FIELD);
+    }
   });
 
-  it("rechaza campo extra dentro de una observation", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.observations_by_section[0].score = 0.8;
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.UNEXPECTED_FIELD
-    );
+  it("SCHEMA_INVALID si schema_version != '3'", () => {
+    const p = { ...valid(), schema_version: "2" };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+      assert.equal(err.path, "schema_version");
+    }
   });
 
-  it("rechaza campo extra en evidence global", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "accuracy", value: 0.8, note: "x" }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
+  it("SCHEMA_INVALID si falta summary", () => {
+    const p = { schema_version: "3" };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+      assert.equal(err.path, "summary");
+    }
+  });
+
+  it("SCHEMA_INVALID si summary vacío", () => {
+    const p = { schema_version: "3", summary: "" };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+    }
   });
 });
 
-// ---------- observations_by_section ----------
-
-describe("responseValidator — observations_by_section", () => {
-  it("rechaza sección desconocida", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.observations_by_section = [{ section_slug: "inexistente", observation: "x" }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SECTIONS_MISMATCH
-    );
+describe("responseValidator v3 — límites", () => {
+  it("acepta summary de 600 chars (longitud histórica)", () => {
+    const p = { schema_version: "3", summary: "x".repeat(600) };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.equal(out.summary.length, 600);
   });
 
-  it("rechaza sección duplicada", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.observations_by_section = [
-      { section_slug: "atencion_visual", observation: "a" },
-      { section_slug: "atencion_visual", observation: "b" },
-    ];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SECTIONS_MISMATCH
-    );
+  it("acepta summary de 735 chars (longitud observada del 3B)", () => {
+    const p = { schema_version: "3", summary: "x".repeat(735) };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.equal(out.summary.length, 735);
   });
 
-  it("rechaza sección faltante", () => {
-    const ctx = ctxTwoSections();
-    const p = validPayloadTwoSections();
-    p.observations_by_section = [p.observations_by_section[0]];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SECTIONS_MISMATCH
-    );
+  it("acepta summary de 1000 chars (justo en el techo)", () => {
+    const p = { schema_version: "3", summary: "x".repeat(1000) };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.equal(out.summary.length, 1000);
   });
 
-  it("rechaza orden incorrecto de secciones", () => {
-    const ctx = ctxTwoSections();
-    const p = validPayloadTwoSections();
-    p.observations_by_section = [
-      { section_slug: "orientacion_espacial", observation: "x" },
-      { section_slug: "atencion_visual", observation: "y" },
-    ];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SECTIONS_MISMATCH
-    );
+  it("SCHEMA_INVALID + max_length_exceeded si summary = 1001 chars", () => {
+    const p = { schema_version: "3", summary: "x".repeat(1001) };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+      assert.equal(err.path, "summary");
+      assert.equal(err.info?.reason, "max_length_exceeded");
+      assert.equal(err.info?.max, 1000);
+      assert.equal(err.info?.actual, 1001);
+    }
   });
 
-  it("rechaza observation vacía", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.observations_by_section[0].observation = "";
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
+  it("SCHEMA_INVALID + max_length_exceeded si summary > 1000 chars", () => {
+    const p = { schema_version: "3", summary: "x".repeat(1100) };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+      assert.equal(err.path, "summary");
+      assert.equal(err.info?.reason, "max_length_exceeded");
+    }
   });
 
-  it("rechaza observation demasiado larga", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.observations_by_section[0].observation = "x".repeat(ANALYSIS_LIMITS.observationMax + 1);
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-  });
-});
-
-// ---------- summary + aspects ----------
-
-describe("responseValidator — summary + aspects", () => {
-  it("rechaza summary vacío o >400", () => {
-    const ctx = ctxOneSection();
-    const bad1 = { ...validPayloadOneSection(), summary: "" };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(bad1), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-    const bad2 = { ...validPayloadOneSection(), summary: "x".repeat(ANALYSIS_LIMITS.summaryMax + 1) };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(bad2), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-  });
-
-  it("rechaza aspect vacío o demasiado largo", () => {
-    const ctx = ctxOneSection();
-    const bad1 = { ...validPayloadOneSection(), aspects_to_review: [""] };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(bad1), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-    const bad2 = {
-      ...validPayloadOneSection(),
-      aspects_to_review: ["x".repeat(ANALYSIS_LIMITS.aspectMax + 1)],
-    };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(bad2), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-  });
-
-  it("rechaza demasiados aspects", () => {
-    const ctx = ctxOneSection();
+  it("SCHEMA_INVALID si aspects_to_review > 5 ítems", () => {
     const p = {
-      ...validPayloadOneSection(),
-      aspects_to_review: Array(ANALYSIS_LIMITS.aspectsCountMax + 1).fill("ok"),
+      ...valid(),
+      aspects_to_review: ["a", "b", "c", "d", "e", "f"],
     };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+      assert.equal(err.path, "aspects_to_review");
+    }
   });
 
-  it("rechaza aspects_to_review no array", () => {
-    const ctx = ctxOneSection();
-    const p = { ...validPayloadOneSection(), aspects_to_review: "no" };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
+  it("SCHEMA_INVALID si un aspecto excede 180 chars", () => {
+    const p = { ...valid(), aspects_to_review: ["x".repeat(181)] };
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.code, CODES.SCHEMA_INVALID);
+    }
+  });
+
+  it("ANALYSIS_LIMITS expone los límites v3", () => {
+    assert.equal(ANALYSIS_LIMITS.summaryMax, 1000);
+    assert.equal(ANALYSIS_LIMITS.aspectMax, 180);
+    assert.equal(ANALYSIS_LIMITS.aspectsCountMax, 5);
   });
 });
 
-// ---------- evidence ----------
-
-describe("responseValidator — evidence", () => {
-  it("rechaza metric desconocida", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "iq", value: 100 }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza scope inválido", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "patient", metric: "accuracy", value: 0.8 }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza section desconocida en evidence", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "section", metric: "accuracy", value: 0.8, section_slug: "no_existe" }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza value que no coincide con el contexto", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "accuracy", value: 0.99 }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza value inventado cuando el contexto es null", () => {
-    const ctx = buildSessionAnalysisContext({
-      global: metricsRow({ accuracy: null }),
-      sections: [{ slug: "s1", name: "S1", cognitive_domain_slugs: [], result: metricsRow() }],
+describe("responseValidator v3 — términos clínicos prohibidos", () => {
+  const forbidden = [
+    "Se observa déficit de atención en la sesión.",
+    "El paciente presenta deterioro cognitivo evidente.",
+    "Alto nivel de precisión durante la actividad.",
+    "Excelente desempeño en la sesión trabajada.",
+    "Mala memoria durante el ejercicio planteado.",
+    "Nivel adecuado de respuesta durante la actividad.",
+  ];
+  for (const s of forbidden) {
+    it(`rechaza summary con término clínico/evaluativo: "${s.slice(0, 40)}…"`, () => {
+      const p = { schema_version: "3", summary: s };
+      try {
+        parseAndValidateSessionAnalysis(raw(p), ctx());
+        assert.fail("debió lanzar");
+      } catch (err) {
+        assert.equal(err.code, CODES.SCHEMA_INVALID);
+        assert.equal(err.info?.reason, "forbidden_clinical_term");
+      }
     });
+  }
+
+  it("también revisa aspects_to_review", () => {
     const p = {
-      schema_version: "1", summary: "s",
-      observations_by_section: [{ section_slug: "s1", observation: "x" }],
-      aspects_to_review: [],
-      evidence: [{ scope: "global", metric: "accuracy", value: 0.5 }],
+      schema_version: "3",
+      summary: "Síntesis breve.",
+      aspects_to_review: ["Revisar el déficit cognitivo observado."],
     };
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
+    try {
+      parseAndValidateSessionAnalysis(raw(p), ctx());
+      assert.fail("debió lanzar");
+    } catch (err) {
+      assert.equal(err.info?.reason, "forbidden_clinical_term");
+    }
   });
 
-  it("rechaza null cuando el contexto tiene un número", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "accuracy", value: null }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza global con section_slug presente", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "accuracy", value: 0.8, section_slug: "atencion_visual" }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza section sin section_slug", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "section", metric: "accuracy", value: 0.8 }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza NaN e Infinity", () => {
-    const ctx = ctxOneSection();
-    // JSON.stringify(NaN) === "null", así que probamos con string crudo.
-    const raw = `{"schema_version":"1","summary":"s","observations_by_section":[{"section_slug":"atencion_visual","observation":"x"}],"aspects_to_review":[],"evidence":[{"scope":"global","metric":"accuracy","value":NaN}]}`;
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(raw, ctx),
-      (e) => e.code === CODES.INVALID_JSON
-    );
-    // Un número inválido para el contexto: value real es 0.8, pasamos 0.
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "accuracy", value: 0 }];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("rechaza evidence excesivo (>evidenceCountMax)", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = Array(ANALYSIS_LIMITS.evidenceCountMax + 1).fill({
-      scope: "global", metric: "accuracy", value: 0.8,
-    });
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.SCHEMA_INVALID
-    );
-  });
-
-  it("rechaza evidence=[] (mínimo 1 elemento — ajuste previo a 7F)", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [];
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
-  });
-
-  it("acepta evidence con exactamente 1 elemento", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "accuracy", value: 0.8 }];
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(p), ctx);
-    assert.equal(out.evidence.length, 1);
+  it("acepta términos descriptivos legítimos (memoria, atención, actividad)", () => {
+    const p = {
+      schema_version: "3",
+      summary: "La actividad trabajada apuntó a la atención y la memoria durante la sesión.",
+    };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.ok(out.summary);
   });
 });
 
-// ---------- Regresión 7B (documentada) ----------
+describe("responseValidator v3 — métricas numéricas en el texto", () => {
+  const numeric = [
+    "La paciente mostró 50% de precisión.",
+    "Respondió 5/8 preguntas correctamente.",
+    "Hubo 3 aciertos en la sesión.",
+    "Completó 4 preguntas durante la actividad.",
+    "La actividad duró 32 segundos.",
+    "El tiempo medio fue de 820 ms.",
+    "Logró 50 por ciento de completitud.",
+    "Latencia media de 2.3 s durante la actividad.",
+  ];
+  for (const s of numeric) {
+    it(`rechaza summary con métrica numérica: "${s.slice(0, 40)}…"`, () => {
+      const p = { schema_version: "3", summary: s };
+      try {
+        parseAndValidateSessionAnalysis(raw(p), ctx());
+        assert.fail("debió lanzar");
+      } catch (err) {
+        assert.equal(err.code, CODES.SCHEMA_INVALID);
+        assert.equal(err.info?.reason, "numeric_metric_in_text");
+      }
+    });
+  }
 
-describe("responseValidator — regresión 7B (limitación documentada)", () => {
-  it("un summary con frase evaluativa PASA estructuralmente si el evidence no la respalda con datos falsos", () => {
-    // Ver §10: no montamos un detector clínico ingenuo en v1.
-    // El validador NO rechaza esta salida — es una limitación aceptada.
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.summary = "La respuesta fue rápida y el desempeño se ve prometedor.";
-    const out = parseAndValidateSessionAnalysis(JSON.stringify(p), ctx);
-    assert.equal(out.summary.length > 0, true);
+  it("acepta frases legítimas sin cifras", () => {
+    const p = {
+      schema_version: "3",
+      summary: "Se trabajó una sola actividad durante la sesión.",
+    };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.ok(out.summary);
   });
+});
 
-  it("pero evidence con value inventado sí es rechazado (esto es lo que sí bloqueamos)", () => {
-    const ctx = ctxOneSection();
-    const p = validPayloadOneSection();
-    p.evidence = [{ scope: "global", metric: "mean_latency_ms", value: 100 }]; // real: 4200
-    assert.throws(
-      () => parseAndValidateSessionAnalysis(JSON.stringify(p), ctx),
-      (e) => e.code === CODES.EVIDENCE_INVALID
-    );
+describe("responseValidator v3.4 — atribución al profesional / paciente", () => {
+  const forbidden = [
+    "El profesional observó que el paciente retuvo la lista.",
+    "El profesional afirmó que la sesión fue adecuada.",
+    "La profesional concluyó que la actividad fue útil.",
+    "El paciente mostró una buena capacidad para la actividad.",
+  ];
+  for (const s of forbidden) {
+    it(`rechaza summary con atribución al profesional/paciente: "${s.slice(0, 40)}…"`, () => {
+      const p = { schema_version: "3", summary: s };
+      try {
+        parseAndValidateSessionAnalysis(raw(p), ctx());
+        assert.fail("debió lanzar");
+      } catch (err) {
+        assert.equal(err.code, CODES.SCHEMA_INVALID);
+        assert.equal(err.info?.reason, "unauthorized_observation_about_actor");
+      }
+    });
+  }
+
+  it("acepta frases legítimas sin atribución", () => {
+    const p = {
+      schema_version: "3",
+      summary: "Durante la actividad se trabajó la lista del supermercado.",
+    };
+    const out = parseAndValidateSessionAnalysis(raw(p), ctx());
+    assert.ok(out.summary);
+  });
+});
+
+describe("responseValidator v3 — salida congelada", () => {
+  it("el objeto devuelto está congelado y no incluye campos sobrantes", () => {
+    const out = parseAndValidateSessionAnalysis(raw(valid()), ctx());
+    assert.equal(Object.isFrozen(out), true);
+    assert.deepEqual(Object.keys(out).sort(), ["aspects_to_review", "schema_version", "summary"]);
   });
 });

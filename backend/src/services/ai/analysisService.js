@@ -27,21 +27,29 @@ import {
   parseAndValidateSessionAnalysis,
   ANALYSIS_SCHEMA_VERSION,
 } from "./responseValidator.js";
-import { AnalysisValidationError } from "./validationErrors.js";
+import { AnalysisValidationError, AnalysisValidationCodes } from "./validationErrors.js";
 import { toPersistedErrorCode } from "./errorMapping.js";
 import * as defaultRepo from "./analysisRepository.js";
 import { withAnalysisLock as defaultWithAnalysisLock } from "./analysisLock.js";
+import { loadPreviousSessions, filterComparableSessions, HISTORICAL_SESSION_LIMIT } from "./historicalContext.js";
+import { buildEvidenceFromContext } from "./evidenceBuilder.js";
+import { buildComparisonMetrics } from "./comparisonBuilder.js";
+import { buildObservations } from "./observationsBuilder.js";
 
 // Parámetros de inferencia. num_predict: cota superior de tokens generados.
-// 7J.1A — experimental: bajado de 600 a 500 tras medir que analysis 230
-// (schema v1 con 1 sección + 14 evidence + summary ≤400 chars) generó
-// ~415 tokens. 500 deja ~85 tokens de holgura sin acercarse al límite,
-// y ahorra ~1 s de generación en CPU. Si a la primera generación E2E con
-// prompt 1.2 se detecta truncamiento, volver a 600.
+// v3.0 — bajado a 300. El contrato v3 limita la salida del modelo a
+//   { summary (≤500 chars), aspects_to_review (≤5 strings de ≤180 chars) }.
+//   ~300 tokens cubren el peor caso con margen y acortan la generación.
 export const AI_GENERATE_OPTIONS = Object.freeze({
   temperature: 0.2,
-  num_predict: 500,
+  num_predict: 300,
 });
+
+// keep_alive: mantiene el modelo residente en Ollama durante 30 minutos
+// tras cada análisis. Reduce cold-start (~10-30s en CPU) para análisis
+// consecutivos del profesional en la misma jornada. No indefinido: 30m
+// libera memoria cuando la app queda inactiva.
+export const AI_KEEP_ALIVE = "30m";
 
 // ------------------------------------------------------------------
 // Query real: carga métricas de sesión desde session_results + metadata
@@ -77,7 +85,7 @@ export async function loadSessionAnalysisInput(dbOrTrx, sessionId) {
 
   const sessionRow = await dbOrTrx("sessions")
     .where({ id: sessionId })
-    .select("started_at", "completed_at")
+    .select("patient_id", "created_at", "started_at", "completed_at", "patient_reported_mood")
     .first();
 
   // Duración: sólo se calcula si ambas timestamps existen y son coherentes.
@@ -131,10 +139,77 @@ export async function loadSessionAnalysisInput(dbOrTrx, sessionId) {
     },
   }));
 
+  // v2 — historial longitudinal. Carga hasta HISTORICAL_SESSION_LIMIT sesiones
+  // completadas anteriores a la actual, del MISMO paciente. Se usa como contexto
+  // comparativo para que el modelo pueda describir cambios observables (REGLA 6
+  // del prompt). Si no hay patient_id (defensa contra sesión malformada), no
+  // hay previas, o ninguna es comparable con la sesión actual, previousSessions
+  // queda [] y el contextBuilder omite el bloque del output (y por tanto el
+  // modelo no debe emitir `comparison`).
+  //
+  // La COMPARABILIDAD se decide en código, no en el modelo: una previa es
+  // comparable si comparte al menos una section_slug o un cognitive_domain_slug
+  // con la sesión actual (ver filterComparableSessions). Esto evita las
+  // contradicciones observadas del tipo "no hay comparables ... hubo mejora".
+  let previousSessions = [];
+  if (Number.isInteger(sessionRow?.patient_id) && sessionRow?.created_at) {
+    const raw = await loadPreviousSessions(dbOrTrx, {
+      patientId: sessionRow.patient_id,
+      beforeCreatedAt: sessionRow.created_at,
+      limit: HISTORICAL_SESSION_LIMIT,
+    });
+    const currentCreatedMs = new Date(sessionRow.created_at).getTime();
+    // Firma de comparabilidad de la sesión actual.
+    const currentSectionSlugs = sections.map((s) => s.slug);
+    const currentDomainSlugs = Array.from(
+      new Set(sections.flatMap((s) => s.cognitive_domain_slugs || []))
+    );
+    const comparable = filterComparableSessions(raw, {
+      section_slugs: currentSectionSlugs,
+      cognitive_domain_slugs: currentDomainSlugs,
+    });
+    previousSessions = comparable.map((p) => {
+      let daysBefore;
+      if (p.created_at) {
+        const prevMs = new Date(p.created_at).getTime();
+        if (Number.isFinite(prevMs) && Number.isFinite(currentCreatedMs) && currentCreatedMs >= prevMs) {
+          daysBefore = Math.round((currentCreatedMs - prevMs) / (24 * 60 * 60 * 1000));
+        }
+      }
+      return {
+        global_metrics: p.global_metrics,
+        section_slugs: p.section_slugs,
+        cognitive_domain_slugs: p.cognitive_domain_slugs,
+        duration_seconds: p.duration_seconds,
+        ...(daysBefore !== undefined ? { days_before: daysBefore } : {}),
+      };
+    });
+  }
+
+  // v2.4 (BUG-11): comparison_metrics determinístico. El backend compara contra
+  // la previa comparable más reciente (misma section_slug). Si no hay previa
+  // de la misma actividad, no se emite — el modelo no debe inventar comparación.
+  let comparisonMetrics = null;
+  if (previousSessions.length > 0 && sections.length > 0) {
+    comparisonMetrics = buildComparisonMetrics({
+      currentGlobal: globalRow,
+      comparableSessions: previousSessions,
+      sectionSlug: sections[0].slug,
+    });
+  }
+
   return {
-    session: { duration_seconds: durationSeconds },
+    session: {
+      duration_seconds: durationSeconds,
+      // Snapshot inmutable persistido en sessions.patient_reported_mood.
+      // null si el paciente no autorreportó al crear la sesión. El
+      // contextBuilder decidirá si lo emite al modelo o lo omite.
+      patient_reported_mood: sessionRow?.patient_reported_mood ?? null,
+    },
     global: globalRow,
     sections,
+    previous_sessions: previousSessions,
+    ...(comparisonMetrics ? { comparison_metrics: comparisonMetrics } : {}),
   };
 }
 
@@ -268,55 +343,144 @@ async function runGenerationCritical({
     throw new TypeError("context_schema_version inesperado");
   }
 
-  // 4) Prompt builder.
-  const { prompt } = buildSessionAnalysisPrompt(context);
+  // 4) Observaciones determinísticas (v3.4) + Prompt builder.
+  //    Las observations se calculan ANTES del prompt para alimentarlo y
+  //    luego se persisten junto al análisis para que el frontend las
+  //    muestre tal cual (sin depender de que el modelo las parafrase bien).
+  const deterministic = buildObservations(context);
+  const { prompt } = buildSessionAnalysisPrompt(context, { observations: deterministic.observations });
 
-  // 5) Ollama. Retenemos latencia y errores tipados para pasar a failed.
-  let ollamaResponse;
-  let ollamaLatencyMs;
-  try {
-    ollamaResponse = await generateFn(
-      {
-        prompt,
-        model,
-        format: "json",
-        options: AI_GENERATE_OPTIONS,
-      },
-      // sin fetchImpl: usa fetch nativo en prod; los tests inyectan generateFn.
-    );
-    ollamaLatencyMs = ollamaResponse.latencyMs;
-  } catch (err) {
-    const persistedCode = toPersistedErrorCode("ollama", err?.code || "OLLAMA_OFFLINE");
-    await repo.markGeneratingAsFailed(dbHandle, {
-      id: generatingRow.id,
-      errorCode: persistedCode,
-      errorMessage: err instanceof Error ? err.message : String(err),
-      latencyMs: null,
-    });
-    throw err;
-  }
+  // 5+6) Ollama + Validador — con un único reintento controlado para
+  //      modos conocidos de inestabilidad de llama3.2:3b.
+  //
+  // Política de reintento (BUG-09):
+  // - Como MÁXIMO 2 llamadas a Ollama por fila `generating`.
+  // - Reintentamos SÓLO ante dos modos específicos:
+  //     (a) SECTIONS_MISMATCH          — modelo confunde secciones históricas
+  //                                      con las de la sesión actual.
+  //     (b) SCHEMA_INVALID en summary
+  //         con info.reason="max_length_exceeded"
+  //                                     — modelo escribe un summary más largo
+  //                                      que el límite estricto del contrato.
+  //   Usamos propiedades estructuradas del error (code, path, info) y no
+  //   el texto del mensaje.
+  // - Para cualquier otro error de validación (JSON inválido, campo
+  //   faltante, tipo incorrecto, unexpected field, mismatch en otro campo)
+  //   o error de Ollama (offline/timeout/http) NO reintentamos.
+  // - Mismo prompt, mismo contexto, misma fila `generating`. No crea otra.
+  // - Si ambos intentos fallan, dejamos la fila en failed con la razón del
+  //   SEGUNDO intento (más informativa que la del primero).
+  const MAX_ATTEMPTS = 2;
+  let validated = null;
+  let lastOllamaLatencyMs = null;
+  let lastValidationError = null;
 
-  // 6) Validador. Si falla, marcar failed CONSERVANDO latencia.
-  let validated;
-  try {
-    validated = parseAndValidateSessionAnalysis(ollamaResponse.text, context);
-  } catch (err) {
-    if (err instanceof AnalysisValidationError) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let ollamaResponse;
+    try {
+      ollamaResponse = await generateFn(
+        {
+          prompt,
+          model,
+          format: "json",
+          options: AI_GENERATE_OPTIONS,
+          keepAlive: AI_KEEP_ALIVE,
+        },
+        // sin fetchImpl: usa fetch nativo en prod; los tests inyectan generateFn.
+      );
+      lastOllamaLatencyMs = ollamaResponse.latencyMs;
+    } catch (err) {
+      // Errores de Ollama (offline/timeout/http/missing-model): NO reintentar.
+      const persistedCode = toPersistedErrorCode("ollama", err?.code || "OLLAMA_OFFLINE");
+      await repo.markGeneratingAsFailed(dbHandle, {
+        id: generatingRow.id,
+        errorCode: persistedCode,
+        errorMessage: err instanceof Error ? err.message : String(err),
+        latencyMs: null,
+      });
+      throw err;
+    }
+
+    try {
+      validated = parseAndValidateSessionAnalysis(ollamaResponse.text, context);
+      lastValidationError = null;
+      break; // éxito
+    } catch (err) {
+      if (!(err instanceof AnalysisValidationError)) {
+        throw err;
+      }
+      lastValidationError = err;
+      // Reasons reintenciables (v3): modos conocidos de inestabilidad del 3B
+      // bajo el contrato simplificado:
+      //   SCHEMA_INVALID path=summary + max_length_exceeded
+      //   SCHEMA_INVALID + reason=forbidden_clinical_term
+      //   SCHEMA_INVALID + reason=numeric_metric_in_text
+      const SEMANTIC_RETRIABLE = new Set([
+        "forbidden_clinical_term",
+        "numeric_metric_in_text",
+        // v3.4: atribución de afirmaciones al profesional / calificaciones
+        // evaluativas sobre el paciente ("el profesional observó", etc.).
+        "unauthorized_observation_about_actor",
+      ]);
+      const retriable =
+        (err.code === AnalysisValidationCodes.SCHEMA_INVALID
+          && err.path === "summary"
+          && err.info?.reason === "max_length_exceeded") ||
+        (err.code === AnalysisValidationCodes.SCHEMA_INVALID
+          && SEMANTIC_RETRIABLE.has(err.info?.reason));
+      if (retriable && attempt < MAX_ATTEMPTS) {
+        continue;
+      }
+      // No más reintentos: persistir failed con la última razón y propagar.
       const persistedCode = toPersistedErrorCode("analysis", err.code);
       await repo.markGeneratingAsFailed(dbHandle, {
         id: generatingRow.id,
         errorCode: persistedCode,
         errorMessage: err.message,
-        latencyMs: ollamaLatencyMs,
+        latencyMs: lastOllamaLatencyMs,
       });
+      throw err;
     }
-    throw err;
   }
 
-  // 7) Persistencia OK: promocionar fila generating → ok.
+  // (Si llegamos acá sin validated, el loop ya habría arrojado.)
+  if (!validated) {
+    // Guardia defensiva — nunca debería ocurrir.
+    throw lastValidationError || new Error("Validación de análisis fallida sin razón registrada");
+  }
+  const ollamaLatencyMs = lastOllamaLatencyMs;
+
+  // 7) v3 — datos determinísticos del backend que acompañan al output del
+  // modelo. El modelo sólo genera summary + aspects_to_review; TODO lo demás
+  // (actividades, dominios, métricas, mood, comparaciones) lo expone el
+  // backend aquí para que la UI las renderice directamente.
+  const evidence = buildEvidenceFromContext(context);
+  // Lista de actividades reales de la sesión + dominios cognitivos trabajados
+  // por cada una. Sirve al frontend para renderizar "Actividades" y "Dominios"
+  // sin depender de que el modelo los nombre.
+  const activities = context.sections.map((s) => ({
+    slug: s.slug,
+    name: s.name,
+    cognitive_domain_slugs: Array.isArray(s.cognitive_domain_slugs)
+      ? [...s.cognitive_domain_slugs]
+      : [],
+  }));
+  const persistable = {
+    ...validated,
+    activities,
+    evidence,
+    ...(context.comparison_metrics ? { comparison_metrics: context.comparison_metrics } : {}),
+    // v3.4 — observaciones y aspectos orientativos determinísticos.
+    // Fuente de verdad para el bloque "Observaciones para seguimiento"
+    // del panel; el summary del modelo las parafrasea.
+    observations: deterministic.observations,
+    follow_up: deterministic.follow_up,
+  };
+
+  // 8) Persistencia OK: promocionar fila generating → ok.
   const row = await repo.markGeneratingAsOk(dbHandle, {
     id: generatingRow.id,
-    analysis: validated,
+    analysis: persistable,
     latencyMs: ollamaLatencyMs,
   });
   return { source: "generated", analysis: row };

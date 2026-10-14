@@ -15,8 +15,12 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import {
   generateSessionAnalysis,
   getLatestSuccessfulAnalysis,
+  loadSessionAnalysisInput,
 } from "../services/ai/analysisService.js";
 import * as analysisRepo from "../services/ai/analysisRepository.js";
+import { buildSessionAnalysisContext } from "../services/ai/contextBuilder.js";
+import { buildEvidenceFromContext } from "../services/ai/evidenceBuilder.js";
+import { buildObservations } from "../services/ai/observationsBuilder.js";
 
 // 7J.2 — Umbral tras el cual una fila 'generating' se considera huérfana
 // (probablemente por crash de Node antes de terminar). GET la reporta como
@@ -90,9 +94,15 @@ function mapAiErrorToHttp(err, res) {
     });
   }
   if (err instanceof AnalysisValidationError) {
+    // Exponemos el code TIPADO del validator (whitelist: INVALID_JSON,
+    // SCHEMA_INVALID, UNEXPECTED_FIELD, SECTIONS_MISMATCH, EVIDENCE_INVALID)
+    // para que la UI pueda explicar al profesional por qué falló esta
+    // regeneración concreta. No se envía err.message (puede contener fragmento
+    // del output del modelo).
     return res.status(502).json({
       error: "El modelo devolvió una respuesta que no cumple el contrato",
       status: "ai_invalid_output",
+      validation_code: err.code || null,
     });
   }
   return null; // deja pasar al error handler global
@@ -214,9 +224,81 @@ router.get(
           status: "generating",
         });
       }
-      // latest.status === "failed"
+      // latest.status === "failed". Exponemos el error_code TIPADO (ya está
+      // en la whitelist PERSISTED_ERROR_CODES) para que la UI pueda mostrar
+      // la causa real al profesional sin tener que mirar logs. NO exponemos
+      // error_message crudo (puede contener fragmentos del output del modelo).
       return res.status(200).json({
         status: "last_failed",
+        error_code: latest.error_code || null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// -----------------------------------------------------------------
+// GET /api/sessions/:id/analysis-context  (v3.4)
+//
+// Devuelve el "contexto determinístico" del análisis — todo lo que el
+// backend puede construir SIN depender de Ollama:
+//   - activities (slug + name + cognitive_domain_slugs)
+//   - evidence (session + global + section)
+//   - comparison_metrics (si hay previa comparable)
+//   - observations + follow_up (observationsBuilder)
+//
+// Permite al panel mostrar los primeros 4 bloques del informe aun
+// cuando el pipeline Ollama falló o nunca se ejecutó. Mantiene las
+// mismas reglas de ownership y status (sólo sesiones completed).
+// NO devuelve summary ni aspects_to_review de IA — eso es exclusivo
+// del endpoint /analysis.
+// -----------------------------------------------------------------
+router.get(
+  "/sessions/:id/analysis-context",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const sessionId = parseSessionIdParam(req.params.id);
+      if (sessionId === null) {
+        return res.status(404).json({ error: "Sesión no encontrada" });
+      }
+      const outcome = await loadOwnedCompletedSession(sessionId, req.user.id);
+      if (outcome.kind === "not_found") {
+        return res.status(404).json({ error: "Sesión no encontrada" });
+      }
+      if (outcome.kind === "not_completed") {
+        return res.status(400).json({
+          error: "El contexto solo está disponible para sesiones completadas",
+        });
+      }
+
+      const input = await loadSessionAnalysisInput(db, sessionId);
+      if (!input.global || !Array.isArray(input.sections) || input.sections.length === 0) {
+        return res.status(409).json({
+          error: "La sesión no tiene resultados consolidados",
+          status: "no_results",
+        });
+      }
+      const context = buildSessionAnalysisContext(input);
+      const activities = context.sections.map((s) => ({
+        slug: s.slug,
+        name: s.name,
+        cognitive_domain_slugs: Array.isArray(s.cognitive_domain_slugs)
+          ? [...s.cognitive_domain_slugs]
+          : [],
+      }));
+      const evidence = buildEvidenceFromContext(context);
+      const { observations, follow_up } = buildObservations(context);
+
+      return res.json({
+        source: "deterministic",
+        activities,
+        evidence,
+        comparison_metrics: context.comparison_metrics || null,
+        observations,
+        follow_up,
       });
     } catch (err) {
       next(err);

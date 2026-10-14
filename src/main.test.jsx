@@ -452,9 +452,14 @@ describe("MenteActiva critical flows", () => {
     const call = calls.find((c) => c.url.includes("/patient/sessions") && c.method === "POST");
     expect(call).toBeDefined();
     const body = JSON.parse(call.body);
-    expect(body).toEqual({ sections: [{ section_slug: "memoria_de_trabajo", question_count: 4 }] });
+    // Contrato actual (post training-config server-side + mood opcional):
+    // - question_count NO se envía: lo resuelve el backend desde users.max_questions.
+    // - patient_reported_mood NO se envía cuando el paciente no autorreportó
+    //   (el default interno es null; "sin registrar" ya no es un valor transportable).
+    expect(body).toEqual({ sections: [{ section_slug: "memoria_de_trabajo" }] });
     expect(body.patient_id).toBeUndefined();
     expect(body.professional_id).toBeUndefined();
+    expect(body.patient_reported_mood).toBeUndefined();
     expect(window.location.hash).toBe("#/activity/market");
   });
 

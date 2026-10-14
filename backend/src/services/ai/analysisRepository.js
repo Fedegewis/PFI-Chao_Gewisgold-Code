@@ -70,9 +70,25 @@ function assertValidatedAnalysis(analysis) {
   if (!analysis || typeof analysis !== "object" || Array.isArray(analysis)) {
     throw new TypeError("analysis debe ser objeto validado");
   }
-  if (analysis.schema_version !== "1") {
+  // Aceptamos v1/v2 (persistidos históricamente) y v3 (vigente). El caller
+  // elige qué versión persiste; la UI tolera todas al leer.
+  const allowed = new Set(["1", "2", "3"]);
+  if (!allowed.has(analysis.schema_version)) {
     throw new TypeError("analysis.schema_version inválido: no fue validado por responseValidator");
   }
+  if (analysis.schema_version === "3") {
+    // Contrato v3: summary (modelo) + aspects_to_review (modelo) + activities
+    // + evidence inyectados por analysisService antes de persistir.
+    // v3.4 agrega observations + follow_up determinísticos — opcionales
+    // en v3.0-3.3 por compat (análisis históricos persistidos sin ellos).
+    for (const f of ["summary", "aspects_to_review", "activities", "evidence"]) {
+      if (!(f in analysis)) {
+        throw new TypeError(`analysis sin campo requerido '${f}' (no fue validado)`);
+      }
+    }
+    return;
+  }
+  // Campos comunes a v1 y v2.
   for (const f of ["summary", "observations_by_section", "aspects_to_review", "evidence"]) {
     if (!(f in analysis)) {
       throw new TypeError(`analysis sin campo requerido '${f}' (no fue validado)`);

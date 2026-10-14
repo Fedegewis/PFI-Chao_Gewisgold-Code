@@ -305,6 +305,34 @@ describe("contextBuilder — precondiciones", () => {
   });
 });
 
+describe("contextBuilder — patient_reported_mood (v1.5)", () => {
+  it("incluye mood válido cuando el caller lo pasa", () => {
+    const base = makeValidInput();
+    const ctx = buildSessionAnalysisContext({
+      ...base,
+      session: { ...base.session, patient_reported_mood: "cansancio" },
+    });
+    assert.equal(ctx.patient_reported_mood, "cansancio");
+  });
+
+  it("omite patient_reported_mood cuando es null (no inventa)", () => {
+    const base = makeValidInput();
+    const ctx = buildSessionAnalysisContext({
+      ...base,
+      session: { ...base.session, patient_reported_mood: null },
+    });
+    assert.equal("patient_reported_mood" in ctx, false);
+  });
+
+  it("rechaza mood no permitido", () => {
+    const base = makeValidInput();
+    assert.throws(() => buildSessionAnalysisContext({
+      ...base,
+      session: { ...base.session, patient_reported_mood: "furia" },
+    }), TypeError);
+  });
+});
+
 describe("contextBuilder — patient removido del boundary IA (7G §4)", () => {
   it("ctx.patient no existe aunque el caller pase datos", () => {
     const ctx = buildSessionAnalysisContext(makeValidInput({

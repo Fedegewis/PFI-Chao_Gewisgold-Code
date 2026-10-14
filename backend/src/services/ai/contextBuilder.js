@@ -15,7 +15,12 @@
 // El caller (llegará en 7G) es responsable de hacer las queries con ownership
 // verificado y pasar únicamente los campos ya proyectados.
 
-const SCHEMA_VERSION = "1";
+// Schema v2 (vigente): agrega soporte para `previous_sessions` (historial
+// longitudinal del mismo paciente). El schema del CONTEXT es independiente
+// del schema del OUTPUT; aquí se bumpea porque el promptBuilder y el
+// validator están acoplados a esta versión. Análisis persistidos en v1
+// siguen siendo renderizables por la UI (compatibilidad de lectura).
+const SCHEMA_VERSION = "2";
 
 // Whitelist explícita de campos numéricos de session_results que viajan al
 // contexto IA. Cambiar esta lista implica también cambiar SCHEMA_VERSION.
@@ -104,6 +109,58 @@ function buildSectionEntry(sectionInput) {
   };
 }
 
+// Entrada de historial (v2). Transporta sólo métricas globales + slugs de
+// secciones/dominios trabajados. NO incluye PII, NO incluye detalles por
+// pregunta, NO permite inferencias cross-domain (el prompt lo prohíbe
+// explícitamente). `days_before` es la antigüedad relativa a la sesión actual
+// cuando el caller la pasa; si no, se omite.
+function buildPreviousSessionEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    throw new TypeError("previous_sessions entry inválido");
+  }
+  const { global_metrics, section_slugs, cognitive_domain_slugs, duration_seconds, days_before } = entry;
+  if (!global_metrics || typeof global_metrics !== "object") {
+    throw new TypeError("previous_sessions entry: global_metrics obligatorio");
+  }
+  const metrics = pickMetrics(global_metrics, "previous_sessions entry global_metrics");
+  const sectionsOut = [];
+  const seenSections = new Set();
+  for (const slug of Array.isArray(section_slugs) ? section_slugs : []) {
+    if (typeof slug === "string" && slug.length > 0 && !seenSections.has(slug)) {
+      seenSections.add(slug);
+      sectionsOut.push(slug);
+    }
+  }
+  sectionsOut.sort();
+  const domainsOut = [];
+  const seenDomains = new Set();
+  for (const slug of Array.isArray(cognitive_domain_slugs) ? cognitive_domain_slugs : []) {
+    if (typeof slug === "string" && slug.length > 0 && !seenDomains.has(slug)) {
+      seenDomains.add(slug);
+      domainsOut.push(slug);
+    }
+  }
+  domainsOut.sort();
+  const out = {
+    section_slugs: sectionsOut,
+    cognitive_domain_slugs: domainsOut,
+    global_metrics: metrics,
+  };
+  if (duration_seconds !== undefined && duration_seconds !== null) {
+    if (!Number.isFinite(duration_seconds) || duration_seconds < 0) {
+      throw new TypeError("previous_sessions entry: duration_seconds inválido");
+    }
+    out.duration_seconds = duration_seconds;
+  }
+  if (days_before !== undefined && days_before !== null) {
+    if (!Number.isFinite(days_before) || days_before < 0) {
+      throw new TypeError("previous_sessions entry: days_before inválido");
+    }
+    out.days_before = Math.round(days_before);
+  }
+  return out;
+}
+
 /**
  * Construye el contexto que se enviará a la IA para una sesión completada.
  *
@@ -126,6 +183,12 @@ function buildSectionEntry(sectionInput) {
  *
  * @returns {object} contexto plano y determinístico (§3, §7)
  */
+// Mood permitido como contexto autorreportado (v1.5). Si el valor no está
+// en la whitelist, el contextBuilder se niega a emitirlo — nunca "inventa"
+// uno diferente ni lo normaliza silenciosamente. Mantiene la fuente de verdad
+// alineada con el CHECK constraint de sessions.patient_reported_mood.
+const ALLOWED_MOODS = new Set(["alegria", "bien", "calma", "cansancio", "tristeza"]);
+
 export function buildSessionAnalysisContext(input) {
   if (!input || typeof input !== "object") {
     throw new TypeError("input obligatorio");
@@ -133,6 +196,7 @@ export function buildSessionAnalysisContext(input) {
   const { session, global, sections } = input;
 
   let durationSeconds = null;
+  let patientReportedMood = null;
   if (session !== undefined && session !== null) {
     if (typeof session !== "object") {
       throw new TypeError("input.session, si se pasa, debe ser objeto");
@@ -142,6 +206,12 @@ export function buildSessionAnalysisContext(input) {
         throw new TypeError("session.duration_seconds debe ser number >= 0 o null");
       }
       durationSeconds = session.duration_seconds;
+    }
+    if (session.patient_reported_mood !== undefined && session.patient_reported_mood !== null) {
+      if (typeof session.patient_reported_mood !== "string" || !ALLOWED_MOODS.has(session.patient_reported_mood)) {
+        throw new TypeError("session.patient_reported_mood debe ser uno de los valores permitidos o null");
+      }
+      patientReportedMood = session.patient_reported_mood;
     }
   }
 
@@ -153,6 +223,20 @@ export function buildSessionAnalysisContext(input) {
   if (!Array.isArray(sections) || sections.length === 0) {
     throw new TypeError("input.sections debe ser array no vacío");
   }
+
+  // previous_sessions (v2): array opcional de sesiones completadas anteriores
+  // del MISMO paciente, provistas por el caller (loadSessionAnalysisInput +
+  // historicalContext). El contextBuilder no decide la política de selección —
+  // solo valida shape y transporta la data al modelo. Si no viene o viene
+  // vacío, se omite del output (no se emite `previous_sessions: []`).
+  let previousEntries = null;
+  if (input.previous_sessions !== undefined && input.previous_sessions !== null) {
+    if (!Array.isArray(input.previous_sessions)) {
+      throw new TypeError("input.previous_sessions debe ser array");
+    }
+    previousEntries = input.previous_sessions.map(buildPreviousSessionEntry);
+  }
+
   const sectionEntries = sections.map(buildSectionEntry);
   // determinismo: ordenar por slug (los sections del payload real pueden venir por display_order)
   sectionEntries.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
@@ -169,11 +253,25 @@ export function buildSessionAnalysisContext(input) {
     // el caller lo derivó, porque es información factual útil al modelo.
     // AJUSTE 7G §4: sin patient (age removida — sin normativas por edad).
     duration_seconds: durationSeconds,
+    // v1.5: snapshot inmutable del mood autorreportado por el paciente al
+    // iniciar la sesión. Si el paciente no autorreportó, se omite enteramente
+    // del contexto (no se emite patient_reported_mood=null) para no inducir
+    // al modelo a inventar texto sobre un dato ausente.
+    ...(patientReportedMood !== null ? { patient_reported_mood: patientReportedMood } : {}),
     global: {
       metrics: globalMetrics,
     },
     sections: sectionEntries,
     cognitive_domains_touched: cognitiveDomainsTouched,
+    // v2: historial longitudinal. Se emite SOLO si el caller pasó entries
+    // válidas. Si no hay previas (paciente nuevo o inicio del seguimiento),
+    // el campo se omite enteramente para que el modelo no reciba un array
+    // vacío que podría inducir texto comparativo sin base.
+    ...(previousEntries && previousEntries.length > 0 ? { previous_sessions: previousEntries } : {}),
+    // v2.4 (BUG-11): comparación determinística pre-calculada por el backend.
+    // El caller la provee ya resuelta (via comparisonBuilder). Si no viene,
+    // no se emite — el modelo no debe inventarla.
+    ...(input.comparison_metrics ? { comparison_metrics: input.comparison_metrics } : {}),
   };
 
   // Freeze superficial: el caller no debería mutar el contexto una vez emitido.

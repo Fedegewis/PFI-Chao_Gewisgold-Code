@@ -89,7 +89,7 @@ function classifyFetchError(err) {
 }
 
 export async function generate(
-  { prompt, model: modelOverride, format, options } = {},
+  { prompt, model: modelOverride, format, options, keepAlive } = {},
   { timeoutMs: timeoutOverride, signal, fetchImpl } = {}
 ) {
   if (typeof prompt !== "string" || prompt.length === 0) {
@@ -138,6 +138,12 @@ export async function generate(
   };
   if (format !== undefined) body.format = format;
   if (options !== undefined) body.options = options;
+  // keep_alive es un parámetro top-level de /api/generate soportado por Ollama
+  // (≥0.1.9). Permite mantener el modelo residente en memoria durante ese
+  // período tras la generación, reduciendo cold-start en sesiones consecutivas.
+  // Se propaga sólo si el caller lo pasa explícitamente (evita cambiar el
+  // comportamiento por defecto de tests que no lo esperan).
+  if (keepAlive !== undefined) body.keep_alive = keepAlive;
 
   const startedAt = Date.now();
   let res;

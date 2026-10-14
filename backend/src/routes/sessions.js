@@ -3,6 +3,8 @@ import db from "../db/connection.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { generateSessionAnalysis } from "../services/ai/analysisService.js";
 import { isAiEnabled } from "../services/ai/ollamaClient.js";
+import { countEligibleQuestions, listEligibleQuestions } from "../services/questionEligibility.js";
+import { resolveEffectiveConfig } from "../services/trainingConfig.js";
 
 // 7J.2 — Fire-and-forget del análisis IA después de que /complete responde.
 // Inyectable para tests para poder observar/mockear la disparo sin llamar
@@ -127,11 +129,10 @@ async function selectQuestionsForSection(
   patientId,
   sectionId,
   requestedCount,
-  rng = Math.random
+  rng = Math.random,
+  domainSlugs = null
 ) {
-  const eligible = await trx("questions")
-    .where({ section_id: sectionId, is_active: true, is_validated: true })
-    .select("id", "prompt", "stimulus", "response_type", "options", "correct_answer");
+  const eligible = await listEligibleQuestions(trx, sectionId, domainSlugs);
 
   if (eligible.length < requestedCount) {
     return { error: true, available: eligible.length };
@@ -296,11 +297,28 @@ router.post("/sessions", requireAuth, requireRole("professional"), async (req, r
   }
 });
 
+// Snapshot inmutable del estado de ánimo autorreportado por el paciente al
+// iniciar la sesión. Valores permitidos espejados en el CHECK constraint de
+// la migración 014. null/undefined → no se almacena mood (sesión queda NULL).
+const ALLOWED_MOODS = new Set(["alegria", "bien", "calma", "cansancio", "tristeza"]);
+
 router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req, res, next) => {
   try {
-    const { sections } = req.body || {};
+    const { sections, patient_reported_mood } = req.body || {};
     if (!Array.isArray(sections) || sections.length === 0) {
       return res.status(400).json({ error: "sections (array no vacío) es obligatorio" });
+    }
+
+    // Validación server-side del snapshot de mood. null/undefined significan
+    // "paciente no autorreportó mood para esta sesión" y se persisten como NULL.
+    let moodSnapshot = null;
+    if (patient_reported_mood !== undefined && patient_reported_mood !== null) {
+      if (typeof patient_reported_mood !== "string" || !ALLOWED_MOODS.has(patient_reported_mood)) {
+        return res.status(400).json({
+          error: "patient_reported_mood inválido (valores permitidos: alegria, bien, calma, cansancio, tristeza, null)",
+        });
+      }
+      moodSnapshot = patient_reported_mood;
     }
 
     const patient = await db("users")
@@ -313,12 +331,16 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
       return res.status(400).json({ error: "El paciente no está asociado a un profesional" });
     }
 
+    // Resolver configuración persistida server-side. El cliente NO puede definir
+    // cantidad ni dominios: sólo qué sección(es) iniciar. Cualquier `question_count`
+    // enviado por el frontend se ignora.
+    const effectiveConfig = resolveEffectiveConfig(patient);
+    const questionCount = effectiveConfig.max_questions;
+    const domainSlugs = effectiveConfig.active_domain_slugs; // null | ["memoria",...]
+    const enabledSectionSlugs = effectiveConfig.active_section_slugs; // null | ["slug1",...]
+
     const resolvedSections = [];
     for (const entry of sections) {
-      const questionCount = Number(entry.question_count);
-      if (!Number.isInteger(questionCount) || questionCount < 1) {
-        return res.status(400).json({ error: "question_count debe ser un entero >= 1" });
-      }
       let sectionRow;
       if (entry.section_id != null) {
         sectionRow = await db("sections").where("id", entry.section_id).first();
@@ -331,14 +353,19 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
         return res.status(404).json({ error: "Sección no encontrada" });
       }
 
-      const availableCount = await db("questions")
-        .where({ section_id: sectionRow.id, is_active: true, is_validated: true })
-        .count("id as count")
-        .first();
-      const available = Number(availableCount.count);
+      // F3: si el profesional restringió el conjunto de secciones habilitadas,
+      // el paciente no puede iniciar otras. 403 en lugar de 400 porque la
+      // sección existe pero está vetada por configuración.
+      if (Array.isArray(enabledSectionSlugs) && !enabledSectionSlugs.includes(sectionRow.slug)) {
+        return res.status(403).json({
+          error: `La actividad '${sectionRow.name}' no está habilitada para este paciente`,
+        });
+      }
+
+      const available = await countEligibleQuestions(db, sectionRow.id, domainSlugs);
       if (available < questionCount) {
         return res.status(400).json({
-          error: `Sección '${sectionRow.name}' tiene ${available} pregunta(s) disponible(s), pero se solicitaron ${questionCount}`,
+          error: `Sección '${sectionRow.name}' tiene ${available} pregunta(s) disponible(s) para la configuración actual, pero se solicitaron ${questionCount}`,
         });
       }
       resolvedSections.push({ section: sectionRow, questionCount });
@@ -346,14 +373,18 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
 
     const result = await db.transaction(async (trx) => {
       const [session] = await trx("sessions")
-        .insert({ patient_id: patient.id, professional_id: patient.professional_id })
+        .insert({
+          patient_id: patient.id,
+          professional_id: patient.professional_id,
+          patient_reported_mood: moodSnapshot,
+        })
         .returning("*");
 
       const sessionSectionsData = [];
       for (let i = 0; i < resolvedSections.length; i++) {
         const { section, questionCount } = resolvedSections[i];
 
-        const selection = await selectQuestionsForSection(trx, patient.id, section.id, questionCount);
+        const selection = await selectQuestionsForSection(trx, patient.id, section.id, questionCount, Math.random, domainSlugs);
         if (selection.error) {
           throw new Error(
             `Insufficient eligible questions for section ${section.id}: ` +
@@ -418,6 +449,7 @@ async function fetchPatientSessionsCore(patientId) {
       "s.started_at",
       "s.completed_at",
       "s.abandoned_at",
+      "s.patient_reported_mood",
       "sr.total_questions",
       "sr.answered_questions",
       "sr.correct_count",
@@ -435,6 +467,7 @@ async function fetchPatientSessionsCore(patientId) {
       started_at: r.started_at,
       completed_at: r.completed_at,
       abandoned_at: r.abandoned_at,
+      patient_reported_mood: r.patient_reported_mood ?? null,
     };
     if (r.status === "completed" && r.total_questions != null) {
       base.summary = {

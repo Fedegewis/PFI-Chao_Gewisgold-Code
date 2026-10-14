@@ -164,6 +164,25 @@ describe("ollamaClient", () => {
       assert.equal(body.stream, false);
       assert.equal(body.format, "json");
       assert.deepEqual(body.options, { temperature: 0.1 });
+      // keepAlive no fue pasado → no debe aparecer en el body.
+      assert.equal(body.keep_alive, undefined);
+    });
+
+    it("propaga keepAlive como keep_alive top-level en el body cuando el caller lo pasa", async () => {
+      let captured;
+      const stub = async (_url, init) => {
+        captured = JSON.parse(init.body);
+        return {
+          ok: true, status: 200,
+          json: async () => ({ response: "ok" }),
+          text: async () => "",
+        };
+      };
+      await generate(
+        { prompt: "p", keepAlive: "30m" },
+        { fetchImpl: stub }
+      );
+      assert.equal(captured.keep_alive, "30m");
     });
 
     it("modelOverride tiene prioridad sobre env", async () => {

@@ -40,10 +40,10 @@ async function cleanTestData() {
   await db("users").where("email", "like", `%${EMAIL_SUFFIX}`).del();
 }
 
-async function insertCompletedSession() {
+async function insertCompletedSession(patientId = null) {
   const [s] = await db("sessions")
     .insert({
-      patient_id: patientA.id,
+      patient_id: patientId || patientA.id,
       professional_id: profA.id,
       status: "completed",
       started_at: new Date(),
@@ -73,18 +73,9 @@ function makeGenerateStub({ delayMs = 100, validJson = true } = {}) {
     await new Promise((r) => setTimeout(r, delayMs));
     const text = validJson
       ? JSON.stringify({
-          schema_version: "1",
-          summary: "Sesión con métricas registradas.",
-          observations_by_section: [
-            {
-              section_slug: sectionRow.slug,
-              observation: "Respondió 4 preguntas; 2 correctas y 2 incorrectas; latencia media 1500 ms.",
-            },
-          ],
-          aspects_to_review: ["Precisión registrada: 50%"],
-          evidence: [
-            { scope: "global", metric: "accuracy", value: 0.5 },
-          ],
+          schema_version: "3",
+          summary: "Sesión trabajada por el paciente con la actividad asignada.",
+          aspects_to_review: ["Observación registrada por el backend."],
         })
       : "not json at all";
     return { text, raw: {}, latencyMs: delayMs, model: MODEL };
@@ -111,8 +102,16 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       .insert({ role: "patient", name: "Pat C", email: `pat-${stamp}${EMAIL_SUFFIX}`, professional_id: profA.id, age: 70 })
       .returning("*");
     sectionRow = await db("sections").where({ slug: "orientacion_temporal" }).first();
+    // v2.5 (BUG-11): secondSessionRow usa un paciente DISTINTO para que no
+    // tenga a sessionRow como previa comparable. Esto evita que el pipeline
+    // genere comparison_metrics y luego el stub, que no emite `comparison`,
+    // falle con "comparison es obligatorio".
+    const [patientB] = await db("users").insert({
+      role: "patient", name: "Pat C2", email: `pat2-${Date.now()}${EMAIL_SUFFIX}`,
+      professional_id: profA.id, age: 70,
+    }).returning("*");
     sessionRow = await insertCompletedSession();
-    secondSessionRow = await insertCompletedSession();
+    secondSessionRow = await insertCompletedSession(patientB.id);
   });
 
   beforeEach(async () => {
@@ -154,7 +153,7 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       assert.equal(r.analysis.model, MODEL);
       assert.equal(r.analysis.prompt_version, PROMPT_BUILDER_VERSION);
       assert.equal(r.analysis.schema_version, ANALYSIS_SCHEMA_VERSION);
-      assert.equal(r.analysis.analysis.schema_version, "1");
+      assert.equal(r.analysis.analysis.schema_version, "3");
     }
   });
 
@@ -193,13 +192,9 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       inFlight -= 1;
       return {
         text: JSON.stringify({
-          schema_version: "1",
-          summary: "Sesión con métricas registradas.",
-          observations_by_section: [
-            { section_slug: sectionRow.slug, observation: "Respondió 4 preguntas." },
-          ],
+          schema_version: "3",
+          summary: "Sesión trabajada por el paciente.",
           aspects_to_review: [],
-          evidence: [{ scope: "global", metric: "accuracy", value: 0.5 }],
         }),
         raw: {},
         latencyMs: 150,
@@ -228,13 +223,9 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       }
       return {
         text: JSON.stringify({
-          schema_version: "1",
-          summary: "Sesión con métricas registradas.",
-          observations_by_section: [
-            { section_slug: sectionRow.slug, observation: "Respondió 4 preguntas." },
-          ],
+          schema_version: "3",
+          summary: "Sesión trabajada por el paciente.",
           aspects_to_review: [],
-          evidence: [{ scope: "global", metric: "accuracy", value: 0.5 }],
         }),
         raw: {},
         latencyMs: 50,
@@ -262,13 +253,9 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       }
       return {
         text: JSON.stringify({
-          schema_version: "1",
-          summary: "Sesión con métricas registradas.",
-          observations_by_section: [
-            { section_slug: sectionRow.slug, observation: "Respondió 4 preguntas." },
-          ],
+          schema_version: "3",
+          summary: "Sesión trabajada por el paciente.",
           aspects_to_review: [],
-          evidence: [{ scope: "global", metric: "accuracy", value: 0.5 }],
         }),
         raw: {},
         latencyMs: 30,

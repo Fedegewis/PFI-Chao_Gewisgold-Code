@@ -9,6 +9,7 @@ import authRouter from "./routes/auth.js";
 import googleAuthRouter from "./routes/google-auth.js";
 import invitationsRouter from "./routes/invitations.js";
 import analysisRouter from "./routes/analysis.js";
+import trainingConfigRouter from "./routes/training-config.js";
 
 const app = express();
 
@@ -27,21 +28,10 @@ app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (corsAllowlist.includes(origin)) return callback(null, true);
-    // [DEBUG-TEMP google-auth] Origen rechazado. Retirar cuando se cierre el bug.
-    // eslint-disable-next-line no-console
-    console.debug(`[google-auth][cors] REJECTED origin="${origin}" allowlist=${JSON.stringify(corsAllowlist)}`);
     return callback(new Error(`Origin ${origin} not allowed by CORS`));
   },
 }));
 app.use(express.json());
-
-// [DEBUG-TEMP google-auth] Log de TODA request al endpoint problemático (incluye OPTIONS preflight).
-// Retirar cuando se cierre el bug.
-app.use("/api/auth/google", (req, _res, next) => {
-  // eslint-disable-next-line no-console
-  console.debug(`[google-auth][http] ${req.method} /api/auth/google origin=${req.headers.origin || "(none)"} acrm=${req.headers["access-control-request-method"] || "-"} t=${Date.now()}`);
-  next();
-});
 
 app.use("/api", healthRouter);
 app.use("/api", authRouter);
@@ -51,6 +41,7 @@ app.use("/api", usersRouter);
 app.use("/api", sessionsRouter);
 app.use("/api", invitationsRouter);
 app.use("/api", analysisRouter);
+app.use("/api", trainingConfigRouter);
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500;

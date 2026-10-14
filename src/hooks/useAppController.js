@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ACTIVITY_TO_SECTION_SLUG, DEFAULT_PROFESSIONAL_ID, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
+import { ACTIVITY_TO_SECTION_SLUG, DEFAULT_PROFESSIONAL_ID, MOOD_OPTIONS, MOTIVATION_MESSAGES, SCREEN_NAMES } from "../constants/appConfig.js";
+
+// Reutiliza MOOD_OPTIONS (fuente de verdad del frontend, ya usada por MoodPanel y
+// BackendPatientDetail) para evitar enviar al backend valores que no estén en el
+// whitelist del CHECK constraint. No es duplicación: MOOD_OPTIONS ya existe por
+// otros motivos de UI y sus ids espejean exactamente el enum del backend.
+const VALID_MOOD_SLUGS = new Set(MOOD_OPTIONS.map((o) => o.id));
 import { createPatientSession, fetchMySessionsApi } from "../services/patientSessionsApi.js";
+import { fetchPatientAvailableSections } from "../services/trainingConfigApi.js";
 import { deriveCompletedTodayFromSessions, latestCompletedAt } from "../services/patientProgress.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, readHashState } from "../services/navigationService.js";
@@ -112,6 +119,13 @@ export function useAppController() {
   const [activeSession, setActiveSession] = useState(null);
   const [activityStartError, setActivityStartError] = useState("");
   const [backendPatientSessions, setBackendPatientSessions] = useState({ patientId: null, list: null, loading: false, error: "" });
+  // F3: catálogo de secciones iniciables para el paciente autenticado.
+  // null = aún no cargado (equivale a "todas" transitoriamente para no bloquear
+  // la pantalla al montar); {} = ya cargado pero vacío.
+  const [patientAvailableSections, setPatientAvailableSections] = useState(null);
+  // BUG-08: error de carga de available-sections. Si existe, la UI muestra
+  // un mensaje en vez de un valor hardcodeado para la cantidad de preguntas.
+  const [patientAvailableSectionsError, setPatientAvailableSectionsError] = useState(false);
 
   const selectedPatient = useMemo(
     () =>
@@ -133,19 +147,20 @@ export function useAppController() {
     savePatients(patients);
   }, [patients, isBackendAuthenticated]);
 
-  useEffect(() => {
-    if (!isBackendProfessional) {
-      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
-      return undefined;
+  // Fetch en background de las sesiones del paciente seleccionado.
+  // Extraído a un callback estable para poder reusarlo desde el effect inicial,
+  // desde el visibilitychange y desde el completar-actividad.
+  const fetchSelectedPatientSessions = useCallback((requestedId, { showLoading = true, signal } = {}) => {
+    if (requestedId == null) return Promise.resolve();
+    if (showLoading) {
+      setBackendPatientSessions((prev) => ({
+        patientId: requestedId,
+        list: prev.patientId === requestedId ? prev.list : null,
+        loading: true,
+        error: "",
+      }));
     }
-    if (selectedPatientId == null) {
-      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
-      return undefined;
-    }
-    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const requestedId = selectedPatientId;
-    setBackendPatientSessions({ patientId: requestedId, list: null, loading: true, error: "" });
-    fetchPatientSessionsApi(requestedId, controller ? { signal: controller.signal } : {})
+    return fetchPatientSessionsApi(requestedId, signal ? { signal } : {})
       .then((rows) => {
         setBackendPatientSessions((prev) => {
           if (prev.patientId !== requestedId) return prev;
@@ -159,8 +174,46 @@ export function useAppController() {
           return { patientId: requestedId, list: null, loading: false, error: err?.message || "No se pudieron cargar las sesiones." };
         });
       });
+  }, []);
+
+  useEffect(() => {
+    if (!isBackendProfessional) {
+      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
+      return undefined;
+    }
+    if (selectedPatientId == null) {
+      setBackendPatientSessions({ patientId: null, list: null, loading: false, error: "" });
+      return undefined;
+    }
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    fetchSelectedPatientSessions(selectedPatientId, {
+      showLoading: true,
+      signal: controller?.signal,
+    });
     return () => { if (controller) controller.abort(); };
-  }, [isBackendProfessional, selectedPatientId]);
+  }, [isBackendProfessional, selectedPatientId, fetchSelectedPatientSessions]);
+
+  // Fix de refresco silencioso: cuando la pestaña vuelve a estar visible,
+  // el profesional autenticado revalida las sesiones del paciente seleccionado
+  // sin loading indicator (evita parpadeo). Sin polling, sin setInterval,
+  // sin reload — sólo un refetch puntual disparado por foco/visibilidad.
+  useEffect(() => {
+    if (!isBackendProfessional || selectedPatientId == null) return undefined;
+    if (typeof document === "undefined") return undefined;
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        fetchSelectedPatientSessions(selectedPatientId, { showLoading: false });
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    // También al recuperar foco de ventana (algunos navegadores no disparan
+    // visibilitychange en cambios de aplicación/monitor).
+    window.addEventListener("focus", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleVisibility);
+    };
+  }, [isBackendProfessional, selectedPatientId, fetchSelectedPatientSessions]);
 
   useEffect(() => {
     if (!isBackendProfessional) return;
@@ -209,6 +262,34 @@ export function useAppController() {
       // mostrando lo último que pudo derivarse; F5 vuelve a intentar.
     }
   }
+
+  // F3: cada vez que el paciente backend se autentica, consulta qué
+  // actividades están iniciables bajo su configuración actual.
+  useEffect(() => {
+    if (!isBackendPatient || !authUser?.id) {
+      setPatientAvailableSections(null);
+      setPatientAvailableSectionsError(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setPatientAvailableSectionsError(false);
+    fetchPatientAvailableSections()
+      .then((payload) => {
+        if (cancelled) return;
+        setPatientAvailableSections(payload);
+        setPatientAvailableSectionsError(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // BUG-08: en vez de dejar null (que la UI podría interpretar como
+        // "aún cargando"), marcamos error explícito. Las pantallas que
+        // dependan de la cantidad configurada muestran un mensaje en lugar
+        // de un valor por defecto incorrecto.
+        setPatientAvailableSections(null);
+        setPatientAvailableSectionsError(true);
+      });
+    return () => { cancelled = true; };
+  }, [isBackendPatient, authUser?.id]);
 
   useEffect(() => {
     if (!isBackendPatient) return undefined;
@@ -369,19 +450,16 @@ export function useAppController() {
     // Retirar cuando se cierre el bug.
     const attempt = typeof window !== "undefined" ? (window.__gAuthAttempt ?? "?") : "?";
     const tag = `[google-auth][attempt-${attempt}]`;
-    // eslint-disable-next-line no-console
     console.debug(`${tag} googleLogin START inFlight=${googleLoginInFlightRef.current}`);
     // Guard: un único credential no debe producir dos POST concurrentes
     // aunque el SDK de Google dispare el callback más de una vez.
     if (googleLoginInFlightRef.current) {
-      // eslint-disable-next-line no-console
       console.debug(`${tag} googleLogin SKIPPED (concurrent)`);
       return;
     }
     googleLoginInFlightRef.current = true;
     try {
       const data = await loginWithGoogle(credential);
-      // eslint-disable-next-line no-console
       console.debug(`${tag} googleLogin loginWithGoogle resolved, setting auth state`);
       setPatients([]);
       setSelectedPatientId(null);
@@ -394,15 +472,12 @@ export function useAppController() {
       }
       setScreen(SCREEN_NAMES.professional);
       setLoginError("");
-      // eslint-disable-next-line no-console
       console.debug(`${tag} googleLogin AUTH STATE UPDATED (screen -> professional)`);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.debug(`${tag} googleLogin CAUGHT err.name=${err?.name} err.status=${err?.status} err.message=${err?.message}`);
       setLoginError(err.message || "Error al iniciar sesión con Google");
     } finally {
       googleLoginInFlightRef.current = false;
-      // eslint-disable-next-line no-console
       console.debug(`${tag} googleLogin END`);
     }
   }, [selectedActivity.id]);
@@ -483,10 +558,26 @@ export function useAppController() {
         setActivityStartError("Esta actividad no está disponible todavía en tu banco.");
         return;
       }
+      // F3: segunda línea de defensa (la primera es ocultar/deshabilitar el
+      // card en la pantalla del paciente). El backend hace el guard final.
+      if (patientAvailableSections) {
+        const row = patientAvailableSections.sections?.find((s) => s.section_slug === sectionSlug);
+        if (row && !row.startable) {
+          setActivityStartError("Esta actividad no está disponible con la configuración actual. Hablá con tu profesional.");
+          return;
+        }
+      }
       try {
+        // Cantidad y dominios los resuelve el backend a partir de la configuración
+        // persistida del paciente (users.max_questions / users.active_domain_slugs).
+        // Mood: snapshot opcional del estado autorreportado al iniciar la sesión.
+        // Si el paciente no seleccionó mood (null) o el valor almacenado no está
+        // en el whitelist actual, no se envía (queda NULL en DB).
+        const rawMood = selectedPatient.mood;
+        const patientReportedMood = VALID_MOOD_SLUGS.has(rawMood) ? rawMood : null;
         const session = await createPatientSession({
           sectionSlug,
-          questionCount: selectedPatient.maxQuestions || 4,
+          patientReportedMood,
         });
         setActiveSession(session);
       } catch (err) {
@@ -556,6 +647,9 @@ export function useAppController() {
     goToLogin,
     activeSession,
     activityStartError,
-    backendPatientSessions
+    backendPatientSessions,
+    patientAvailableSections,
+    patientAvailableSectionsError,
+    isBackendPatient,
   };
 }

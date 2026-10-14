@@ -9,12 +9,10 @@ import { LoginScreen } from "./LoginScreen.jsx";
 
 let capturedCallback;
 let initializeCalls;
-let renderButtonCalls;
 
 function installGsiStub() {
   capturedCallback = null;
   initializeCalls = 0;
-  renderButtonCalls = 0;
   window.google = {
     accounts: {
       id: {
@@ -22,9 +20,7 @@ function installGsiStub() {
           initializeCalls += 1;
           capturedCallback = callback;
         },
-        renderButton: () => {
-          renderButtonCalls += 1;
-        },
+        renderButton: () => {},
         prompt: () => {},
         cancel: () => {},
       },
