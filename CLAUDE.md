@@ -327,6 +327,18 @@ Las siguientes cuestiones se resolverán en sus respectivas etapas. NO están ce
 
 - **`cambios.txt` trackeado:** archivo suelto en raíz del repo. Revisar si tiene contenido útil; si no, eliminar y agregar a `.gitignore`.
 
+### Trazabilidad histórica de la configuración de entrenamiento
+
+- **Snapshot de configuración por sesión:** persistir un snapshot de la
+  configuración de entrenamiento al crear cada sesión, incluyendo
+  dominios habilitados, actividades habilitadas y cantidad de preguntas,
+  para garantizar trazabilidad histórica. Hoy la config vive sólo en
+  `users.active_domain_slugs` / `users.active_section_slugs` y puede
+  cambiar en cualquier momento; las sesiones ya creadas pierden la
+  referencia a qué configuración tenía el paciente al crearlas. Mitigación
+  temporal: el panel aclara que los dominios mostrados son los asociados
+  a las preguntas (N:M), no los habilitados por el psicólogo.
+
 ## Roadmap
 
 ### ETAPA 1 — Frontend base
@@ -498,6 +510,178 @@ Conectar frontend con backend, reemplazo de pacientes/métricas mock, reemplazo 
 
 Tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
 
+## Contrato IA v3 (prompt_version 3.4, output schema_version 3)
+
+Simplificación radical del output del modelo. Autorizada el 2026-10-13 para
+estabilizar llama3.2:3b tras iteraciones v2.0 → v2.5 que no lograron
+adherencia consistente.
+
+**v3.1 (2026-10-13 tarde)**: ajuste de prompt + techo real del `summary`
+tras observar que el 3B generaba ~540-553 chars pese a pedir máximo estricto
+500. Cambios:
+- `summaryMax` 500 → 600.
+- Prompt pide "UNA O DOS oraciones breves, 100-250 chars".
+- `PROMPT_VERSION` 3.0 → 3.1.
+
+**v3.2 (2026-10-13 noche)**: segundo ajuste de techo real tras observar
+que, con el prompt v3.1 pidiendo 100-250 chars, el 3B generó 735 chars.
+Se descarta seguir afinando el prompt (el 3B no cuenta caracteres); se
+eleva el techo del validator para absorber la distribución observada
+(429-735) con holgura. Schema de salida sigue siendo `"3"`. Cambios:
+- `summaryMax` 600 → **1000**.
+- Prompt mantiene las mismas instrucciones de brevedad; sólo se actualiza
+  el máximo absoluto citado (600 → 1000) por consistencia.
+- `PROMPT_VERSION` 3.1 → 3.2.
+- No se agregaron ni se removieron reglas; no se tocaron validaciones
+  semánticas (términos clínicos, cifras numéricas, campos adicionales).
+
+**v3.4 (2026-10-14 noche)**: análisis descriptivo + orientativo. El modelo
+seguía generando frases inventadas tipo "el profesional observó…" y
+aspectos genéricos. Cambios estructurales (3 capas visuales, 3 fuentes):
+- **Nuevo `observationsBuilder.js`** (puro, determinístico): genera
+  `observations` y `follow_up` desde datos reales del backend
+  (completitud, distribución correctas/incorrectas, direction de
+  `comparison_metrics`). Reglas acotadas, lenguaje adulto, sin cifras,
+  sin etiquetas clínicas, sin "capacidad/déficit/mejoría".
+- **Nuevo endpoint `GET /api/sessions/:id/analysis-context`**: devuelve
+  `activities + evidence + comparison_metrics + observations + follow_up`
+  construidos en caliente desde `session_results`. Independiente de
+  Ollama. Permite al panel mostrar los 4 primeros bloques del informe
+  aun si Ollama está apagado o nunca generó un análisis exitoso.
+- **Prompt v3.4**: incluye un bloque `OBSERVATIONS:` con las frases
+  determinísticas y le pide al modelo PARAFRASEARLAS, no inventar
+  observaciones nuevas. REGLA 3 extendida: prohibido "el profesional
+  observó/afirmó", "el paciente mostró una buena/mala X".
+- **Nueva regla de validación `unauthorized_observation_about_actor`**:
+  rechaza frases que atribuyan afirmaciones al profesional o
+  calificaciones evaluativas al paciente. Reintenciable.
+- **Persistencia v3.4**: `session_analyses.analysis` ahora incluye
+  `observations` y `follow_up` junto a `activities` + `evidence` +
+  `comparison_metrics` + `summary` + `aspects_to_review`. Análisis v3.0-3.3
+  persistidos siguen compatibles: la UI consulta el endpoint determinístico
+  como fallback para completar los campos faltantes.
+- **Panel reorganizado en 5 bloques** (data-testid): Resumen del
+  entrenamiento, Indicadores de desempeño, Comparación con sesiones
+  anteriores, Observaciones para seguimiento (automáticas), Síntesis del
+  asistente IA. Etiquetado visual explícito: "Datos", "Observaciones
+  automáticas", "Síntesis IA". El bloque 5 sólo aparece cuando hay
+  síntesis IA exitosa.
+- **`PROMPT_VERSION` 3.3 → 3.4**.
+
+**v3.3 (2026-10-14)**: eliminación de la línea `METRICS:` del prompt. Las
+regeneraciones con v3.2 caían en `numeric_metric_in_text` porque el 3B
+reproducía las cifras que recibía en el contexto pese a la REGLA 4. Al
+no verlas, no puede repetirlas. Las métricas siguen disponibles al
+profesional vía los bloques determinísticos del backend (`evidence`,
+`comparison_metrics`). La validación `numeric_metric_in_text` se
+CONSERVA como control de seguridad: si el modelo igual produce una cifra
+sin haberla recibido, es salida no confiable y se rechaza. Cambios:
+- Prompt pierde la línea `METRICS:` y la serialización de métricas.
+- `PROMPT_VERSION` 3.2 → 3.3.
+- Validator, service y schema sin cambios.
+- Las métricas, mood, actividades, dominios y comparaciones siguen
+  intocadas en el backend y en el panel del profesional.
+
+### Qué genera Ollama (contrato mínimo)
+
+```json
+{
+  "schema_version": "3",
+  "summary": "síntesis descriptiva, máximo 500 chars",
+  "aspects_to_review": ["observación breve", "..."]
+}
+```
+
+- `summary`: 1 string, 1-2 oraciones breves, idealmente 100-250 chars, máximo absoluto **1000** chars (rechazo sobre 1000; nunca se trunca silenciosamente).
+- `aspects_to_review`: opcional, 0-5 items, cada uno ≤ 180 chars.
+- Cualquier otro campo (observations_by_section, comparison, evidence, mood,
+  métricas, cognitive_domains, section_slug, …) → `UNEXPECTED_FIELD`.
+
+### Qué provee el backend (siempre determinístico)
+
+Persistido junto al análisis dentro de `session_analyses.analysis`:
+- `activities`: lista `[{ slug, name, cognitive_domain_slugs }]` con las
+  actividades reales de la sesión.
+- `evidence`: tiles con `scope=session|global|section` (duración, mood,
+  métricas globales y por sección).
+- `comparison_metrics`: cuando existe una previa comparable con la misma
+  actividad. Única fuente de comparación numérica mostrada al profesional.
+
+El frontend NO necesita que el modelo nombre secciones, dominios, cifras,
+mood ni comparaciones. Los lee de estos campos.
+
+### Qué está PROHIBIDO que Ollama genere
+
+- Diagnósticos clínicos (`déficit`, `deterioro cognitivo`, `trastorno`, etc.).
+- Calificaciones subjetivas (`alto nivel de precisión`, `excelente desempeño`,
+  `pobre`, `nivel adecuado/inadecuado`, …).
+- Cifras numéricas en el texto (porcentajes, fracciones X/Y, "N preguntas",
+  "N segundos", latencias) — las expone el backend aparte.
+- Mencionar sesiones anteriores, cambios, comparaciones (van en
+  `comparison_metrics`).
+- Mencionar estado de ánimo autorreportado — el backend lo renderiza aparte.
+- Inventar nombre, edad, antecedentes, pacientes, normativas.
+
+### Validaciones
+
+- JSON parseable (`INVALID_JSON`).
+- `schema_version === "3"` (`SCHEMA_INVALID`).
+- Sólo campos permitidos (`UNEXPECTED_FIELD`).
+- Tipos y longitudes (`SCHEMA_INVALID`).
+- Términos clínicos / calificaciones subjetivas: lista cerrada específica
+  (`SCHEMA_INVALID` + `info.reason: "forbidden_clinical_term"`).
+- Patrones numéricos (porcentajes, X/Y, "N preguntas", "N segundos")
+  (`SCHEMA_INVALID` + `info.reason: "numeric_metric_in_text"`).
+
+NO se bloquean palabras genéricas como "memoria", "atención", "mejoró",
+"dificultad": las validaciones son patrones específicos observados como
+errores reales del modelo.
+
+### Reintentos (máximo 2 llamadas a Ollama en total)
+
+Reasons reintenciables:
+- `max_length_exceeded` (summary > 500).
+- `forbidden_clinical_term`.
+- `numeric_metric_in_text`.
+
+NO reintenciables: `INVALID_JSON`, `UNEXPECTED_FIELD`, campo faltante,
+errores de Ollama (OFFLINE/TIMEOUT/MODEL_NOT_FOUND/HTTP_ERROR).
+
+### Compatibilidad histórica
+
+- Análisis persistidos con `schema_version="2"` NO se modifican. Se siguen
+  renderizando con su layout histórico (observations_by_section, comparison
+  string legacy, evidence antigua).
+- `AnalysisAsistidoPanel.jsx` tiene branch por `content.schema_version`:
+  v3 usa el render nuevo; v1/v2 usan el render legacy.
+- Al regenerar un análisis siempre se usa v3.
+- No hay backfill ni regeneración automática.
+
+### Regeneración
+
+- `POST /api/sessions/:id/analysis?force=true` regenera un nuevo intento.
+- Si la regeneración falla y había un análisis vigente anterior:
+  - El análisis anterior se conserva.
+  - El panel muestra: "No se pudo actualizar el análisis. Se conserva la
+    última versión disponible."
+  - No se muestra el intento fallido como si fuera el nuevo.
+- Si la regeneración tiene éxito, reemplaza al anterior.
+
+### Archivos clave
+
+- `backend/src/services/ai/promptBuilder.js` — PROMPT_VERSION "3.4", 5 reglas, OBSERVATIONS como anclaje.
+- `backend/src/services/ai/observationsBuilder.js` — determinístico: `{observations, follow_up}`.
+- `backend/src/routes/analysis.js` — endpoint `GET /sessions/:id/analysis-context` (v3.4).
+- `backend/src/services/ai/responseValidator.js` — ANALYSIS_SCHEMA_VERSION "3".
+- `backend/src/services/ai/analysisService.js` — inyecta activities, evidence,
+  comparison_metrics; MAX_ATTEMPTS=2; SEMANTIC_RETRIABLE = {forbidden_clinical_term,
+  numeric_metric_in_text}.
+- `backend/src/services/ai/analysisRepository.js` — acepta v1/v2/v3.
+- `src/components/professional/AnalysisAsistidoPanel.jsx` — branch por
+  content.schema_version.
+- `src/lib/analysisFormat.js` — helpers v3 (collectActivityLabels,
+  collectDomainLabels, buildGlobalMetricTiles, resolveReportedMood).
+
 ## Decisión arquitectónica: IA y banco de preguntas
 
 La IA NO debe generar libremente el contenido clínico/cognitivo que recibe el paciente. El banco validado es la fuente de preguntas. La IA se utilizará principalmente para selección y adaptación dentro de ese banco según el contexto y resultados disponibles del paciente. Esto garantiza que todo contenido presentado al paciente fue revisado y aprobado previamente.
@@ -529,7 +713,7 @@ Evitar lenguaje infantilizante o gamificación dirigida a adultos mayores. En co
 
 ## Git
 
-**Branch actual:** `feature/question-bank`
+**Branch actual:** `feature/ai-integration`
 
 **Estado:** EN PROGRESO. Modelo de datos corregido. `origin/main` ya fue integrado en esta rama.
 

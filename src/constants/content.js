@@ -1,5 +1,9 @@
 export const PATIENT_DEFAULTS = {
-  mood: "sin registrar",
+  // null = ausencia de autorreporte. NO es un mood válido ni un sentinel de UI:
+  // los textos visibles como "Sin registrar" los resuelve cada vista en su capa de
+  // presentación. El whitelist real de moods vive en MOOD_OPTIONS (appConfig.js)
+  // y debe mantenerse sincronizado con el CHECK de sessions.patient_reported_mood.
+  mood: null,
   status: "Sin actividades completadas",
   note: "Todavía no realizó actividades en esta sesión.",
   score: 0,

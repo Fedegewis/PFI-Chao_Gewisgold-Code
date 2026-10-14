@@ -14,6 +14,7 @@ import METACOGNICION_QUESTIONS from "./questions/metacognicion.js";
 import MEMORIA_PROSPECTIVA_QUESTIONS from "./questions/memoria_prospectiva.js";
 import COMPRENSION_FUNCIONAL_QUESTIONS from "./questions/comprension_funcional.js";
 import ORIENTACION_ESPACIAL_QUESTIONS from "./questions/orientacion_espacial.js";
+import { BANK_V2 } from "./questions/bank_v2.js";
 
 const SECTIONS = [
   {
@@ -1169,6 +1170,273 @@ export async function seed(knex) {
           await knex("question_cognitive_domains").insert({
             question_id: inserted.id,
             cognitive_domain_id: domainSlugToId[domainSlug],
+          });
+        }
+      }
+    }
+  }
+
+  // --- Backfill N:M domain assignments for legacy_seed_v1 questions ---
+  //
+  // Las 43 preguntas legacy fueron insertadas sin asociaciones a cognitive_domains
+  // (CLAUDE.md: "La asignación de dominios a las 43 preguntas legacy: pendiente").
+  // Mientras no exista la matriz definitiva ACTIVIDAD × DOMINIO, se asigna a cada
+  // pregunta legacy el dominio primario de su sección (una sola asociación por
+  // pregunta). Esto evita que la elegibilidad con filtro de dominios reduzca el
+  // banco por falta de clasificación, no por falta de contenido.
+  //
+  // Operación NO destructiva e idempotente:
+  //   - Sólo inserta filas en question_cognitive_domains que no existan.
+  //   - No modifica columnas de questions ni toca contenido.
+  //   - Preguntas legacy que YA tengan al menos una asociación son ignoradas.
+  const LEGACY_SECTION_PRIMARY_DOMAIN = {
+    memoria_de_trabajo: "memoria",
+    atencion_y_calculo: "atencion",
+    funciones_ejecutivas: "funciones_ejecutivas",
+    orientacion_temporal: "orientacion",
+    memoria_asociativa: "memoria",
+    metacognicion: "funciones_ejecutivas",
+    memoria_prospectiva: "memoria",
+    atencion_visual: "atencion",
+    comprension_funcional: "comprension_lenguaje",
+    orientacion_espacial: "orientacion",
+  };
+
+  const legacyRows = await knex("questions as q")
+    .leftJoin(
+      "question_cognitive_domains as qcd",
+      "qcd.question_id",
+      "q.id"
+    )
+    .join("sections as s", "s.id", "q.section_id")
+    .where("q.source", "legacy_seed_v1")
+    .whereNull("qcd.question_id")
+    .select("q.id as question_id", "s.slug as section_slug");
+
+  for (const row of legacyRows) {
+    const primarySlug = LEGACY_SECTION_PRIMARY_DOMAIN[row.section_slug];
+    if (!primarySlug) continue;
+    const domainId = domainSlugToId[primarySlug];
+    if (!domainId) continue;
+    await knex("question_cognitive_domains").insert({
+      question_id: row.question_id,
+      cognitive_domain_id: domainId,
+    });
+  }
+
+  // --- Promoción técnica (F1) de preguntas pendientes ---
+  //
+  // Las preguntas con is_validated=false AND validation_level IS NULL que
+  // además superan la revisión técnica automatizada (4 opciones válidas,
+  // correct_answer en rango, feedback presente, subdimension, dificultad 1/2/3,
+  // al menos un dominio N:M, sin duplicados estructurales) se marcan como
+  // validation_level='technical'. Esto NO modifica is_validated: la columna
+  // histórica se preserva. El selector trata como elegible cualquier pregunta
+  // con is_validated=true OR validation_level IS NOT NULL.
+  //
+  // 'clinical' NO se asigna automáticamente aquí: no hay evidencia documental
+  // de validación clínica profesional para el banco histórico, y el usuario
+  // explícitamente pidió preservar el estado actual sin reclamar lo contrario.
+  //
+  // Idempotente: sólo toca filas que todavía no tienen validation_level.
+  // Como la revisión técnica no detectó observaciones en ninguna de las 247
+  // pendientes (ver backend/docs/technical-review.md si se agregan reglas en
+  // el futuro), el bloque es completo. Si se incorporan preguntas nuevas
+  // posteriores que fallen revisión, deberían quedar en validation_level=NULL
+  // y manejarse en patch posterior; este bloque las dejaría intactas.
+  const VALID_DOMAINS = new Set(["memoria","atencion","funciones_ejecutivas","orientacion","comprension_lenguaje"]);
+
+  const toReview = await knex("questions as q")
+    .leftJoin("question_cognitive_domains as qcd","qcd.question_id","q.id")
+    .leftJoin("cognitive_domains as cd","cd.id","qcd.cognitive_domain_id")
+    .where("q.is_active", true).where("q.is_validated", false).whereNull("q.validation_level")
+    .select("q.id","q.prompt","q.options","q.correct_answer","q.difficulty","q.subdimension","q.feedback_correct","q.feedback_incorrect","cd.slug as domain_slug");
+
+  const grouped = new Map();
+  for (const r of toReview) {
+    let v = grouped.get(r.id);
+    if (!v) { v = { ...r, domains: [] }; delete v.domain_slug; grouped.set(r.id, v); }
+    if (r.domain_slug) v.domains.push(r.domain_slug);
+  }
+
+  const promptSeen = new Map();
+  const flagged = new Set();
+  for (const q of grouped.values()) {
+    let opts;
+    try { opts = typeof q.options === "string" ? JSON.parse(q.options) : q.options; } catch { opts = null; }
+    let bad = false;
+    if (!Array.isArray(opts) || opts.length !== 4) bad = true;
+    else {
+      if (opts.some((o) => typeof o !== "string" || o.trim().length === 0)) bad = true;
+      const uniq = new Set(opts.map((o) => String(o).trim().toLowerCase()));
+      if (uniq.size !== opts.length) bad = true;
+      if (!(Number.isInteger(q.correct_answer) && q.correct_answer >= 0 && q.correct_answer < opts.length)) bad = true;
+    }
+    if (!q.prompt || q.prompt.trim().length < 10) bad = true;
+    if (!q.feedback_correct || !q.feedback_incorrect) bad = true;
+    if (!q.subdimension) bad = true;
+    if (![1,2,3].includes(q.difficulty)) bad = true;
+    if (q.domains.length === 0) bad = true;
+    if (q.domains.some((d) => !VALID_DOMAINS.has(d))) bad = true;
+
+    const norm = (q.prompt || "").trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,¿?¡!;:()]/g, "").slice(0, 60);
+    if (norm) {
+      if (!promptSeen.has(norm)) promptSeen.set(norm, []);
+      promptSeen.get(norm).push(q.id);
+    }
+    if (bad) flagged.add(q.id);
+  }
+  for (const [, ids] of promptSeen.entries()) {
+    if (ids.length > 1) ids.forEach((id) => flagged.add(id));
+  }
+
+  const approvedIds = [...grouped.keys()].filter((id) => !flagged.has(id));
+  if (approvedIds.length > 0) {
+    await knex("questions")
+      .whereIn("id", approvedIds)
+      .whereNull("validation_level")
+      .update({ validation_level: "technical" });
+  }
+
+  // --- Grupo A: expansión N:M por subdim/sección (idempotente) ---
+  //
+  // Sólo asociaciones DEFENDIBLES por la demanda cognitiva real de la
+  // subdimensión (ver propuesta aprobada). Grupo B queda sin aplicar
+  // (discriminacion_funcional → atencion, reconocimiento_funcional → atencion,
+  //  asociacion_objeto_lugar → orientacion, calculo_funcional dif=2 → memoria
+  //  en atencion_y_calculo).
+  const STRICT_SUBDIM_RULES = {
+    actualizacion_de_memoria: ["memoria","funciones_ejecutivas"],
+    retencion_y_evocacion: ["memoria"],
+    memoria_de_secuencia: ["memoria"],
+    memoria_de_ubicacion: ["memoria"],
+    retencion_de_escena: ["memoria"],
+    discriminacion_entre_similares: ["memoria","atencion"],
+    rastreo_de_atributos: ["memoria","atencion"],
+    deteccion_de_cambio: ["memoria","atencion"],
+    atencion_selectiva: ["atencion"],
+    atencion_sostenida: ["atencion"],
+    deteccion_de_anomalia: ["atencion"],
+    planificacion_secuencial: ["funciones_ejecutivas","memoria"],
+    flexibilidad_cognitiva: ["funciones_ejecutivas"],
+    inhibicion_de_respuesta: ["funciones_ejecutivas"],
+    juicio_y_resolucion: ["funciones_ejecutivas"],
+    estrategia_y_autorregulacion: ["funciones_ejecutivas"],
+    automonitoreo: ["funciones_ejecutivas"],
+    reconocimiento_de_dificultad: ["funciones_ejecutivas"],
+    comparacion_y_seleccion: ["funciones_ejecutivas"],
+    categorizacion_funcional: ["funciones_ejecutivas"],
+    orientacion_temporal: ["orientacion"],
+    orientacion_espacial: ["orientacion"],
+    comprension_funcional: ["comprension_lenguaje"],
+  };
+  // Sección × subdim con demanda específica justificada
+  const STRICT_SECTION_RULES = {
+    atencion_y_calculo: {
+      calculo_funcional: { minDiff: 2, add: ["funciones_ejecutivas"] },
+      calculo_funcional_hard: { minDiff: 3, add: ["memoria"] },
+    },
+    orientacion_temporal: {
+      calculo_funcional: { minDiff: 1, add: ["orientacion","funciones_ejecutivas"] },
+    },
+    orientacion_espacial: {
+      planificacion_secuencial: { minDiff: 1, add: ["memoria"] },
+      comprension_funcional: { minDiff: 1, add: ["comprension_lenguaje"] },
+    },
+  };
+
+  const allEligible = await knex("questions as q")
+    .join("sections as s","s.id","q.section_id")
+    .where("q.is_active", true)
+    .andWhere(function(){this.where("q.is_validated",true).orWhereNotNull("q.validation_level");})
+    .select("q.id","q.subdimension","q.difficulty","s.slug as section_slug");
+
+  const existingNM = await knex("question_cognitive_domains as qcd")
+    .join("cognitive_domains as cd","cd.id","qcd.cognitive_domain_id")
+    .select("qcd.question_id","cd.slug");
+  const existingNMSet = new Set(existingNM.map((r) => `${r.question_id}::${r.slug}`));
+
+  const nmInserts = [];
+  for (const q of allEligible) {
+    const needed = new Set();
+    const subRule = STRICT_SUBDIM_RULES[q.subdimension];
+    if (subRule) subRule.forEach((d) => needed.add(d));
+    const sr = STRICT_SECTION_RULES[q.section_slug];
+    if (sr) {
+      for (const [k, rule] of Object.entries(sr)) {
+        const baseSub = k.replace(/_hard$/, "");
+        if (q.subdimension === baseSub && q.difficulty >= rule.minDiff) {
+          rule.add.forEach((d) => needed.add(d));
+        }
+      }
+    }
+    for (const d of needed) {
+      const key = `${q.id}::${d}`;
+      if (!existingNMSet.has(key)) {
+        nmInserts.push({ qid: q.id, domainSlug: d });
+        existingNMSet.add(key);
+      }
+    }
+  }
+  if (nmInserts.length > 0) {
+    const domSlugToId = Object.fromEntries(
+      (await knex("cognitive_domains").select("id","slug")).map((r) => [r.slug, r.id])
+    );
+    const payload = nmInserts
+      .map((r) => ({ question_id: r.qid, cognitive_domain_id: domSlugToId[r.domainSlug] }))
+      .filter((r) => Number.isInteger(r.cognitive_domain_id));
+    if (payload.length > 0) {
+      await knex("question_cognitive_domains").insert(payload);
+    }
+  }
+
+  // --- bank_v2: preguntas nuevas para cubrir las 50 combinaciones ---
+  //
+  // Idempotente: sólo inserta si no hay preguntas source='bank_v2' aún para
+  // esa sección. source='bank_v2', is_validated=false, validation_level='technical'.
+  // Las asociaciones N:M vienen explícitas en cada pregunta (q.domains[]).
+  const sectionRows2 = await knex("sections").select("id","slug");
+  const slugToId2 = Object.fromEntries(sectionRows2.map((r) => [r.slug, r.id]));
+  const domSlugToId2 = Object.fromEntries(
+    (await knex("cognitive_domains").select("id","slug")).map((r) => [r.slug, r.id])
+  );
+  for (const [sectionSlug, questions] of Object.entries(BANK_V2)) {
+    const sectionId = slugToId2[sectionSlug];
+    if (!sectionId) continue;
+    // Idempotencia granular: por prompt. Permite incorporar preguntas nuevas
+    // en versiones posteriores del bank_v2 sin reinsertar las ya cargadas ni
+    // borrar nada existente.
+    const existingPrompts = new Set(
+      (await knex("questions")
+        .where({ source: "bank_v2", section_id: sectionId })
+        .select("prompt")).map((r) => r.prompt)
+    );
+    for (const q of questions) {
+      if (existingPrompts.has(q.prompt)) continue;
+      const [inserted] = await knex("questions").insert({
+        section_id: sectionId,
+        prompt: q.prompt,
+        response_type: "multiple_choice",
+        options: JSON.stringify(q.options),
+        correct_answer: q.correct_answer,
+        scoring_value: 1,
+        difficulty: q.difficulty,
+        feedback_correct: q.feedback_correct,
+        feedback_incorrect: q.feedback_incorrect,
+        clinician_note: q.clinician_note || null,
+        stimulus: q.stimulus || null,
+        subdimension: q.subdimension || null,
+        source: "bank_v2",
+        is_active: true,
+        is_validated: false,
+        validation_level: "technical",
+      }).returning("id");
+      for (const dSlug of q.domains || []) {
+        const did = domSlugToId2[dSlug];
+        if (did) {
+          await knex("question_cognitive_domains").insert({
+            question_id: inserted.id,
+            cognitive_domain_id: did,
           });
         }
       }

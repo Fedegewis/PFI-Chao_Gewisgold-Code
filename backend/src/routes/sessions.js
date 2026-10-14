@@ -1,6 +1,41 @@
 import { Router } from "express";
 import db from "../db/connection.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { generateSessionAnalysis } from "../services/ai/analysisService.js";
+import { isAiEnabled } from "../services/ai/ollamaClient.js";
+import { countEligibleQuestions, listEligibleQuestions } from "../services/questionEligibility.js";
+import { resolveEffectiveConfig } from "../services/trainingConfig.js";
+
+// 7J.2 — Fire-and-forget del análisis IA después de que /complete responde.
+// Inyectable para tests para poder observar/mockear la disparo sin llamar
+// Ollama real. Ver setAutoAnalysisTrigger.
+function defaultAutoTrigger(sessionId) {
+  // Skip cuando AI está apagado (env de test, integración desconectada).
+  if (!isAiEnabled()) return;
+  // Salvaguarda para la suite de tests: por default no dispara Ollama real
+  // aunque AI_ENABLED=true. Tests que quieran ejercer el auto-trigger deben
+  // usar setAutoAnalysisTrigger explícitamente. Evita colas Ollama de 60s+
+  // en cada /complete durante la suite.
+  if (process.env.NODE_ENV === "test") return;
+  // Fire-and-forget: la promesa se ejecuta fuera del handler HTTP. Cualquier
+  // error se silencia — la sesión ya fue completada correctamente y no
+  // debe verse afectada por el pipeline IA. El estado del intento queda
+  // reflejado en session_analyses (ok/failed/generating).
+  setImmediate(() => {
+    generateSessionAnalysis({ sessionId, force: false }).catch(() => {
+      /* aislado del /complete — nunca propaga hacia el handler HTTP */
+    });
+  });
+}
+
+const autoAnalysisState = { trigger: defaultAutoTrigger };
+
+export function setAutoAnalysisTrigger(fn) {
+  autoAnalysisState.trigger = fn;
+}
+export function resetAutoAnalysisTrigger() {
+  autoAnalysisState.trigger = defaultAutoTrigger;
+}
 
 const router = Router();
 
@@ -94,11 +129,10 @@ async function selectQuestionsForSection(
   patientId,
   sectionId,
   requestedCount,
-  rng = Math.random
+  rng = Math.random,
+  domainSlugs = null
 ) {
-  const eligible = await trx("questions")
-    .where({ section_id: sectionId, is_active: true, is_validated: true })
-    .select("id", "prompt", "stimulus", "response_type", "options", "correct_answer");
+  const eligible = await listEligibleQuestions(trx, sectionId, domainSlugs);
 
   if (eligible.length < requestedCount) {
     return { error: true, available: eligible.length };
@@ -263,11 +297,28 @@ router.post("/sessions", requireAuth, requireRole("professional"), async (req, r
   }
 });
 
+// Snapshot inmutable del estado de ánimo autorreportado por el paciente al
+// iniciar la sesión. Valores permitidos espejados en el CHECK constraint de
+// la migración 014. null/undefined → no se almacena mood (sesión queda NULL).
+const ALLOWED_MOODS = new Set(["alegria", "bien", "calma", "cansancio", "tristeza"]);
+
 router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req, res, next) => {
   try {
-    const { sections } = req.body || {};
+    const { sections, patient_reported_mood } = req.body || {};
     if (!Array.isArray(sections) || sections.length === 0) {
       return res.status(400).json({ error: "sections (array no vacío) es obligatorio" });
+    }
+
+    // Validación server-side del snapshot de mood. null/undefined significan
+    // "paciente no autorreportó mood para esta sesión" y se persisten como NULL.
+    let moodSnapshot = null;
+    if (patient_reported_mood !== undefined && patient_reported_mood !== null) {
+      if (typeof patient_reported_mood !== "string" || !ALLOWED_MOODS.has(patient_reported_mood)) {
+        return res.status(400).json({
+          error: "patient_reported_mood inválido (valores permitidos: alegria, bien, calma, cansancio, tristeza, null)",
+        });
+      }
+      moodSnapshot = patient_reported_mood;
     }
 
     const patient = await db("users")
@@ -280,12 +331,16 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
       return res.status(400).json({ error: "El paciente no está asociado a un profesional" });
     }
 
+    // Resolver configuración persistida server-side. El cliente NO puede definir
+    // cantidad ni dominios: sólo qué sección(es) iniciar. Cualquier `question_count`
+    // enviado por el frontend se ignora.
+    const effectiveConfig = resolveEffectiveConfig(patient);
+    const questionCount = effectiveConfig.max_questions;
+    const domainSlugs = effectiveConfig.active_domain_slugs; // null | ["memoria",...]
+    const enabledSectionSlugs = effectiveConfig.active_section_slugs; // null | ["slug1",...]
+
     const resolvedSections = [];
     for (const entry of sections) {
-      const questionCount = Number(entry.question_count);
-      if (!Number.isInteger(questionCount) || questionCount < 1) {
-        return res.status(400).json({ error: "question_count debe ser un entero >= 1" });
-      }
       let sectionRow;
       if (entry.section_id != null) {
         sectionRow = await db("sections").where("id", entry.section_id).first();
@@ -298,14 +353,19 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
         return res.status(404).json({ error: "Sección no encontrada" });
       }
 
-      const availableCount = await db("questions")
-        .where({ section_id: sectionRow.id, is_active: true, is_validated: true })
-        .count("id as count")
-        .first();
-      const available = Number(availableCount.count);
+      // F3: si el profesional restringió el conjunto de secciones habilitadas,
+      // el paciente no puede iniciar otras. 403 en lugar de 400 porque la
+      // sección existe pero está vetada por configuración.
+      if (Array.isArray(enabledSectionSlugs) && !enabledSectionSlugs.includes(sectionRow.slug)) {
+        return res.status(403).json({
+          error: `La actividad '${sectionRow.name}' no está habilitada para este paciente`,
+        });
+      }
+
+      const available = await countEligibleQuestions(db, sectionRow.id, domainSlugs);
       if (available < questionCount) {
         return res.status(400).json({
-          error: `Sección '${sectionRow.name}' tiene ${available} pregunta(s) disponible(s), pero se solicitaron ${questionCount}`,
+          error: `Sección '${sectionRow.name}' tiene ${available} pregunta(s) disponible(s) para la configuración actual, pero se solicitaron ${questionCount}`,
         });
       }
       resolvedSections.push({ section: sectionRow, questionCount });
@@ -313,14 +373,18 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
 
     const result = await db.transaction(async (trx) => {
       const [session] = await trx("sessions")
-        .insert({ patient_id: patient.id, professional_id: patient.professional_id })
+        .insert({
+          patient_id: patient.id,
+          professional_id: patient.professional_id,
+          patient_reported_mood: moodSnapshot,
+        })
         .returning("*");
 
       const sessionSectionsData = [];
       for (let i = 0; i < resolvedSections.length; i++) {
         const { section, questionCount } = resolvedSections[i];
 
-        const selection = await selectQuestionsForSection(trx, patient.id, section.id, questionCount);
+        const selection = await selectQuestionsForSection(trx, patient.id, section.id, questionCount, Math.random, domainSlugs);
         if (selection.error) {
           throw new Error(
             `Insufficient eligible questions for section ${section.id}: ` +
@@ -368,6 +432,85 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
   }
 });
 
+// Compartido entre la listing profesional y la nueva listing del paciente.
+// Devuelve las sesiones del paciente en orden desc con `summary` inline
+// cuando existe session_results global (section_id NULL).
+async function fetchPatientSessionsCore(patientId) {
+  const rows = await db("sessions as s")
+    .leftJoin("session_results as sr", function joinResults() {
+      this.on("sr.session_id", "=", "s.id").andOnNull("sr.section_id");
+    })
+    .where("s.patient_id", patientId)
+    .orderBy("s.created_at", "desc")
+    .select(
+      "s.id",
+      "s.status",
+      "s.created_at",
+      "s.started_at",
+      "s.completed_at",
+      "s.abandoned_at",
+      "s.patient_reported_mood",
+      "sr.total_questions",
+      "sr.answered_questions",
+      "sr.correct_count",
+      "sr.incorrect_count",
+      "sr.accuracy",
+      "sr.completion_rate",
+      "sr.mean_latency_ms"
+    );
+
+  return rows.map((r) => {
+    const base = {
+      id: r.id,
+      status: r.status,
+      created_at: r.created_at,
+      started_at: r.started_at,
+      completed_at: r.completed_at,
+      abandoned_at: r.abandoned_at,
+      patient_reported_mood: r.patient_reported_mood ?? null,
+    };
+    if (r.status === "completed" && r.total_questions != null) {
+      base.summary = {
+        total_questions: r.total_questions,
+        answered_questions: r.answered_questions,
+        correct_count: r.correct_count,
+        incorrect_count: r.incorrect_count,
+        accuracy: r.accuracy !== null ? Number(r.accuracy) : null,
+        completion_rate: r.completion_rate !== null ? Number(r.completion_rate) : null,
+        mean_latency_ms: r.mean_latency_ms !== null ? Number(r.mean_latency_ms) : null,
+      };
+    }
+    return base;
+  });
+}
+
+// Adjunta `sections: [{ section_slug, section_name }]` a cada sesión del
+// payload. Se hace en una query separada para no duplicar el LEFT JOIN cuando
+// el consumidor no lo necesita (ej: la vista profesional actual).
+async function attachSectionsToSessions(payload) {
+  if (payload.length === 0) return payload;
+  const sessionIds = payload.map((p) => p.id);
+  const rows = await db("session_sections as ss")
+    .join("sections as sec", "sec.id", "ss.section_id")
+    .whereIn("ss.session_id", sessionIds)
+    .orderBy("ss.session_id")
+    .orderBy("ss.display_order")
+    .select(
+      "ss.session_id",
+      "sec.slug as section_slug",
+      "sec.name as section_name"
+    );
+  const bySessionId = new Map();
+  for (const r of rows) {
+    if (!bySessionId.has(r.session_id)) bySessionId.set(r.session_id, []);
+    bySessionId.get(r.session_id).push({
+      section_slug: r.section_slug,
+      section_name: r.section_name,
+    });
+  }
+  return payload.map((p) => ({ ...p, sections: bySessionId.get(p.id) || [] }));
+}
+
 router.get(
   "/patients/:patientId/sessions",
   requireAuth,
@@ -386,52 +529,33 @@ router.get(
         return res.status(404).json({ error: "Paciente no encontrado" });
       }
 
-      const rows = await db("sessions as s")
-        .leftJoin("session_results as sr", function joinResults() {
-          this.on("sr.session_id", "=", "s.id").andOnNull("sr.section_id");
-        })
-        .where("s.patient_id", patientId)
-        .orderBy("s.created_at", "desc")
-        .select(
-          "s.id",
-          "s.status",
-          "s.created_at",
-          "s.started_at",
-          "s.completed_at",
-          "s.abandoned_at",
-          "sr.total_questions",
-          "sr.answered_questions",
-          "sr.correct_count",
-          "sr.incorrect_count",
-          "sr.accuracy",
-          "sr.completion_rate",
-          "sr.mean_latency_ms"
-        );
-
-      const payload = rows.map((r) => {
-        const base = {
-          id: r.id,
-          status: r.status,
-          created_at: r.created_at,
-          started_at: r.started_at,
-          completed_at: r.completed_at,
-          abandoned_at: r.abandoned_at,
-        };
-        if (r.status === "completed" && r.total_questions != null) {
-          base.summary = {
-            total_questions: r.total_questions,
-            answered_questions: r.answered_questions,
-            correct_count: r.correct_count,
-            incorrect_count: r.incorrect_count,
-            accuracy: r.accuracy !== null ? Number(r.accuracy) : null,
-            completion_rate: r.completion_rate !== null ? Number(r.completion_rate) : null,
-            mean_latency_ms: r.mean_latency_ms !== null ? Number(r.mean_latency_ms) : null,
-          };
-        }
-        return base;
-      });
-
+      const payload = await fetchPatientSessionsCore(patientId);
       return res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/patient/sessions
+// Historial propio del paciente autenticado (7H.2). patient_id se deriva
+// SIEMPRE de req.user.id; jamás se acepta del cliente. La derivación
+// "completada hoy" es responsabilidad del frontend.
+router.get(
+  "/patient/sessions",
+  requireAuth,
+  requireRole("patient"),
+  async (req, res, next) => {
+    try {
+      const patient = await db("users")
+        .where({ id: req.user.id, role: "patient", is_active: true })
+        .first();
+      if (!patient) {
+        return res.status(403).json({ error: "Paciente no activo" });
+      }
+      const base = await fetchPatientSessionsCore(patient.id);
+      const withSections = await attachSectionsToSessions(base);
+      return res.json(withSections);
     } catch (err) {
       next(err);
     }
@@ -717,6 +841,12 @@ router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
         status: "missing_answers",
       });
     }
+
+    // 7J.2 — La transacción de complete YA hizo commit. Disparar generación
+    // automática del análisis IA sin bloquear la respuesta al paciente. Si
+    // Ollama está offline, timea o rechaza el output, el estado failed queda
+    // registrado en session_analyses pero la sesión permanece completed.
+    autoAnalysisState.trigger(outcome.session.id);
 
     return res.json({
       id: outcome.session.id,

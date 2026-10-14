@@ -447,13 +447,19 @@ describe("MenteActiva critical flows", () => {
 
     await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
 
-    const call = calls.find((c) => c.url.includes("/patient/sessions"));
+    // 7H.2: la ruta /patient/sessions ahora atiende GET (historial) y POST (crear).
+    // Buscar específicamente el POST para no colisionar con el GET de arranque.
+    const call = calls.find((c) => c.url.includes("/patient/sessions") && c.method === "POST");
     expect(call).toBeDefined();
-    expect(call.method).toBe("POST");
     const body = JSON.parse(call.body);
-    expect(body).toEqual({ sections: [{ section_slug: "memoria_de_trabajo", question_count: 4 }] });
+    // Contrato actual (post training-config server-side + mood opcional):
+    // - question_count NO se envía: lo resuelve el backend desde users.max_questions.
+    // - patient_reported_mood NO se envía cuando el paciente no autorreportó
+    //   (el default interno es null; "sin registrar" ya no es un valor transportable).
+    expect(body).toEqual({ sections: [{ section_slug: "memoria_de_trabajo" }] });
     expect(body.patient_id).toBeUndefined();
     expect(body.professional_id).toBeUndefined();
+    expect(body.patient_reported_mood).toBeUndefined();
     expect(window.location.hash).toBe("#/activity/market");
   });
 
@@ -1327,8 +1333,8 @@ describe("MenteActiva critical flows", () => {
     expect(screen.queryByText(/Rendimiento óptimo|Requiere apoyo|Riesgo/)).not.toBeInTheDocument();
     // No hay observación IA para paciente real
     expect(screen.queryByRole("button", { name: /generar observaci[oó]n/i })).not.toBeInTheDocument();
-    // Placeholder de análisis
-    expect(screen.getByText(/an[aá]lisis asistido estar[aá] disponible pr[oó]ximamente/i)).toBeInTheDocument();
+    // Panel Análisis asistido: sin sesión seleccionada muestra hint neutro (7H).
+    expect(screen.getByText(/Seleccion[aá] una sesi[oó]n del historial para ver o generar un an[aá]lisis/i)).toBeInTheDocument();
   });
 
   test("6D.5: patient con sesiones reales muestra métricas de la última completada e historial", async () => {

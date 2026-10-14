@@ -106,12 +106,24 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
       });
     }
     await db("questions").insert(questionsToInsert);
+
+    // Tras la migración 013, POST /api/patient/sessions ignora question_count
+    // del cliente y usa users.max_questions. Estos tests fijaron sus expectativas
+    // ANTES de ese cambio; para preservarlas seteamos max_questions=2 por defecto
+    // y en cada helper ajustamos según el count solicitado por el test.
+    await db("users").where("id", patient.id).update({ max_questions: 2 });
   });
 
   after(async () => {
     await cleanTestData();
     await db.destroy();
   });
+
+  // Helper local: fija max_questions del paciente para que la sesión creada
+  // por el backend contenga la cantidad esperada por el test.
+  async function setPatientMaxQuestions(n) {
+    await db("users").where("id", patient.id).update({ max_questions: n });
+  }
 
   it("patient creates own session; patient_id and professional_id come from server context", async () => {
     const res = await request(app)
@@ -205,12 +217,91 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
     assert.equal(res.status, 400);
   });
 
-  it("returns 400 for invalid question_count", async () => {
+  it("mood: persiste patient_reported_mood válido pasado por el cliente", async () => {
+    await setPatientMaxQuestions(2);
+    const res = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId }], patient_reported_mood: "bien" });
+    assert.equal(res.status, 201);
+    const row = await db("sessions").where({ id: res.body.id }).first();
+    assert.equal(row.patient_reported_mood, "bien");
+  });
+
+  it("mood: sin patient_reported_mood → NULL en DB", async () => {
+    await setPatientMaxQuestions(2);
+    const res = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId }] });
+    assert.equal(res.status, 201);
+    const row = await db("sessions").where({ id: res.body.id }).first();
+    assert.equal(row.patient_reported_mood, null);
+  });
+
+  it("mood: patient_reported_mood=null explícito → NULL en DB", async () => {
+    await setPatientMaxQuestions(2);
+    const res = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId }], patient_reported_mood: null });
+    assert.equal(res.status, 201);
+    const row = await db("sessions").where({ id: res.body.id }).first();
+    assert.equal(row.patient_reported_mood, null);
+  });
+
+  it("mood: valor inválido → 400", async () => {
+    await setPatientMaxQuestions(2);
+    const res = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId }], patient_reported_mood: "furia" });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error || "", /patient_reported_mood/i);
+  });
+
+  it("mood: una vez snapshot, no se altera retroactivamente al mutar user state", async () => {
+    await setPatientMaxQuestions(2);
+    const create = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId }], patient_reported_mood: "cansancio" });
+    const sessionId = create.body.id;
+    // Un segundo POST con otro mood crea una sesión distinta — no debe
+    // modificar la primera.
+    await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId }], patient_reported_mood: "bien" });
+    const row = await db("sessions").where({ id: sessionId }).first();
+    assert.equal(row.patient_reported_mood, "cansancio");
+  });
+
+  it("mood: GET /api/patients/:id/sessions devuelve patient_reported_mood", async () => {
+    await setPatientMaxQuestions(2);
+    const create = await request(app)
+      .post("/api/patient/sessions")
+      .set("Authorization", patientAuth)
+      .send({ sections: [{ section_id: testSectionId }], patient_reported_mood: "calma" });
+    const res = await request(app)
+      .get(`/api/patients/${patient.id}/sessions`)
+      .set("Authorization", profAuth);
+    assert.equal(res.status, 200);
+    const row = res.body.find((r) => r.id === create.body.id);
+    assert.ok(row, "falta la sesión recién creada");
+    assert.equal(row.patient_reported_mood, "calma");
+  });
+
+  it("ignora question_count enviado por el cliente y usa max_questions persistido", async () => {
+    // Nuevo contrato (migración 013): el backend resuelve cantidad desde la
+    // configuración del paciente; cualquier question_count del body se ignora.
+    await setPatientMaxQuestions(2);
     const res = await request(app)
       .post("/api/patient/sessions")
       .set("Authorization", patientAuth)
       .send({ sections: [{ section_id: testSectionId, question_count: 0 }] });
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.sections[0].questions.length, 2);
   });
 
   it("returns 404 for a non-existent section", async () => {
@@ -511,10 +602,11 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
 
   describe("GET /api/patients/:patientId/sessions — 6D.5", () => {
     async function createAndCompleteSession(patientAuthLocal) {
+      await setPatientMaxQuestions(1);
       const create = await request(app)
         .post("/api/patient/sessions")
         .set("Authorization", patientAuthLocal)
-        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+        .send({ sections: [{ section_id: testSectionId }] });
       const s = create.body;
       await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuthLocal);
       await request(app)
@@ -526,10 +618,11 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
     }
 
     async function createAndAbandonSession(patientAuthLocal) {
+      await setPatientMaxQuestions(1);
       const create = await request(app)
         .post("/api/patient/sessions")
         .set("Authorization", patientAuthLocal)
-        .send({ sections: [{ section_id: testSectionId, question_count: 1 }] });
+        .send({ sections: [{ section_id: testSectionId }] });
       const s = create.body;
       await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuthLocal);
       await request(app).post(`/api/sessions/${s.id}/abandon`).set("Authorization", patientAuthLocal);
@@ -631,10 +724,11 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
 
   describe("POST /api/sessions/:id/complete — 6D.4", () => {
     async function createStartedSession(count = 2) {
+      await setPatientMaxQuestions(count);
       const create = await request(app)
         .post("/api/patient/sessions")
         .set("Authorization", patientAuth)
-        .send({ sections: [{ section_id: testSectionId, question_count: count }] });
+        .send({ sections: [{ section_id: testSectionId }] });
       const s = create.body;
       await request(app).post(`/api/sessions/${s.id}/start`).set("Authorization", patientAuth);
       return s;

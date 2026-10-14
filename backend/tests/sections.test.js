@@ -216,7 +216,9 @@ describe("API", () => {
       assert.ok(res.body.section);
       assert.equal(res.body.section.slug, "memoria_de_trabajo");
       assert.ok(Array.isArray(res.body.questions));
-      assert.equal(res.body.questions.length, 35);
+      // Al menos 35 (5 legacy + 30 bank_v1). bank_v2 agrega más — se cuenta
+      // con >= para no romper al ampliarse el banco en el futuro.
+      assert.ok(res.body.questions.length >= 35, `Expected >=35 questions, got ${res.body.questions.length}`);
 
       const legacy = res.body.questions.filter(
         (q) => q.source === "legacy_seed_v1"

@@ -26,14 +26,24 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
   const googleBtnRef = useRef(null);
   const [googleReady, setGoogleReady] = useState(false);
 
-  const handleGoogleResponse = useCallback(
-    (response) => {
-      if (response.credential) {
-        onGoogleLogin(response.credential);
-      }
-    },
-    [onGoogleLogin]
-  );
+  // Ref al último onGoogleLogin: mantiene el callback estable sin
+  // reinicializar Google Identity Services en cada render.
+  const onGoogleLoginRef = useRef(onGoogleLogin);
+  useEffect(() => {
+    onGoogleLoginRef.current = onGoogleLogin;
+  }, [onGoogleLogin]);
+
+  const handleGoogleResponse = useCallback((response) => {
+    // [DEBUG-TEMP google-auth] instrumentación para diagnosticar "Failed to fetch" en primer intento.
+    // Retirar cuando se cierre el bug.
+    if (typeof window !== "undefined") {
+      window.__gAuthAttempt = (window.__gAuthAttempt || 0) + 1;
+      console.debug(`[google-auth][attempt-${window.__gAuthAttempt}] callback recibido; hasCredential=${!!response?.credential} t=${Date.now()}`);
+    }
+    if (response.credential) {
+      onGoogleLoginRef.current?.(response.credential);
+    }
+  }, []);
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return;
