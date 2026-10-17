@@ -16,6 +16,7 @@ const OLLAMA_MAP = Object.freeze({
   [OllamaErrorCodes.OLLAMA_HTTP_ERROR]: "OLLAMA_HTTP_ERROR",
   [OllamaErrorCodes.EMPTY_RESPONSE]:    "OLLAMA_EMPTY_RESPONSE",
   [OllamaErrorCodes.INVALID_JSON]:      "OLLAMA_INVALID_JSON",
+  [OllamaErrorCodes.OLLAMA_CONFIG_INVALID]: "OLLAMA_CONFIG_INVALID",
 });
 
 const ANALYSIS_MAP = Object.freeze({

@@ -51,6 +51,65 @@ export function getOllamaConfig() {
   return { url, model, timeoutMs, enabled };
 }
 
+// Lee OLLAMA_EXTRA_HEADERS (JSON) y valida que sea un objeto plano {string: string}.
+// Permite enviar headers de autenticación hacia servidores Ollama protegidos
+// (ej: Cloudflare Access service tokens: CF-Access-Client-Id / CF-Access-Client-Secret).
+//
+// Reglas:
+// - Ausente o vacío → {} (comportamiento idéntico al previo).
+// - Debe parsear a objeto JSON (no array, no null, no primitivo).
+// - Claves no vacías string; valores string.
+// - No puede sobrescribir "Content-Type" (comparación case-insensitive).
+// - Cualquier violación → OllamaClientError(OLLAMA_CONFIG_INVALID) con mensaje
+//   genérico que NO incluye el contenido crudo (puede contener credenciales).
+function readExtraHeaders() {
+  const raw = process.env.OLLAMA_EXTRA_HEADERS;
+  if (raw === undefined || raw === null) return {};
+  const trimmed = String(raw).trim();
+  if (trimmed === "") return {};
+
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new OllamaClientError(
+      OllamaErrorCodes.OLLAMA_CONFIG_INVALID,
+      "OLLAMA_EXTRA_HEADERS no es JSON válido"
+    );
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new OllamaClientError(
+      OllamaErrorCodes.OLLAMA_CONFIG_INVALID,
+      "OLLAMA_EXTRA_HEADERS debe ser un objeto JSON de pares string:string"
+    );
+  }
+
+  const out = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof key !== "string" || key === "") {
+      throw new OllamaClientError(
+        OllamaErrorCodes.OLLAMA_CONFIG_INVALID,
+        "OLLAMA_EXTRA_HEADERS contiene una clave inválida"
+      );
+    }
+    if (typeof value !== "string") {
+      throw new OllamaClientError(
+        OllamaErrorCodes.OLLAMA_CONFIG_INVALID,
+        "OLLAMA_EXTRA_HEADERS contiene un valor que no es string"
+      );
+    }
+    if (key.toLowerCase() === "content-type") {
+      throw new OllamaClientError(
+        OllamaErrorCodes.OLLAMA_CONFIG_INVALID,
+        "OLLAMA_EXTRA_HEADERS no puede sobrescribir Content-Type"
+      );
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 // Traduce errores nativos de fetch/AbortController a códigos tipados.
 // Node 18+: fetch usa undici; distintos códigos aparecen anidados en `cause`.
 function classifyFetchError(err) {
@@ -116,6 +175,10 @@ export async function generate(
     );
   }
 
+  // Validar headers extra antes de iniciar el timer. Si está mal configurado,
+  // falla rápido con OLLAMA_CONFIG_INVALID; el mensaje NO contiene el valor crudo.
+  const extraHeaders = readExtraHeaders();
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -150,7 +213,9 @@ export async function generate(
   try {
     res = await doFetch(`${cfg.url}/api/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Content-Type va primero y los extras se agregan después, pero
+      // readExtraHeaders() ya rechazó cualquier intento de sobrescribirlo.
+      headers: { "Content-Type": "application/json", ...extraHeaders },
       body: JSON.stringify(body),
       signal: controller.signal,
     });

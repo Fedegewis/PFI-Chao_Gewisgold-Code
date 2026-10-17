@@ -10,6 +10,7 @@ export const OllamaErrorCodes = Object.freeze({
   OLLAMA_HTTP_ERROR: "OLLAMA_HTTP_ERROR",   // otro status != 2xx
   EMPTY_RESPONSE: "EMPTY_RESPONSE",         // 200 pero data.response vacía/ausente
   INVALID_JSON: "INVALID_JSON",             // cuerpo del servidor no es JSON parseable
+  OLLAMA_CONFIG_INVALID: "OLLAMA_CONFIG_INVALID", // env de configuración malformada (ej: OLLAMA_EXTRA_HEADERS)
 });
 
 export class OllamaClientError extends Error {

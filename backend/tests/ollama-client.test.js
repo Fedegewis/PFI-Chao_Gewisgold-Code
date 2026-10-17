@@ -16,7 +16,13 @@ import {
   OllamaErrorCodes,
 } from "../src/services/ai/errors.js";
 
-const ENV_KEYS = ["AI_ENABLED", "OLLAMA_URL", "OLLAMA_MODEL", "OLLAMA_TIMEOUT_MS"];
+const ENV_KEYS = [
+  "AI_ENABLED",
+  "OLLAMA_URL",
+  "OLLAMA_MODEL",
+  "OLLAMA_TIMEOUT_MS",
+  "OLLAMA_EXTRA_HEADERS",
+];
 const originalEnv = {};
 
 function saveEnv() {
@@ -309,6 +315,131 @@ describe("ollamaClient", () => {
         (err) => err.code === OllamaErrorCodes.OLLAMA_TIMEOUT
       );
       assert.ok(Date.now() - t0 < 1000, "no debería colgarse cerca del default");
+    });
+  });
+
+  describe("OLLAMA_EXTRA_HEADERS", () => {
+    function captureHeadersStub() {
+      const captured = {};
+      const stub = async (_url, init) => {
+        captured.headers = init.headers;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ response: "ok" }),
+          text: async () => "",
+        };
+      };
+      return { stub, captured };
+    }
+
+    it("sin la env no envía headers adicionales (comportamiento base intacto)", async () => {
+      delete process.env.OLLAMA_EXTRA_HEADERS;
+      const { stub, captured } = captureHeadersStub();
+      await generate({ prompt: "p" }, { fetchImpl: stub });
+      assert.equal(captured.headers["Content-Type"], "application/json");
+      assert.equal(Object.keys(captured.headers).length, 1);
+    });
+
+    it("string vacío equivale a no setear la env", async () => {
+      process.env.OLLAMA_EXTRA_HEADERS = "   ";
+      const { stub, captured } = captureHeadersStub();
+      await generate({ prompt: "p" }, { fetchImpl: stub });
+      assert.equal(Object.keys(captured.headers).length, 1);
+      assert.equal(captured.headers["Content-Type"], "application/json");
+    });
+
+    it("envía headers válidos (CF-Access service token) junto con Content-Type", async () => {
+      process.env.OLLAMA_EXTRA_HEADERS = JSON.stringify({
+        "CF-Access-Client-Id": "abc.id",
+        "CF-Access-Client-Secret": "shh-secret",
+      });
+      const { stub, captured } = captureHeadersStub();
+      await generate({ prompt: "p" }, { fetchImpl: stub });
+      assert.equal(captured.headers["Content-Type"], "application/json");
+      assert.equal(captured.headers["CF-Access-Client-Id"], "abc.id");
+      assert.equal(captured.headers["CF-Access-Client-Secret"], "shh-secret");
+    });
+
+    it("rechaza JSON inválido con OLLAMA_CONFIG_INVALID sin exponer el contenido", async () => {
+      process.env.OLLAMA_EXTRA_HEADERS = "{not-json";
+      await assert.rejects(
+        () => generate({ prompt: "p" }, { fetchImpl: mockFetchOk() }),
+        (err) => {
+          assert.ok(err instanceof OllamaClientError);
+          assert.equal(err.code, OllamaErrorCodes.OLLAMA_CONFIG_INVALID);
+          assert.ok(
+            !err.message.includes("{not-json"),
+            "mensaje de error no debe incluir el contenido crudo"
+          );
+          return true;
+        }
+      );
+    });
+
+    it("rechaza array JSON (no es objeto plano)", async () => {
+      process.env.OLLAMA_EXTRA_HEADERS = JSON.stringify(["foo", "bar"]);
+      await assert.rejects(
+        () => generate({ prompt: "p" }, { fetchImpl: mockFetchOk() }),
+        (err) => err.code === OllamaErrorCodes.OLLAMA_CONFIG_INVALID
+      );
+    });
+
+    it("rechaza primitivo JSON (string)", async () => {
+      process.env.OLLAMA_EXTRA_HEADERS = JSON.stringify("plain-string");
+      await assert.rejects(
+        () => generate({ prompt: "p" }, { fetchImpl: mockFetchOk() }),
+        (err) => err.code === OllamaErrorCodes.OLLAMA_CONFIG_INVALID
+      );
+    });
+
+    it("rechaza valor no-string sin filtrarlo al mensaje", async () => {
+      process.env.OLLAMA_EXTRA_HEADERS = JSON.stringify({
+        Authorization: 1234567890,
+      });
+      await assert.rejects(
+        () => generate({ prompt: "p" }, { fetchImpl: mockFetchOk() }),
+        (err) => {
+          assert.equal(err.code, OllamaErrorCodes.OLLAMA_CONFIG_INVALID);
+          assert.ok(
+            !err.message.includes("1234567890"),
+            "mensaje no debe incluir el valor crudo"
+          );
+          return true;
+        }
+      );
+    });
+
+    it("rechaza intento de sobrescribir Content-Type (case-insensitive) sin leakear el valor", async () => {
+      const sneakyValue = "evil/override; charset=secret-abc123";
+      process.env.OLLAMA_EXTRA_HEADERS = JSON.stringify({
+        "content-type": sneakyValue,
+      });
+      await assert.rejects(
+        () => generate({ prompt: "p" }, { fetchImpl: mockFetchOk() }),
+        (err) => {
+          assert.equal(err.code, OllamaErrorCodes.OLLAMA_CONFIG_INVALID);
+          assert.ok(
+            !err.message.includes(sneakyValue),
+            "mensaje no debe incluir el valor del header rechazado"
+          );
+          return true;
+        }
+      );
+    });
+
+    it("falla rápido: no realiza la llamada HTTP si la config es inválida", async () => {
+      process.env.OLLAMA_EXTRA_HEADERS = "{broken";
+      let called = false;
+      const stub = async () => {
+        called = true;
+        return { ok: true, status: 200, json: async () => ({ response: "x" }), text: async () => "" };
+      };
+      await assert.rejects(
+        () => generate({ prompt: "p" }, { fetchImpl: stub }),
+        (err) => err.code === OllamaErrorCodes.OLLAMA_CONFIG_INVALID
+      );
+      assert.equal(called, false);
     });
   });
 
