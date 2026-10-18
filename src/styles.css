@@ -41,7 +41,7 @@ textarea { min-height: 150px; resize: vertical; }
 .danger { display: inline-flex; align-items: center; gap: 8px; border: 2px solid #b3261e; border-radius: 8px; background: white; padding: 8px 14px; color: #b3261e; font-weight: 900; }
 .danger:hover:not(:disabled) { background: #fdecea; }
 .danger:disabled { cursor: not-allowed; opacity: 0.6; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+.modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .invite-link-box { margin-top: 12px; padding: 12px; border: 2px solid #d5decf; border-radius: 8px; background: #fbfaf5; }
 .invite-link-box label { display: block; font-size: 0.75rem; font-weight: 900; margin-bottom: 6px; color: #3d4f38; }
 .invite-link-row { display: flex; gap: 8px; align-items: stretch; }
@@ -87,6 +87,7 @@ textarea { min-height: 150px; resize: vertical; }
 .done-badge { background: white; color: #15803d; }
 .start-button { background: #617a58; color: white; }
 .patient-aside, .professional-stack, .patient-list, .create-box, .answer-grid, .question-bank { display: grid; gap: 22px; align-content: start; }
+.answer-grid { grid-template-columns: minmax(0, 1fr); }
 .patient-aside .panel { padding: 24px; }
 .performance-panel { display: grid; gap: 20px; }
 .performance-head { align-items: flex-start; }
@@ -143,7 +144,7 @@ textarea { min-height: 150px; resize: vertical; }
 .session-card { display: grid; gap: 5px; margin-top: 22px; border-radius: 8px; background: rgba(255,255,255,0.16); padding: 16px; }
 .session-card p, .session-card span { margin: 0; color: white; font-weight: 900; }
 .question-panel { min-width: 0; }
-.question-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.question-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; row-gap: 4px; }
 .question-header h2 { margin: 0; font-size: 1.875rem; }
 .question-header span { border-radius: 8px; background: #e4ecdf; padding: 8px 12px; color: #30442a; font-weight: 950; }
 .question-text { font-size: 1.375rem; color: #33422e; }
@@ -406,4 +407,29 @@ textarea { min-height: 150px; resize: vertical; }
 @media (max-width: 480px) {
   .training-config-inline__head { flex-wrap: wrap; }
   .training-actions .training-save { width: 100%; justify-content: center; }
+}
+
+/* D.1 + D.7 — Compactar el encabezado de .activity-prompt en móviles para
+   que la pregunta y las opciones queden visibles con el menor scroll
+   posible. Solo afecta anchos ≤ 760 px; desktop intacto.
+   Decisiones de contenido:
+   - h1 permanece en 24 px (1.5rem).
+   - Barra de progreso y "Respondidas: X/Y" permanecen visibles.
+   - StatusChip permanece a 14 px (0.875rem); sólo se compacta su padding.
+   - activity.intro (texto genérico ya visible en la ActivityCard, no es
+     instrucción para resolver la pregunta) → oculto en móvil.
+   - "La sesión se registra al finalizar" y "Cada actividad completada se
+     suma a tu progreso" → notas operativa y aspiracional, no instrucciones;
+     ocultas en móvil para dejar visible "Respondidas: X/Y". */
+@media (max-width: 760px) {
+  .back-link { margin-bottom: 12px; }
+  .activity-prompt { padding: 14px 16px; }
+  .activity-prompt h1 { font-size: 1.5rem; line-height: 1.1; margin: 6px 0 0; }
+  .activity-prompt .session-progress { margin-top: 12px; gap: 6px; }
+  .activity-prompt .prompt-copy { display: none; }
+  .activity-prompt .chip-row { gap: 6px; margin-top: 12px; }
+  .activity-prompt .status-chip { padding: 6px 10px; }
+  .activity-prompt .session-card { margin-top: 12px; padding: 10px 12px; gap: 2px; }
+  .activity-prompt .session-card p { display: none; }
+  .activity-prompt .session-card span:last-child { display: none; }
 }
