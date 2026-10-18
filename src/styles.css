@@ -66,7 +66,7 @@ textarea { min-height: 150px; resize: vertical; }
 .garden-strip { display: grid; gap: 22px; padding: 30px; background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,247,236,0.72)), linear-gradient(90deg, rgba(97,122,88,0.08) 1px, transparent 1px); background-size: auto, 36px 36px; }
 .garden-strip h1, .section-head h2 { margin: 0; font-size: clamp(1.875rem, 4vw, 2.75rem); line-height: 1.08; }
 .plant-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
-.plant-pot { display: grid; min-height: 104px; place-items: center; border: 2px solid #d5decf; border-radius: 8px; background: #f8faf6; color: #687763; font-weight: 950; text-align: center; }
+.plant-pot { display: grid; min-height: 104px; place-items: center; border: 2px solid #d5decf; border-radius: 8px; background: #f8faf6; color: #52624d; font-weight: 950; text-align: center; }
 .plant-today { border-color: #617a58; background: #e4ecdf; color: #30442a; }
 .plant-done { border-color: #c58f73; background: #fff2e8; color: #9a5d3f; }
 .section-head { justify-content: space-between; gap: 18px; margin: 26px 0 20px; }
@@ -407,6 +407,36 @@ textarea { min-height: 150px; resize: vertical; }
 @media (max-width: 480px) {
   .training-config-inline__head { flex-wrap: wrap; }
   .training-actions .training-save { width: 100%; justify-content: center; }
+}
+
+/* C.1–C.7 — Mejoras responsive de PatientScreen en móviles (≤ 760 px).
+   Solo afecta móvil; desktop/tablet intacto.
+   - C.1 MoodPanel: wrap a 3+2 chips en grid (sin scroll horizontal).
+   - C.2 GardenStrip: pots compactos (min-height 72 px, icon 24 px) y h1 reducido;
+     se mantienen las etiquetas "Pendiente/Hoy/Completada" a 14 px (0.875rem).
+   - C.3 ActivityCard: min-height 140 px, padding 16 px, tipografía adaptada.
+   - C.4 patient-aside: panel padding 16 px (gana ancho útil).
+   - C.6 garden-welcome: padding/font reducidos (mantiene saludo + mensaje).
+   - C.7 performance-ring: 184 px → 140 px en móvil. */
+@media (max-width: 760px) {
+  .garden-welcome { padding: 12px 14px; margin-bottom: 14px; font-size: 1rem; }
+  .garden-strip { padding: 10px; gap: 14px; }
+  .garden-strip h1 { font-size: 1.25rem; line-height: 1.15; }
+  /* 2 cols a móvil: 10 pots × 5 filas, pero garantiza que las etiquetas
+     "Completada"/"Pendiente" entran en una línea a 14 px sin desbordar. */
+  .plant-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .plant-pot { min-height: 64px; padding: 6px 8px; }
+  .plant-pot svg { width: 24px; height: 24px; }
+  .plant-pot span { font-size: 0.875rem; white-space: nowrap; }
+  .activity-card { min-height: 140px; padding: 16px; gap: 14px; }
+  .activity-card .activity-icon { width: 48px; height: 48px; }
+  .activity-card h3 { font-size: 1.25rem; }
+  .activity-card p { font-size: 0.9375rem; }
+  .patient-aside .panel { padding: 16px; }
+  .mood-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; overflow-x: visible; }
+  .mood-chip { min-width: 0; }
+  .performance-ring { width: 140px; height: 140px; }
+  .performance-ring-center strong { font-size: 2.25rem; }
 }
 
 /* D.1 + D.7 — Compactar el encabezado de .activity-prompt en móviles para
