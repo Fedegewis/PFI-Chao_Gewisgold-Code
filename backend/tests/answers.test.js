@@ -4,6 +4,10 @@ import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
 import { authHeaderFor } from "./helpers.js";
+import {
+  setAutoAnalysisTrigger,
+  resetAutoAnalysisTrigger,
+} from "../src/routes/sessions.js";
 
 let professional;
 let patient;
@@ -412,6 +416,100 @@ describe("Answers & Results API", () => {
       const res = await completeSession(session.id);
       assert.equal(res.status, 409);
       assert.ok(res.body.error.includes("created"));
+    });
+
+    // Regresión H-S1 — sesión multi-sección donde una está incompleta.
+    // Antes del fix, el handler insertaba session_results parciales
+    // para las secciones completas y luego devolvía 409, dejando
+    // basura persistida y haciendo que el retry chocara con el
+    // UNIQUE(session_id, section_id) y respondiera "already_completed"
+    // engañosamente. Después del fix, nada se persiste hasta que
+    // TODAS las secciones estén completas.
+    describe("multi-section atomicity (H-S1)", () => {
+      let aiCalls;
+      before(() => {
+        aiCalls = [];
+        setAutoAnalysisTrigger((sessionId) => {
+          aiCalls.push(sessionId);
+        });
+      });
+      after(() => {
+        resetAutoAnalysisTrigger();
+      });
+
+      it("no persiste resultados parciales ni dispara IA cuando falta una sección", async () => {
+        aiCalls.length = 0;
+        const session = await createSession([
+          { section_id: testSectionId1, question_count: 2 },
+          { section_id: testSectionId2, question_count: 2 },
+        ]);
+        await startSession(session.id);
+
+        // Responder COMPLETA la sección 1
+        for (const sq of session.sections[0].questions) {
+          await answerQuestion(session.id, sq.id, 0);
+        }
+        // Responder sólo UNA de las 2 preguntas de la sección 2 → incompleta
+        await answerQuestion(session.id, session.sections[1].questions[0].id, 0);
+
+        const res = await completeSession(session.id);
+        assert.equal(res.status, 409);
+        assert.equal(res.body.status, "missing_answers");
+
+        // Garantía H-S1: NINGUNA fila session_results fue insertada.
+        const results = await db("session_results")
+          .where({ session_id: session.id });
+        assert.equal(
+          results.length,
+          0,
+          "No deben persistir resultados parciales ni globales"
+        );
+
+        // La sesión sigue in_progress
+        const row = await db("sessions").where({ id: session.id }).first();
+        assert.equal(row.status, "in_progress");
+        assert.equal(row.completed_at, null);
+
+        // IA no debe haber sido disparada
+        assert.equal(aiCalls.length, 0, "No se dispara IA en intento incompleto");
+
+        // Al completar la respuesta faltante y reintentar, el /complete
+        // debe funcionar correctamente (no debe fallar con UNIQUE 23505 ni
+        // devolver "already_completed").
+        await answerQuestion(session.id, session.sections[1].questions[1].id, 0);
+        const retry = await completeSession(session.id);
+        assert.equal(retry.status, 200);
+        assert.equal(retry.body.status, "completed");
+        assert.ok(retry.body.completed_at);
+
+        // Ahora sí deben existir las filas: una por sección + global
+        const final = await db("session_results")
+          .where({ session_id: session.id });
+        const sectionRows = final.filter((r) => r.section_id !== null);
+        const globalRows = final.filter((r) => r.section_id === null);
+        assert.equal(sectionRows.length, 2, "una fila por sección");
+        assert.equal(globalRows.length, 1, "una fila global");
+
+        // Métricas globales coherentes: 4 preguntas totales (2 + 2),
+        // 4 respondidas, todas correctas.
+        const globalRow = globalRows[0];
+        assert.equal(Number(globalRow.total_questions), 4);
+        assert.equal(Number(globalRow.answered_questions), 4);
+        assert.equal(Number(globalRow.correct_count), 4);
+        assert.equal(Number(globalRow.incorrect_count), 0);
+
+        // Sesión queda completed
+        const completedRow = await db("sessions").where({ id: session.id }).first();
+        assert.equal(completedRow.status, "completed");
+
+        // IA disparada exactamente UNA vez (en el /complete exitoso)
+        assert.equal(
+          aiCalls.length,
+          1,
+          "IA se dispara exactamente una vez cuando la sesión finaliza correctamente"
+        );
+        assert.equal(aiCalls[0], session.id);
+      });
     });
   });
 
