@@ -1,5 +1,5 @@
 import { AlertTriangle, BarChart3, CalendarDays, CheckCircle2, Clock3, Target, Timer, Trash2, TrendingUp, User } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MetricCard } from "../common/MetricCard.jsx";
 import { AnalysisAsistidoPanel } from "./AnalysisAsistidoPanel.jsx";
 import { TrainingConfigPanel } from "./TrainingConfigPanel.jsx";
@@ -38,20 +38,36 @@ const MOOD_LABELS = {
 };
 
 function EvolutionChartBackend({ completedSessions }) {
-  if (completedSessions.length < 2) {
+  const barsRef = useRef(null);
+  const [overflow, setOverflow] = useState(false);
+  const recent = completedSessions.length < 2
+    ? null
+    : completedSessions.slice(0, 8).slice().reverse();
+
+  useEffect(() => {
+    const el = barsRef.current;
+    if (!el) return undefined;
+    const check = () => setOverflow(el.scrollWidth > el.clientWidth);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [recent]);
+
+  if (!recent) {
     return (
       <div className="empty-chart">
         Se necesita al menos 2 sesiones completadas para mostrar evolución.
       </div>
     );
   }
-  const recent = completedSessions.slice(0, 8).slice().reverse();
+
   return (
     <>
       <div className="sr-only">
         Evolución: {recent.map((s) => `${formatShortDate(s.completed_at)}: ${pctFromRate(s.summary.accuracy)} precisión, ${formatLatency(s.summary.mean_latency_ms)} latencia`).join(". ")}
       </div>
-      <div className="evolution-bars" aria-hidden="true">
+      <div className="evolution-bars" ref={barsRef} aria-hidden="true">
         {recent.map((session) => {
           const acc = session.summary.accuracy != null ? Math.round(session.summary.accuracy * 100) : 0;
           return (
@@ -67,6 +83,9 @@ function EvolutionChartBackend({ completedSessions }) {
           );
         })}
       </div>
+      {overflow && (
+        <p className="scroll-hint" aria-hidden="true">Deslizá para ver más sesiones →</p>
+      )}
     </>
   );
 }
