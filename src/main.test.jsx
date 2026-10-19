@@ -463,6 +463,152 @@ describe("MenteActiva critical flows", () => {
     expect(window.location.hash).toBe("#/activity/market");
   });
 
+  // H-S2 — ítem 9: openActivity envía el slug cuando el mood fue
+  // autoreportado hoy (click sobre el chip del MoodPanel). Los pacientes
+  // backend reconstruyen su objeto en memoria a partir del user autenticado,
+  // así que la selección se hace vía UI justo antes de iniciar la actividad.
+  // Los ítems 10/11 (mood vencido no viaja al backend tras app-overnight)
+  // quedan cubiertos por el unit test de isMoodValidToday + la revisión de
+  // openActivity, que compone estrictamente
+  //   isMoodValidToday(selectedPatient) ? selectedPatient.mood : null.
+  test("openActivity envía el slug cuando el mood fue seleccionado hoy", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    window.location.hash = "#/patient";
+
+    const calls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      calls.push({ url: String(url), method: (opts.method || "GET").toUpperCase(), body: opts.body });
+      if (String(url).includes("/patient/sessions")) {
+        return jsonResponse({ id: 1, patient_id: 42, professional_id: 7, status: "created", sections: [] }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    // Selección de mood vía UI real → onUpdatePatient dispara moodSelectedAt=now
+    const bien = await screen.findByRole("button", { name: /^Bien\./i });
+    await user.click(bien);
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+
+    const call = calls.find((c) => c.url.includes("/patient/sessions") && c.method === "POST");
+    expect(call).toBeDefined();
+    const body = JSON.parse(call.body);
+    expect(body.patient_reported_mood).toBe("bien");
+  });
+
+  // H-S2 — ítem 10/11 (persistencia): mood seteado ayer en storage específico
+  // + openActivity debe mandar NULL al backend aunque el patient se reconstruya
+  // con mood presente desde localStorage.
+  test("openActivity envía null cuando el mood persistido es de ayer", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    localStorage.setItem(
+      "ma_patient_mood_v1",
+      JSON.stringify({ userId: 42, mood: "bien", moodSelectedAt: yesterday.toISOString() })
+    );
+    window.location.hash = "#/patient";
+
+    const calls = [];
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      calls.push({ url: String(url), method: (opts.method || "GET").toUpperCase(), body: opts.body });
+      if (String(url).includes("/patient/sessions")) {
+        return jsonResponse({ id: 1, patient_id: 42, professional_id: 7, status: "created", sections: [] }, 201);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: /lista del supermercado/i }));
+
+    const call = calls.find((c) => c.url.includes("/patient/sessions") && c.method === "POST");
+    expect(call).toBeDefined();
+    const body = JSON.parse(call.body);
+    expect(body.patient_reported_mood).toBeUndefined();
+  });
+
+  // H-S2 — mood seleccionado hoy sobrevive a un reload (el storage específico
+  // reconstruye el mood y la UI lo muestra pressed al cargar la app).
+  test("mood seleccionado hoy sobrevive a un reload", async () => {
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    localStorage.setItem(
+      "ma_patient_mood_v1",
+      JSON.stringify({ userId: 42, mood: "calma", moodSelectedAt: new Date().toISOString() })
+    );
+    window.location.hash = "#/patient";
+
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({}, 200)));
+    renderApp();
+
+    const calma = await screen.findByRole("button", { name: /^Calma\./i });
+    expect(calma).toHaveAttribute("aria-pressed", "true");
+  });
+
+  // H-S2 — mood seleccionado ayer NO sobrevive (refreshDailyPatientState
+  // lo descarta durante el init).
+  test("mood seleccionado ayer NO sobrevive al reload", async () => {
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 42, role: "patient", name: "P", email: "p@p.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    localStorage.setItem(
+      "ma_patient_mood_v1",
+      JSON.stringify({ userId: 42, mood: "calma", moodSelectedAt: yesterday.toISOString() })
+    );
+    window.location.hash = "#/patient";
+
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({}, 200)));
+    renderApp();
+
+    await screen.findByRole("button", { name: /^Calma\./i });
+    const pressed = screen.queryAllByRole("button", { pressed: true });
+    expect(pressed).toHaveLength(0);
+  });
+
+  // H-S2 — cambio de paciente: si el storage pertenece a otro userId, no se
+  // mezcla. El nuevo paciente arranca sin mood seleccionado.
+  test("cambio de paciente no reutiliza el mood del anterior", async () => {
+    localStorage.setItem("ma_auth_token", "patient-jwt");
+    localStorage.setItem(
+      "ma_auth_user",
+      JSON.stringify({ id: 99, role: "patient", name: "Otro", email: "o@o.com", is_active: true })
+    );
+    localStorage.setItem("ma_app_session_v1", JSON.stringify({ role: "patient" }));
+    // Mood pertenece a userId=42, pero el usuario autenticado es 99.
+    localStorage.setItem(
+      "ma_patient_mood_v1",
+      JSON.stringify({ userId: 42, mood: "alegria", moodSelectedAt: new Date().toISOString() })
+    );
+    window.location.hash = "#/patient";
+
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({}, 200)));
+    renderApp();
+
+    await screen.findByRole("button", { name: /^Alegría\./i });
+    const pressed = screen.queryAllByRole("button", { pressed: true });
+    expect(pressed).toHaveLength(0);
+  });
+
   test("patient activity does NOT start if creating the session fails", async () => {
     const user = userEvent.setup();
     localStorage.setItem("ma_auth_token", "patient-jwt");

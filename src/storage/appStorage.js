@@ -2,7 +2,11 @@ const STORAGE_KEYS = {
   patients: "ma_patients_v1",
   sessions: "ma_sessions_v1",
   appSession: "ma_app_session_v1",
-  activityDraft: "ma_activity_draft_v1"
+  activityDraft: "ma_activity_draft_v1",
+  // H-S2 — mood del paciente autenticado (solo mood + fecha). Separado del
+  // storage de patients demo para no mezclar responsabilidades y para poder
+  // asociarlo estrictamente al userId autenticado actual.
+  patientMood: "ma_patient_mood_v1",
 };
 
 function hasStorage() {
@@ -94,4 +98,25 @@ export function saveActivityDraft(draft) {
 
 export function clearActivityDraft() {
   removeStorage(STORAGE_KEYS.activityDraft);
+}
+
+// H-S2 — Persistencia específica del mood autoreportado por el paciente
+// autenticado. El payload es { userId, mood, moodSelectedAt }. La lectura
+// filtra estrictamente por userId para evitar que la selección de un
+// paciente anterior se asigne por error a otro.
+export function savePatientMood({ userId, mood, moodSelectedAt }) {
+  if (userId == null) return;
+  writeStorage(STORAGE_KEYS.patientMood, { userId, mood, moodSelectedAt });
+}
+
+export function loadPatientMood(userId) {
+  if (userId == null) return null;
+  const parsed = readStorage(STORAGE_KEYS.patientMood, null);
+  if (!parsed || typeof parsed !== "object") return null;
+  if (parsed.userId !== userId) return null;
+  return { mood: parsed.mood ?? null, moodSelectedAt: parsed.moodSelectedAt ?? null };
+}
+
+export function clearPatientMood() {
+  removeStorage(STORAGE_KEYS.patientMood);
 }
