@@ -768,9 +768,14 @@ router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
           .where("session_id", sessionId)
           .select("id", "section_id");
 
+        // Fase 1 — cargar preguntas y respuestas de todas las secciones y
+        // verificar completitud ANTES de insertar nada. Si falta aunque sea
+        // una sola respuesta en cualquier sección, abortamos sin dejar filas
+        // parciales en session_results (bug H-S1).
+        const sectionsMissing = [];
+        const perSection = [];
         const allSessionQuestions = [];
         const allAnswers = [];
-        const sectionsMissing = [];
 
         for (const ss of sessionSections) {
           const sqs = await trx("session_questions")
@@ -788,6 +793,7 @@ router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
 
           allSessionQuestions.push(...sqs);
           allAnswers.push(...answers);
+          perSection.push({ ss, sqs, answers });
 
           if (answers.length !== sqs.length) {
             sectionsMissing.push({
@@ -796,19 +802,22 @@ router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
               answered: answers.length,
             });
           }
-
-          const sectionMetrics = calculateMetrics(sqs, answers);
-          if (sectionsMissing.length === 0) {
-            await trx("session_results").insert({
-              session_id: sessionId,
-              section_id: ss.section_id,
-              ...sectionMetrics,
-            });
-          }
         }
 
         if (sectionsMissing.length > 0) {
           return { kind: "incomplete", missing: sectionsMissing };
+        }
+
+        // Fase 2 — todas las secciones están completas: recién ahora
+        // persistimos session_results por sección + global y marcamos la
+        // sesión como completed, todo dentro de la misma transacción.
+        for (const { ss, sqs, answers } of perSection) {
+          const sectionMetrics = calculateMetrics(sqs, answers);
+          await trx("session_results").insert({
+            session_id: sessionId,
+            section_id: ss.section_id,
+            ...sectionMetrics,
+          });
         }
 
         const globalMetrics = calculateMetrics(allSessionQuestions, allAnswers);
