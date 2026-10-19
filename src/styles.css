@@ -44,12 +44,12 @@ textarea { min-height: 150px; resize: vertical; }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .invite-link-box { margin-top: 12px; padding: 12px; border: 2px solid #d5decf; border-radius: 8px; background: #fbfaf5; }
 .invite-link-box label { display: block; font-size: 0.75rem; font-weight: 900; margin-bottom: 6px; color: #3d4f38; }
-.invite-link-row { display: flex; gap: 8px; align-items: stretch; }
+.invite-link-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
 .invite-link-row input { flex: 1; min-height: 40px; font-family: monospace; font-size: 0.75rem; font-weight: 700; }
 .invite-link-row .secondary-action { min-height: 40px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; }
 .pending-invitations { margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(97, 122, 88, 0.18); }
 .pending-invites-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 8px; }
-.pending-invite-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid rgba(97, 122, 88, 0.18); border-radius: 8px; background: rgba(255, 250, 241, 0.7); }
+.pending-invite-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; row-gap: 8px; padding: 10px 12px; border: 1px solid rgba(97, 122, 88, 0.18); border-radius: 8px; background: rgba(255, 250, 241, 0.7); }
 .pending-invite-row .danger { min-height: 32px; padding: 4px 10px; font-size: 0.75rem; }
 .invite-details { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0 16px; padding: 12px; border: 1px solid rgba(97, 122, 88, 0.18); border-radius: 8px; background: rgba(255, 250, 241, 0.7); }
 .invite-details dt { font-weight: 900; color: #3d4f38; font-size: 0.8125rem; }
@@ -191,12 +191,12 @@ textarea { min-height: 150px; resize: vertical; }
 .patient-card-body { display: grid; gap: 2px; min-width: 0; }
 .patient-card-body strong { font-size: 1rem; color: #172114; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .patient-card-body span { color: #52624d; font-size: 0.8125rem; font-weight: 850; }
-.patient-card-body small { color: #405238; font-size: 0.75rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.patient-card-body small { color: #52624d; font-size: 0.75rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .patient-card-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid rgba(97,122,88,0.18); }
 .patient-card-metric { display: grid; gap: 4px; min-width: 0; }
 .patient-card-metric--right { text-align: right; }
 .patient-card-metric em { font-style: normal; font-weight: 800; color: #2f5c4c; font-size: 1.125rem; line-height: 1; letter-spacing: -0.01em; }
-.patient-card-metric small { color: #7c8f74; font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.patient-card-metric small { color: #52624d; font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 .new-patient-inline { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 2px dashed #b8c8b0; border-radius: 8px; background: #fbfaf3; color: #3f5639; font-weight: 950; cursor: pointer; }
 .new-patient-inline:hover { border-color: #617a58; background: #f4f8ee; }
 .new-patient-form { display: grid; gap: 12px; padding: 16px; border: 2px solid rgba(97, 122, 88, 0.34); border-radius: 8px; background: rgba(255, 250, 241, 0.96); }
@@ -211,14 +211,15 @@ textarea { min-height: 150px; resize: vertical; }
 .professional-detail { display: grid; gap: 20px; }
 .detail-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 20px 24px; border: 1px solid rgba(97, 122, 88, 0.18); border-radius: 14px; background: rgba(255, 250, 241, 0.96); box-shadow: 0 8px 32px rgba(50, 70, 44, 0.05); }
 .detail-topbar h2 { margin: 4px 0; font-size: 1.375rem; font-weight: 800; letter-spacing: -0.01em; }
-.detail-topbar small { color: #6b7d64; font-weight: 500; font-size: 0.875rem; }
+.detail-topbar small { color: #52624d; font-weight: 500; font-size: 0.875rem; }
 .detail-topbar .reset-demo { margin: 0; }
 .detail-columns { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 24px; align-items: stretch; }
-.detail-col { display: grid; gap: 24px; grid-template-rows: auto 1fr; }
+.detail-col { display: grid; gap: 24px; grid-template-rows: auto 1fr; min-width: 0; }
+.detail-col > .panel { min-width: 0; }
 .professional-layout .metric-card { border: 1px solid rgba(97, 122, 88, 0.18); border-radius: 14px; box-shadow: 0 4px 18px rgba(50, 70, 44, 0.04); padding: 20px; min-height: unset; }
-.professional-layout .metric-card p { margin: 10px 0 4px; font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.12em; color: #6b7d64; }
+.professional-layout .metric-card p { margin: 10px 0 4px; font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.12em; color: #52624d; }
 .professional-layout .metric-card strong { font-size: 1.625rem; font-weight: 700; letter-spacing: -0.01em; color: #2f3d29; }
-.professional-layout .metric-card span { color: #7c8f74; font-weight: 500; font-size: 0.8125rem; }
+.professional-layout .metric-card span { color: #52624d; font-weight: 500; font-size: 0.8125rem; }
 .professional-layout .metric-card .theme-icon { color: #7fae95; }
 
 .ai-observation .ai-hint { margin: 0 0 6px; max-width: 62ch; font-size: 0.875rem; color: #6b7d64; }
@@ -240,13 +241,13 @@ textarea { min-height: 150px; resize: vertical; }
 .timeline-item { display: grid; grid-template-columns: 20px 1fr; gap: 14px; padding: 10px 0; position: relative; }
 .timeline-dot { display: block; width: 14px; height: 14px; margin-top: 4px; margin-left: -1px; border-radius: 999px; background: #7fae95; box-shadow: 0 0 0 3px #fdfcf6; position: relative; z-index: 1; }
 .timeline-content { display: grid; gap: 4px; }
-.timeline-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.timeline-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; row-gap: 4px; }
 .timeline-head strong { font-size: 0.875rem; font-weight: 700; color: #2f3d29; }
 .timeline-score { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em; }
 .timeline-score--good { background: #e4f0e0; color: #2f5c4c; }
 .timeline-score--mid { background: #fff2e0; color: #8a5b16; }
 .timeline-score--low { background: #fde2dc; color: #9a3412; }
-.timeline-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; color: #6b7d64; font-size: 0.75rem; font-weight: 500; }
+.timeline-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; color: #52624d; font-size: 0.75rem; font-weight: 500; }
 .timeline-meta span[aria-hidden="true"] { opacity: 0.5; }
 .timeline-empty { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 10px; background: #f6f8f2; color: #6b7d64; font-weight: 500; font-size: 0.875rem; }
 .timeline-empty svg { color: #7fae95; flex-shrink: 0; }
@@ -279,7 +280,7 @@ textarea { min-height: 150px; resize: vertical; }
 .form-feedback { border-radius: 8px; padding: 10px 12px; font-size: 0.875rem; font-weight: 900; }
 .form-feedback-success { border: 2px solid #9dc88b; background: #f0f8ed; color: #15803d; }
 .form-feedback-error { border: 2px solid #f1b5a7; background: #fff2ef; color: #9a3412; }
-.evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; overflow-x: auto; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
+.evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; max-width: 100%; overflow-x: auto; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
 .evolution-slot { display: grid; justify-items: center; align-items: end; gap: 6px; height: 100%; grid-template-rows: auto 1fr auto; }
 .evolution-value { font-size: 0.875rem; font-weight: 950; color: #30442a; }
 .evolution-bar { width: 100%; align-self: end; border-radius: 10px 10px 4px 4px; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.24); }
@@ -316,6 +317,9 @@ textarea { min-height: 150px; resize: vertical; }
   .session-table-row > span:nth-child(3)::before, .session-table-row--interactive > span:nth-child(3)::before { content: "Precisión"; }
   .session-table-row > span:nth-child(4)::before, .session-table-row--interactive > span:nth-child(4)::before { content: "Latencia media"; }
 }
+/* M.5 — hint de scroll para EvolutionChart. Se renderiza condicionalmente
+   desde el componente cuando scrollWidth > clientWidth. CSS solo da estilo. */
+.scroll-hint { margin: 8px 0 0; font-size: 0.875rem; color: #52624d; text-align: center; font-weight: 500; }
 .status-chip--good { background: #617a58; }
 .status-chip--warn { background: #b48a2b; }
 .status-chip--muted { background: #7a7f75; }
@@ -407,6 +411,23 @@ textarea { min-height: 150px; resize: vertical; }
 @media (max-width: 480px) {
   .training-config-inline__head { flex-wrap: wrap; }
   .training-actions .training-save { width: 100%; justify-content: center; }
+}
+
+/* M.1 + M.4 — Mejoras responsive del panel profesional en móviles (≤ 760 px).
+   Solo afecta móvil; desktop/tablet intacto.
+   - M.1 paneles: reducir padding para ganar ancho útil.
+   - M.4 MetricCards: compactas sin bajar fuentes < 14 px.
+   - Input del enlace de invitación ocupa toda la línea para que los
+     botones Copiar/Enviar queden en una segunda fila legible. */
+@media (max-width: 760px) {
+  .professional-layout .panel { padding: 16px; }
+  .patient-grid-panel { padding: 16px; gap: 14px; }
+  .detail-topbar { padding: 14px 16px; }
+  .professional-layout .metric-card { padding: 14px; }
+  .professional-layout .metric-card strong { font-size: 1.375rem; }
+  .professional-layout .metric-card p { margin: 6px 0 2px; font-size: 0.875rem; }
+  .professional-layout .metric-card span { font-size: 0.875rem; }
+  .invite-link-row input { flex: 1 1 100%; }
 }
 
 /* C.1–C.7 — Mejoras responsive de PatientScreen en móviles (≤ 760 px).
