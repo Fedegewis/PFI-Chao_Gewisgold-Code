@@ -14,6 +14,7 @@ import { buildHash, readHashState } from "../services/navigationService.js";
 import {
   DEMO_PROFILES,
   buildInitialPatients,
+  isMoodValidToday,
   normalizePatient,
   patientFromBackendUser,
   refreshDailyPatientState
@@ -23,10 +24,13 @@ import { buildCompletedActivityState, buildInitialSessions } from "../services/s
 import {
   clearActivityDraft,
   clearAppSession,
+  clearPatientMood,
   loadAppSession,
+  loadPatientMood,
   loadPatients,
   loadSessions,
   saveAppSession,
+  savePatientMood,
   savePatients,
   saveSessions
 } from "../storage/appStorage.js";
@@ -73,7 +77,16 @@ export function useAppController() {
     if (isAuthenticatedProfessional) {
       patients = [];
     } else if (isAuthenticatedPatient) {
-      patients = [patientFromBackendUser(savedUser)];
+      // H-S2: el patient se reconstruye desde savedUser (fuente de verdad =
+      // backend), pero recuperamos mood + moodSelectedAt del storage específico
+      // filtrado por userId. refreshDailyPatientState descartará la selección
+      // si no corresponde al día calendario local actual.
+      const base = patientFromBackendUser(savedUser);
+      const persistedMood = loadPatientMood(savedUser.id);
+      const hydrated = persistedMood
+        ? { ...base, mood: persistedMood.mood ?? null, moodSelectedAt: persistedMood.moodSelectedAt ?? null }
+        : base;
+      patients = [refreshDailyPatientState(hydrated)];
     } else {
       patients = loadAppPatients();
     }
@@ -146,6 +159,20 @@ export function useAppController() {
     if (isBackendAuthenticated) return;
     savePatients(patients);
   }, [patients, isBackendAuthenticated]);
+
+  // H-S2: para el paciente autenticado persistimos únicamente mood +
+  // moodSelectedAt en un storage específico filtrado por userId. Nunca se
+  // persisten otros campos del paciente (son fuente de verdad del backend).
+  useEffect(() => {
+    if (!isBackendPatient || !authUser?.id) return;
+    const own = patients.find((p) => p.id === authUser.id);
+    if (!own) return;
+    savePatientMood({
+      userId: authUser.id,
+      mood: own.mood ?? null,
+      moodSelectedAt: own.moodSelectedAt ?? null,
+    });
+  }, [patients, isBackendPatient, authUser?.id]);
 
   // Fetch en background de las sesiones del paciente seleccionado.
   // Extraído a un callback estable para poder reusarlo desde el effect inicial,
@@ -528,6 +555,10 @@ export function useAppController() {
     setAuthUser(null);
     clearAuth();
     clearActivityDraft();
+    // H-S2: al cerrar sesión, descartar el mood persistido para evitar que
+    // el próximo usuario (incluido otro paciente en el mismo dispositivo)
+    // vea una selección que no le corresponde.
+    clearPatientMood();
     // 6D.6: al cerrar sesión limpiamos estado en memoria del usuario anterior
     // para que el próximo login no vea patients/sesiones del anterior antes del fetch.
     setPatients([]);
@@ -573,7 +604,11 @@ export function useAppController() {
         // Mood: snapshot opcional del estado autorreportado al iniciar la sesión.
         // Si el paciente no seleccionó mood (null) o el valor almacenado no está
         // en el whitelist actual, no se envía (queda NULL en DB).
-        const rawMood = selectedPatient.mood;
+        // H-S2: segunda línea de defensa. Aun si refreshDailyPatientState no se
+        // ejecutó recién (ej. app abierta durante la noche), chequeamos aquí
+        // que la selección sea del día calendario local actual. Si está
+        // vencida, se envía null al backend y no se persiste snapshot alguno.
+        const rawMood = isMoodValidToday(selectedPatient) ? selectedPatient.mood : null;
         const patientReportedMood = VALID_MOOD_SLUGS.has(rawMood) ? rawMood : null;
         const session = await createPatientSession({
           sectionSlug,

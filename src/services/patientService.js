@@ -22,6 +22,10 @@ export function createPatient({
     email,
     professionalId,
     mood: PATIENT_DEFAULTS.mood,
+    // H-S2: moodSelectedAt es el ISO 8601 (UTC) del momento en que el paciente
+    // autorreportó mood. Permite detectar selecciones vencidas (de otro día
+    // calendario local) y descartarlas antes de propagarlas al backend o a UI.
+    moodSelectedAt: null,
     status: PATIENT_DEFAULTS.status,
     note: PATIENT_DEFAULTS.note,
     score: PATIENT_DEFAULTS.score,
@@ -86,11 +90,35 @@ export function isSameCalendarDay(value, now = new Date()) {
   );
 }
 
+// H-S2: devuelve true si el mood autorreportado por el paciente sigue vigente
+// para "hoy" (día calendario local). Un mood sin fecha o cuya fecha no cae
+// en el mismo día calendario que `now` se considera vencido.
+export function isMoodValidToday(patient, now = new Date()) {
+  if (!patient || patient.mood == null) return false;
+  if (!patient.moodSelectedAt) return false;
+  return isSameCalendarDay(patient.moodSelectedAt, now);
+}
+
 export function refreshDailyPatientState(patient, now = new Date()) {
-  if (isSameCalendarDay(patient.lastSessionAt, now) || patient.completed.length === 0) return patient;
+  // H-S2: limpiar mood vencido es independiente del reset diario de
+  // completed/weeklyProgress. Se aplica tanto cuando el paciente ya hizo
+  // actividades hoy como cuando no hay actividades acumuladas.
+  const staleMood = patient.mood != null && !isMoodValidToday(patient, now);
+  const moodPatch = staleMood
+    ? { mood: null, moodSelectedAt: null, note: null, risk: null }
+    : null;
+
+  const dailyReset =
+    patient.completed.length > 0 && !isSameCalendarDay(patient.lastSessionAt, now);
+
+  if (!dailyReset) {
+    return moodPatch ? { ...patient, ...moodPatch } : patient;
+  }
+
   const sameWeek = isSameCalendarWeek(patient.lastSessionAt, now);
   return {
     ...patient,
+    ...(moodPatch || {}),
     completed: [],
     ...(!sameWeek ? { weeklyProgress: createWeeklyProgress() } : {})
   };
