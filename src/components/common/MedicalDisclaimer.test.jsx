@@ -1,5 +1,5 @@
 // Apartado 9.3 — tests del disclaimer médico.
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {

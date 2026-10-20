@@ -379,6 +379,16 @@ export function useAppController() {
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }, [isAuthenticated, screen, selectedActivity.id]);
 
+  // Guard de role: un profesional autenticado nunca debe permanecer en pantallas
+  // del rol paciente aunque la pantalla haya sido forzada vía state. El router
+  // de hash cubre llegadas por URL; este efecto cubre transiciones por state.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (role === SCREEN_NAMES.professional && (screen === SCREEN_NAMES.patient || screen === SCREEN_NAMES.activity)) {
+      setScreen(SCREEN_NAMES.professional);
+    }
+  }, [isAuthenticated, role, screen]);
+
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
@@ -399,6 +409,13 @@ export function useAppController() {
       }
       if (hashState.screen === SCREEN_NAMES.professional && role !== SCREEN_NAMES.professional) {
         setScreen(SCREEN_NAMES.patient);
+        return;
+      }
+      if (
+        (hashState.screen === SCREEN_NAMES.patient || hashState.screen === SCREEN_NAMES.activity) &&
+        role === SCREEN_NAMES.professional
+      ) {
+        setScreen(SCREEN_NAMES.professional);
         return;
       }
       if (hashState.screen === SCREEN_NAMES.activity) {

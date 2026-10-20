@@ -189,6 +189,15 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
               ? `${totalCompleted} actividad${totalCompleted === 1 ? "" : "es"} completada${totalCompleted === 1 ? "" : "s"}`
               : "Sin actividades completadas todavía"}
           </small>
+          {selectedPatient.email && (
+            <small
+              className="patient-detail-email"
+              title={selectedPatient.email}
+              style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}
+            >
+              {selectedPatient.email}
+            </small>
+          )}
         </div>
         {onDeletePatient && (
           <button
