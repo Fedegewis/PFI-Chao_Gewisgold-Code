@@ -71,8 +71,8 @@ export function App() {
               />
             )}
             {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} onGoogleLogin={googleLogin} />}
-            {screen === SCREEN_NAMES.patient && isAuthenticated && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} activityStartError={activityStartError} availableSections={patientAvailableSections} availableSectionsError={patientAvailableSectionsError} isBackendPatient={isBackendPatient} />}
-            {screen === SCREEN_NAMES.activity && isAuthenticated && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} activeSession={activeSession} />}
+            {screen === SCREEN_NAMES.patient && isAuthenticated && role === "patient" && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} activityStartError={activityStartError} availableSections={patientAvailableSections} availableSectionsError={patientAvailableSectionsError} isBackendPatient={isBackendPatient} />}
+            {screen === SCREEN_NAMES.activity && isAuthenticated && role === "patient" && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} activeSession={activeSession} />}
             {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (
               <ProfessionalScreen
                 patients={patients}

@@ -9,7 +9,7 @@ const RISK_TONE = {
 export function PatientCard({ patient, selected, onSelect, isBackend = false }) {
   const risk = patient.risk || "Bajo";
   const ariaLabel = isBackend
-    ? `${patient.name}${patient.age ? `, ${patient.age} años` : ""}. Datos reales`
+    ? `${patient.name}${patient.age ? `, ${patient.age} años` : ""}${patient.email ? `, ${patient.email}` : ""}. Datos reales`
     : `${patient.name}, ${patient.age} años. Riesgo ${risk}. ${patient.status}`;
   return (
     <button
@@ -28,6 +28,15 @@ export function PatientCard({ patient, selected, onSelect, isBackend = false }) 
       <div className="patient-card-body">
         <strong>{patient.name}</strong>
         <span>{patient.age ? `${patient.age} años` : ""}</span>
+        {patient.email && (
+          <small
+            className="patient-card-email"
+            title={patient.email}
+            style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", display: "block" }}
+          >
+            {patient.email}
+          </small>
+        )}
         {!isBackend && <small>{patient.status}</small>}
       </div>
       {!isBackend && (
