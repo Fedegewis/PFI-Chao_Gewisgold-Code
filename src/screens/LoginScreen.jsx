@@ -1,6 +1,7 @@
 import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserPlus, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MOTIVATION_MESSAGES } from "../constants/appConfig.js";
+import { MedicalDisclaimerLink } from "../components/common/MedicalDisclaimer.jsx";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -235,6 +236,9 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
             <div ref={googleBtnRef} className="google-btn-container" />
           </>
         )}
+        <p style={{ margin: "4px 0 0", textAlign: "center" }}>
+          <MedicalDisclaimerLink />
+        </p>
       </form>
     </section>
   );

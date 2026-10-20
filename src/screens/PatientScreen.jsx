@@ -5,6 +5,7 @@ import { GardenStrip } from "../components/patient/GardenStrip.jsx";
 import { MoodPanel } from "../components/patient/MoodPanel.jsx";
 import { PerformancePanel } from "../components/patient/PerformancePanel.jsx";
 import { ProgressPanel } from "../components/patient/ProgressPanel.jsx";
+import { MedicalDisclaimerBanner } from "../components/common/MedicalDisclaimer.jsx";
 import { ACTIVITY_TO_SECTION_SLUG } from "../constants/appConfig.js";
 
 function computeStreak(weeklyProgress) {
@@ -48,6 +49,7 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
   return (
     <div className="patient-layout">
       <section className="panel patient-main" aria-label="Actividades del paciente">
+        <MedicalDisclaimerBanner />
         <div className="garden-welcome"><span>Hola, {patient.name.split(" ")[0]}. {motivationMessage}</span></div>
         <GardenStrip activities={visibleActivities} completedIds={patient.completed} />
         <div className="section-head"><div><p className="eyebrow">Tu entrenamiento de hoy</p><h2>Actividades disponibles</h2></div><span className="streak-pill">Continuidad: {streak} {streak === 1 ? "día" : "días"}</span></div>

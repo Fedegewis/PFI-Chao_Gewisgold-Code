@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { acceptInvitationApi, lookupInvitationApi } from "../services/invitationsApi.js";
+import { MedicalDisclaimerLink } from "../components/common/MedicalDisclaimer.jsx";
 
 const MIN_PASSWORD_LENGTH = 6;
 
@@ -202,6 +203,9 @@ export function InviteAcceptScreen({ token, onAccepted, onGoToLogin }) {
           </div>
         )}
 
+        <p style={{ margin: "4px 0 0" }}>
+          <MedicalDisclaimerLink />
+        </p>
         <button type="submit" className="primary" disabled={submitting}>
           {submitting
             ? "Creando acceso..."

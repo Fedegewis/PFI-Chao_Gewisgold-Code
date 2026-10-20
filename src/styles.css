@@ -320,6 +320,25 @@ textarea { min-height: 150px; resize: vertical; }
 /* M.5 — hint de scroll para EvolutionChart. Se renderiza condicionalmente
    desde el componente cuando scrollWidth > clientWidth. CSS solo da estilo. */
 .scroll-hint { margin: 8px 0 0; font-size: 0.875rem; color: #52624d; text-align: center; font-weight: 500; }
+
+/* Apartado 9.3 — disclaimer médico. Banner compacto (.medical-disclaimer),
+   nota contextual (.medical-disclaimer-note), enlace discreto y variante
+   mobile. Mantiene paleta MenteActiva (fondo cálido, borde ámbar) con
+   contraste ≥ 7:1 para texto principal. */
+.medical-disclaimer { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 16px; padding: 12px 14px; border: 1px solid #e7c38c; border-left: 4px solid #c58f73; border-radius: 8px; background: #fff8ea; color: #30442a; }
+.medical-disclaimer svg { flex-shrink: 0; color: #8a5b16; margin-top: 2px; }
+.medical-disclaimer-text { margin: 0; font-size: 0.9375rem; line-height: 1.5; font-weight: 500; }
+.medical-disclaimer-trigger { font-size: inherit; margin-left: 2px; }
+.medical-disclaimer-note { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 0; color: #52624d; font-size: 0.8125rem; font-weight: 500; line-height: 1.4; }
+.medical-disclaimer-note svg { color: #7fae95; flex-shrink: 0; }
+.medical-disclaimer-link { font-size: 0.875rem; color: #52624d; }
+.medical-disclaimer-modal .ai-modal-body { max-height: 60vh; }
+.medical-disclaimer-full-text { margin: 0; color: #30442a; font-size: 0.9375rem; line-height: 1.6; font-weight: 500; }
+@media (max-width: 760px) {
+  .medical-disclaimer { padding: 8px 10px; gap: 6px; margin-bottom: 12px; border-left-width: 3px; }
+  .medical-disclaimer-text { font-size: 0.875rem; line-height: 1.4; }
+  .medical-disclaimer-note { font-size: 0.8125rem; }
+}
 .status-chip--good { background: #617a58; }
 .status-chip--warn { background: #b48a2b; }
 .status-chip--muted { background: #7a7f75; }
