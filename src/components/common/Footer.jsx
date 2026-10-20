@@ -1,4 +1,5 @@
 import { Brain, GraduationCap } from "lucide-react";
+import { MedicalDisclaimerLink } from "./MedicalDisclaimer.jsx";
 
 export function Footer() {
   return (
@@ -7,7 +8,7 @@ export function Footer() {
         <span className="footer-icon" aria-hidden="true"><Brain size={22} /></span>
         <div>
           <strong>MenteActiva</strong>
-          <small>Rehabilitación cognitiva para adultos mayores</small>
+          <small>Entrenamiento cognitivo para adultos mayores</small>
         </div>
       </div>
       <div className="footer-meta" aria-label="Datos académicos">
@@ -27,6 +28,7 @@ export function Footer() {
       <div className="footer-legal">
         <p>&copy; 2026 MenteActiva &middot; v1.0</p>
         <p>Herramienta de acompañamiento en entrenamiento cognitivo</p>
+        <MedicalDisclaimerLink />
       </div>
     </footer>
   );

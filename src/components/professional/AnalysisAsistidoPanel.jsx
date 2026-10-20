@@ -14,6 +14,7 @@ import {
   buildGlobalMetricTiles,
   resolveReportedMood,
 } from "../../lib/analysisFormat.js";
+import { MedicalDisclaimerNote } from "../common/MedicalDisclaimer.jsx";
 
 const LOAD_HINT = "El análisis puede demorar algunos segundos mientras el asistente procesa la sesión.";
 const POLL_INTERVAL_MS = 4000;
@@ -501,6 +502,7 @@ export function AnalysisAsistidoPanel({ session }) {
         </div>
         <Sparkles size={22} aria-hidden="true" />
       </div>
+      <MedicalDisclaimerNote />
 
       {!sessionId && (
         <p className="ai-hint">Seleccioná una sesión del historial para ver o generar un análisis.</p>

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MetricCard } from "../common/MetricCard.jsx";
 import { AnalysisAsistidoPanel } from "./AnalysisAsistidoPanel.jsx";
 import { TrainingConfigPanel } from "./TrainingConfigPanel.jsx";
+import { MedicalDisclaimerBanner } from "../common/MedicalDisclaimer.jsx";
 import { cx } from "../../lib/cx.js";
 import { formatLatency, formatShortDate } from "../../lib/format.js";
 
@@ -177,6 +178,7 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
 
   return (
     <section className="professional-detail" aria-label={`Datos de ${selectedPatient.name}`}>
+      <MedicalDisclaimerBanner />
       <header className="detail-topbar">
         <div>
           <p className="eyebrow">Ficha del usuario</p>

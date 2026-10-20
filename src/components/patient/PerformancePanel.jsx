@@ -1,4 +1,5 @@
 import { Activity } from "lucide-react";
+import { MedicalDisclaimerNote } from "../common/MedicalDisclaimer.jsx";
 
 // BUG-08: la cantidad máxima debe reflejar la configuración REAL que usa el
 // backend para generar sesiones (users.max_questions), no un default local.
@@ -34,6 +35,7 @@ export function PerformancePanel({ patient, completedCount, totalActivities, ava
         </div>
       </div>
       <p className="performance-count">{completedCount} de {totalActivities} actividades hechas hoy</p>
+      <MedicalDisclaimerNote />
       {maxQ.kind === "value" && (
         <p className="performance-note">Cantidad máxima definida por el psicólogo: {maxQ.value} preguntas.</p>
       )}
