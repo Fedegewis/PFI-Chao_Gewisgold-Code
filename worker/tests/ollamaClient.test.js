@@ -1,0 +1,90 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { createOllamaClient, OllamaError, OllamaErrorCodes } from "../src/ollamaClient.js";
+
+function makeRes(status, body) {
+  const text = body === null ? "" : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => text,
+    json: async () => (typeof body === "object" ? body : (() => { throw new Error("x"); })()),
+  };
+}
+
+describe("ollamaClient", () => {
+  it("200 con response devuelve text y latencyMs", async () => {
+    const fetchImpl = async () => makeRes(200, { response: "hola" });
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    const r = await generate({ prompt: "p" });
+    assert.equal(r.text, "hola");
+    assert.ok(r.latencyMs >= 0);
+  });
+
+  it("payload incluye format=json, options.temperature y keep_alive", async () => {
+    let captured;
+    const fetchImpl = async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return makeRes(200, { response: "ok" });
+    };
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await generate({ prompt: "x" });
+    assert.equal(captured.model, "llama3.2:3b");
+    assert.equal(captured.stream, false);
+    assert.equal(captured.format, "json");
+    assert.equal(captured.options.temperature, 0.2);
+    assert.equal(captured.keep_alive, "30m");
+  });
+
+  it("200 con response vacía → EMPTY_RESPONSE", async () => {
+    const fetchImpl = async () => makeRes(200, { response: "" });
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await assert.rejects(generate({ prompt: "x" }), (err) => err instanceof OllamaError && err.code === OllamaErrorCodes.OLLAMA_EMPTY_RESPONSE);
+  });
+
+  it("404 con 'not found' en body → MODEL_NOT_FOUND", async () => {
+    const fetchImpl = async () => ({
+      ok: false, status: 404,
+      text: async () => '{"error":"model not found"}',
+      json: async () => ({ error: "model not found" }),
+    });
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await assert.rejects(generate({ prompt: "x" }), (err) => err.code === OllamaErrorCodes.OLLAMA_MODEL_NOT_FOUND);
+  });
+
+  it("500 → OLLAMA_HTTP_ERROR", async () => {
+    const fetchImpl = async () => ({ ok: false, status: 500, text: async () => "", json: async () => ({}) });
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await assert.rejects(generate({ prompt: "x" }), (err) => err.code === OllamaErrorCodes.OLLAMA_HTTP_ERROR);
+  });
+
+  it("ECONNREFUSED → OLLAMA_OFFLINE", async () => {
+    const fetchImpl = async () => { throw Object.assign(new Error("x"), { cause: { code: "ECONNREFUSED" } }); };
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await assert.rejects(generate({ prompt: "x" }), (err) => err.code === OllamaErrorCodes.OLLAMA_OFFLINE);
+  });
+
+  it("timeout → OLLAMA_TIMEOUT", async () => {
+    const fetchImpl = async (_url, init) =>
+      new Promise((_, reject) => {
+        init.signal.addEventListener("abort", () => {
+          reject(Object.assign(new Error("abort"), { name: "AbortError" }));
+        });
+      });
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", timeoutMs: 20, fetchImpl });
+    await assert.rejects(generate({ prompt: "x" }), (err) => err.code === OllamaErrorCodes.OLLAMA_TIMEOUT);
+  });
+
+  it("abortSignal externo cancela la inferencia", async () => {
+    const fetchImpl = async (_url, init) =>
+      new Promise((_, reject) => {
+        init.signal.addEventListener("abort", () => {
+          reject(Object.assign(new Error("abort"), { name: "AbortError" }));
+        });
+      });
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", timeoutMs: 60_000, fetchImpl });
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 10);
+    await assert.rejects(generate({ prompt: "x", abortSignal: ctrl.signal }), (err) => err.code === OllamaErrorCodes.OLLAMA_TIMEOUT);
+  });
+});

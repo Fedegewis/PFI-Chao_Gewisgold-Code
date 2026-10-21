@@ -1,0 +1,16 @@
+{
+  "name": "menteactiva-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Worker local que procesa análisis IA de MenteActiva mediante Ollama local, hablando con el backend productivo via WORKER_TOKEN.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test --test-concurrency=1 tests/**/*.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0"
+  }
+}

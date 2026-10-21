@@ -123,6 +123,29 @@ describe("AnalysisAsistidoPanel", () => {
     });
   });
 
+  test("W-3: 202 deferred_pending muestra mensaje de cola, NO error, y mantiene el panel navegable", async () => {
+    // Primer GET: no_analysis (todavía).
+    const nope = new Error("No hay análisis");
+    nope.status = 404;
+    nope.data = { status: "no_analysis" };
+    vi.spyOn(analysisApi, "getAnalysis").mockRejectedValue(nope);
+    // POST manual: 202 deferred_pending (sin analysis).
+    vi.spyOn(analysisApi, "generateAnalysis").mockResolvedValue({
+      status: "deferred_pending",
+      message: "El análisis se procesará por un worker externo. Consultar GET /analysis en unos segundos.",
+    });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    const btn = await screen.findByRole("button", { name: /Generar síntesis IA/i });
+    await userEvent.click(btn);
+    // Mensaje de cola visible.
+    const hint = await screen.findByTestId("analysis-generating-hint");
+    expect(hint).toHaveTextContent(/quedó en cola|worker local/i);
+    // No se muestra el error-box (role=alert) por un falso error.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // El panel NO vuelve al estado "no_analysis" ni muestra el botón "Generar".
+    expect(screen.queryByRole("button", { name: /^Generar síntesis IA$/i })).not.toBeInTheDocument();
+  });
+
   test("error ai_unavailable muestra mensaje específico", async () => {
     const err = new Error("No se pudo generar el análisis");
     err.status = 502;
