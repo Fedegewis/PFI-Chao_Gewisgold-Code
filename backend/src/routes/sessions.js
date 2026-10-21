@@ -2,7 +2,7 @@ import { Router } from "express";
 import db from "../db/connection.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { generateSessionAnalysis } from "../services/ai/analysisService.js";
-import { isAiEnabled } from "../services/ai/ollamaClient.js";
+import { isAiEnabled, isDeferred } from "../services/ai/aiProvider.js";
 import { countEligibleQuestions, listEligibleQuestions } from "../services/questionEligibility.js";
 import { resolveEffectiveConfig } from "../services/trainingConfig.js";
 
@@ -12,6 +12,11 @@ import { resolveEffectiveConfig } from "../services/trainingConfig.js";
 function defaultAutoTrigger(sessionId) {
   // Skip cuando AI está apagado (env de test, integración desconectada).
   if (!isAiEnabled()) return;
+  // W-3: en modo deferred la inferencia la ejecuta un worker externo
+  // (ver /api/worker/analysis/*). El backend NO llama a Ollama ni emite
+  // una fila `generating` propia; la sesión queda disponible en la cola
+  // del worker apenas termina este /complete.
+  if (isDeferred()) return;
   // Salvaguarda para la suite de tests: por default no dispara Ollama real
   // aunque AI_ENABLED=true. Tests que quieran ejercer el auto-trigger deben
   // usar setAutoAnalysisTrigger explícitamente. Evita colas Ollama de 60s+

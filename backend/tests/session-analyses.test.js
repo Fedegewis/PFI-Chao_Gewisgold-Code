@@ -361,10 +361,13 @@ describe("session_analyses (7F)", () => {
       const [row] = await db("session_analyses")
         .where("session_id", sessionId).limit(1).select("*");
       // Whitelist estricta de columnas físicas.
+      // W-1/W-2 (migración 016) agrega lease_expires_at, claim_token y
+      // attempt_count para el worker local; siguen sin exponer PII.
       const allowed = new Set([
         "id", "session_id", "status", "error_code", "model",
         "schema_version", "prompt_version", "analysis",
         "latency_ms", "error_message", "created_at",
+        "lease_expires_at", "claim_token", "attempt_count",
       ]);
       for (const k of Object.keys(row)) {
         assert.ok(allowed.has(k), `columna inesperada '${k}' en session_analyses`);

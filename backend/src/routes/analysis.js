@@ -27,6 +27,7 @@ import { buildObservations } from "../services/ai/observationsBuilder.js";
 // last_failed en lugar de mantenerla como generating indefinidamente.
 const GENERATING_STALE_MS = 3 * 60 * 1000;
 import { OllamaClientError, OllamaErrorCodes } from "../services/ai/errors.js";
+import { AiDeferredError } from "../services/ai/aiProvider.js";
 import {
   AnalysisValidationError,
 } from "../services/ai/validationErrors.js";
@@ -80,6 +81,16 @@ function serializeAnalysisRow(row) {
 }
 
 function mapAiErrorToHttp(err, res) {
+  if (err instanceof AiDeferredError) {
+    // W-3: AI_PROVIDER=deferred. El backend no corre inferencia; el worker
+    // local tomará la sesión en su próximo poll. El profesional debería
+    // reintentar GET /analysis después de unos segundos para ver el
+    // resultado. Contrato: 202 (Accepted) con status explícito.
+    return res.status(202).json({
+      status: "deferred_pending",
+      message: "El análisis se procesará por un worker externo. Consultar GET /analysis en unos segundos.",
+    });
+  }
   if (err instanceof OllamaClientError) {
     if (err.code === OllamaErrorCodes.OLLAMA_DISABLED) {
       return res.status(503).json({

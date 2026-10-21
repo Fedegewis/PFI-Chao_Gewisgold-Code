@@ -10,6 +10,7 @@ import googleAuthRouter from "./routes/google-auth.js";
 import invitationsRouter from "./routes/invitations.js";
 import analysisRouter from "./routes/analysis.js";
 import trainingConfigRouter from "./routes/training-config.js";
+import workerRouter from "./routes/worker.js";
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use("/api", sessionsRouter);
 app.use("/api", invitationsRouter);
 app.use("/api", analysisRouter);
 app.use("/api", trainingConfigRouter);
+app.use("/api", workerRouter);
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500;

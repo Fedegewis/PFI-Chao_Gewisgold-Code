@@ -346,8 +346,17 @@ export function AnalysisAsistidoPanel({ session }) {
   // (actividades, dominios, mood, métricas, comparación, observaciones)
   // aun si Ollama está apagado.
   const [deterministic, setDeterministic] = useState(null);
+  // W-3: el POST manual puede devolver 202 { status: "deferred_pending" } cuando
+  // el backend corre con AI_PROVIDER=deferred (worker local). Marcamos el panel
+  // en estado "generating" con una variante de mensaje que explica que el
+  // análisis quedó en cola, no corriendo en el acto.
+  const [pendingWorker, setPendingWorker] = useState(false);
   const pollTimerRef = useRef(null);
   const cancelledRef = useRef(false);
+  // Expuesto por el useEffect para que runGenerate pueda disparar un ciclo
+  // de polling tras una respuesta deferred_pending. El polling existente del
+  // useEffect sigue manejando la transición generating → ok.
+  const schedulePollRef = useRef(null);
 
   function clearPoll() {
     if (pollTimerRef.current) {
@@ -366,6 +375,7 @@ export function AnalysisAsistidoPanel({ session }) {
     setLastFailureCode(null);
     setRegenFailed(false);
     setDeterministic(null);
+    setPendingWorker(false);
 
     if (!sessionId || !isCompleted) {
       setLoadingInitial(false);
@@ -455,12 +465,17 @@ export function AnalysisAsistidoPanel({ session }) {
       }, intervalMs);
     }
 
+    // Exponer schedulePoll para que runGenerate pueda arrancar el polling
+    // tras una respuesta 202 deferred_pending.
+    schedulePollRef.current = schedulePoll;
+
     runOnce();
 
     return () => {
       cancelled = true;
       cancelledRef.current = true;
       clearPoll();
+      schedulePollRef.current = null;
     };
   }, [sessionId, isCompleted]);
 
@@ -471,10 +486,23 @@ export function AnalysisAsistidoPanel({ session }) {
     setRegenFailed(false);
     try {
       const data = await generateAnalysis(sessionId, { force });
+      // W-3: AI_PROVIDER=deferred → el backend respondió 202 y NO corrió
+      // inferencia. La sesión queda en cola para el worker local. No es un
+      // error: cambiamos a estado "generating" con bandera pendingWorker y
+      // arrancamos el polling existente para capturar la transición a ok.
+      if (data?.status === "deferred_pending") {
+        setPendingWorker(true);
+        setStatus("generating");
+        setAnalysis(null);
+        setRegenerating(false);
+        if (schedulePollRef.current) schedulePollRef.current();
+        return;
+      }
       if (data?.analysis) {
         setAnalysis(data.analysis);
         setStatus("ok");
         setRegenerating(false);
+        setPendingWorker(false);
       }
     } catch (err) {
       if (force && analysis && status === "ok") {
@@ -526,8 +554,11 @@ export function AnalysisAsistidoPanel({ session }) {
 
       {sessionId && isCompleted && !loadingInitial && !error && status === "generating" && (
         <>
-          <p className="ai-hint" role="status" aria-live="polite">
-            <Loader2 size={16} aria-hidden="true" /> Generando síntesis IA de esta sesión…
+          <p className="ai-hint" role="status" aria-live="polite" data-testid="analysis-generating-hint">
+            <Loader2 size={16} aria-hidden="true" />{" "}
+            {pendingWorker
+              ? "El análisis quedó en cola. Se procesará en cuanto el worker local lo tome."
+              : "Generando síntesis IA de esta sesión…"}
           </p>
           <p className="ai-hint">{LOAD_HINT}</p>
           {hasDeterministicFallback && (

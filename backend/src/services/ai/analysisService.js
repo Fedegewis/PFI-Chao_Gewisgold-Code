@@ -12,8 +12,10 @@
 import db from "../../db/connection.js";
 import {
   generate as defaultGenerate,
-  getOllamaConfig,
-} from "./ollamaClient.js";
+  getConfig as defaultGetConfig,
+  getAiProvider,
+  AiDeferredError,
+} from "./aiProvider.js";
 import { OllamaClientError } from "./errors.js";
 import {
   buildSessionAnalysisContext,
@@ -247,7 +249,7 @@ export async function generateSessionAnalysis(params, deps = {}) {
   const repo = deps.repo || defaultRepo;
   const generateFn = deps.generate || defaultGenerate;
   const loadInputFn = deps.loadSessionAnalysisInput || loadSessionAnalysisInput;
-  const cfg = deps.config || getOllamaConfig();
+  const cfg = deps.config || defaultGetConfig();
   const withLock = deps.withAnalysisLock || defaultWithAnalysisLock;
 
   const model = cfg.model;
@@ -261,6 +263,19 @@ export async function generateSessionAnalysis(params, deps = {}) {
       sessionId, model, schemaVersion, promptVersion,
     });
     if (cached) return { source: "cache", analysis: cached };
+  }
+
+  // W-3: modo deferred. El pipeline in-process NO corre inferencia ni
+  // adquiere el advisory lock ni emite una fila 'generating'. La sesión
+  // queda disponible para el worker local, que la descubrirá en su próximo
+  // claim via analysisQueue.findNextPendingSessionId.
+  //
+  // La fuente de verdad del modo es el provider, no un flag separado, para
+  // que un test que inyecta `deps.config` con `deferred: true` también
+  // active esta rama sin tocar process.env.
+  const providerDeferred = (cfg && cfg.deferred === true) || getAiProvider().name === "deferred";
+  if (providerDeferred) {
+    throw new AiDeferredError();
   }
 
   // 7J.1B — Serialización por identidad (session_id, model, schema, prompt).
@@ -490,4 +505,5 @@ async function runGenerationCritical({
 export {
   OllamaClientError,
   AnalysisValidationError,
+  AiDeferredError,
 };

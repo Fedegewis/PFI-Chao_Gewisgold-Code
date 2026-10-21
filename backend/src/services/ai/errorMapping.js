@@ -27,9 +27,20 @@ const ANALYSIS_MAP = Object.freeze({
   [AnalysisValidationCodes.EVIDENCE_INVALID]:  "ANALYSIS_EVIDENCE_INVALID",
 });
 
+// Códigos operacionales de la cola del worker local (W-2+). No provienen
+// del validator ni del cliente Ollama: los emite analysisQueue cuando un
+// lease vence sin reporte del worker, por ejemplo tras un crash de la PC.
+const QUEUE_MAP = Object.freeze({
+  LEASE_EXPIRED: "ANALYSIS_LEASE_EXPIRED",
+});
+
 // Set de todos los códigos persistibles, para validación en el repository.
 export const PERSISTED_ERROR_CODES = Object.freeze(
-  new Set([...Object.values(OLLAMA_MAP), ...Object.values(ANALYSIS_MAP)])
+  new Set([
+    ...Object.values(OLLAMA_MAP),
+    ...Object.values(ANALYSIS_MAP),
+    ...Object.values(QUEUE_MAP),
+  ])
 );
 
 /**
