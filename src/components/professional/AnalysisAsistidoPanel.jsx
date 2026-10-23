@@ -17,9 +17,21 @@ import {
 import { MedicalDisclaimerNote } from "../common/MedicalDisclaimer.jsx";
 
 const LOAD_HINT = "El análisis puede demorar algunos segundos mientras el asistente procesa la sesión.";
+
+// Intervalo cuando el backend ya devolvió `status="generating"`: la inferencia
+// está activa, esperamos la transición a `ok` en pocos segundos.
 const POLL_INTERVAL_MS = 4000;
-const NO_ANALYSIS_RETRY_MS = 300;
-const NO_ANALYSIS_RETRIES = 2;
+
+// Intervalo cuando la sesión está pendiente (sin fila `session_analyses`
+// todavía) o esperando al worker local. El tiempo típico de inferencia en CPU
+// ronda los 60–120 s, así que 8 s es un compromiso razonable entre latencia
+// percibida y carga sobre el backend productivo.
+const PENDING_POLL_INTERVAL_MS = 8000;
+
+// Backoff para errores de red / 5xx temporales. Nunca detiene el loop
+// mientras el panel esté montado: solo espacia las consultas.
+const NETWORK_ERROR_BACKOFF_START_MS = 10000;
+const NETWORK_ERROR_BACKOFF_MAX_MS = 30000;
 
 const ERROR_CODE_DESCRIPTIONS = {
   OLLAMA_DISABLED: "El servicio de IA está deshabilitado en el servidor.",
@@ -357,6 +369,16 @@ export function AnalysisAsistidoPanel({ session }) {
   // de polling tras una respuesta deferred_pending. El polling existente del
   // useEffect sigue manejando la transición generating → ok.
   const schedulePollRef = useRef(null);
+  // Guard para evitar solicitudes simultáneas de getAnalysis. El loop es
+  // serial por diseño (setTimeout → runOnce → schedulePoll); el ref es una
+  // red adicional por si un click manual coincidiera con un tick del timer.
+  const inFlightRef = useRef(false);
+  // Espejo del state pendingWorker para que el poller (closure del useEffect)
+  // pueda leer el valor actual sin re-crearse. Evita que un 404 posterior a
+  // una respuesta 202 deferred_pending pise el status "generating" con
+  // "no_analysis" y haga parpadear el panel.
+  const pendingWorkerRef = useRef(false);
+  useEffect(() => { pendingWorkerRef.current = pendingWorker; }, [pendingWorker]);
 
   function clearPoll() {
     if (pollTimerRef.current) {
@@ -385,8 +407,9 @@ export function AnalysisAsistidoPanel({ session }) {
       };
     }
 
-    let noAnalysisRetries = 0;
+    let networkBackoffMs = NETWORK_ERROR_BACKOFF_START_MS;
     let cancelled = false;
+    inFlightRef.current = false;
     setLoadingInitial(true);
 
     async function loadDeterministic() {
@@ -400,22 +423,31 @@ export function AnalysisAsistidoPanel({ session }) {
     }
 
     async function runOnce() {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
       try {
         const data = await getAnalysis(sessionId);
         if (cancelled) return;
+        // Reset del backoff ante cualquier respuesta exitosa (incluye 404
+        // no_analysis que es un "ok semántico" del endpoint).
+        networkBackoffMs = NETWORK_ERROR_BACKOFF_START_MS;
         const st = data?.status || (data?.analysis ? "ok" : null);
         if (st === "ok") {
           setAnalysis(data.analysis);
           setStatus("ok");
           setRegenerating(Boolean(data?.regenerating));
           setError("");
+          setPendingWorker(false);
           // Si el análisis OK no trae observations (v3.0-3.3), levantar el
           // fallback para completar el bloque Observaciones.
           const needsFallback =
             data.analysis?.content?.schema_version === "3" &&
             !Array.isArray(data.analysis.content.observations);
           if (needsFallback) loadDeterministic();
-          if (data?.regenerating) schedulePoll();
+          // Fin del polling activo. Si el backend indica regeneración en curso
+          // (otra inferencia disparada manualmente), seguir polleando con el
+          // intervalo normal.
+          if (data?.regenerating) schedulePoll(POLL_INTERVAL_MS);
           else clearPoll();
         } else if (st === "generating") {
           setAnalysis(null);
@@ -423,7 +455,7 @@ export function AnalysisAsistidoPanel({ session }) {
           setRegenerating(false);
           setError("");
           loadDeterministic();
-          schedulePoll();
+          schedulePoll(POLL_INTERVAL_MS);
         } else if (st === "last_failed") {
           setAnalysis(null);
           setStatus("last_failed");
@@ -431,28 +463,45 @@ export function AnalysisAsistidoPanel({ session }) {
           setLastFailureCode(data?.error_code || null);
           setError("");
           loadDeterministic();
-          clearPoll();
+          // NO detener el polling: el worker local tiene políticas de reintento
+          // (transient hasta 20, generation hasta 3) y puede recuperar la
+          // sesión por sí solo sin intervención del profesional. Si eventualmente
+          // llega un `ok`, el próximo poll lo captura y el panel se actualiza
+          // automáticamente — sin requerir cambiar de sesión ni recargar.
+          // Intervalo largo (PENDING_POLL_INTERVAL_MS) para no sobrecargar
+          // mientras esperamos al worker.
+          schedulePoll(PENDING_POLL_INTERVAL_MS);
         } else {
           setStatus(null);
         }
       } catch (err) {
         if (cancelled) return;
         if (err?.status === 404 && err?.data?.status === "no_analysis") {
-          if (noAnalysisRetries < NO_ANALYSIS_RETRIES) {
-            noAnalysisRetries += 1;
-            schedulePoll(NO_ANALYSIS_RETRY_MS);
-            return;
+          // Sin fila `session_analyses` todavía — típico cuando el backend
+          // corre en modo `AI_PROVIDER=deferred` y el worker aún no reclamó.
+          // Mantenemos el loop vivo hasta que aparezca el análisis o el
+          // componente se desmonte. Reset del backoff: no es un error de red.
+          networkBackoffMs = NETWORK_ERROR_BACKOFF_START_MS;
+          // Si venimos de un POST deferred_pending reciente (pendingWorker),
+          // conservamos el estado "generating" + hint de cola. Esto evita
+          // que el panel parpadee entre "cola" y "no_analysis + botón".
+          if (!pendingWorkerRef.current) {
+            setStatus("no_analysis");
+            setError("");
+            loadDeterministic();
           }
-          setStatus("no_analysis");
-          setError("");
-          loadDeterministic();
-          clearPoll();
+          schedulePoll(PENDING_POLL_INTERVAL_MS);
         } else {
+          // Error de red / 5xx temporal. No cortamos el loop: hacemos
+          // backoff espaciando los intentos hasta un cap, y preservamos
+          // el estado para que el usuario no vea el panel "flashear"
+          // entre error y análisis durante un hiccup momentáneo.
           setError(errorMessage(err));
-          setStatus(null);
-          clearPoll();
+          schedulePoll(networkBackoffMs);
+          networkBackoffMs = Math.min(networkBackoffMs * 2, NETWORK_ERROR_BACKOFF_MAX_MS);
         }
       } finally {
+        inFlightRef.current = false;
         if (!cancelled) setLoadingInitial(false);
       }
     }

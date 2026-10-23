@@ -223,6 +223,201 @@ describe("AnalysisAsistidoPanel", () => {
     expect(genSpy).not.toHaveBeenCalled();
   });
 
+  // ============================================================
+  // Polling automático (fix: no_analysis seguía polleando sólo 2 veces)
+  // ============================================================
+
+  function nope404() {
+    return Object.assign(new Error("no"), { status: 404, data: { status: "no_analysis" } });
+  }
+
+  test("polling automático: no_analysis → ok sin recargar la página", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getSpy = vi.spyOn(analysisApi, "getAnalysis")
+        .mockRejectedValueOnce(nope404())
+        .mockRejectedValueOnce(nope404())
+        .mockResolvedValue({ source: "stored", analysis: SAMPLE_ANALYSIS });
+      render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+      // El panel entra inicialmente en no_analysis.
+      await screen.findByText(/Todavía no hay síntesis del asistente IA/i);
+      // Avanzar al próximo poll (8s + un poco por el jitter interno).
+      await vi.advanceTimersByTimeAsync(8500);
+      // El panel sigue en no_analysis (segundo 404).
+      expect(screen.getByText(/Todavía no hay síntesis del asistente IA/i)).toBeInTheDocument();
+      // Avanzar al tercer poll (otros 8s), donde el GET devuelve ok.
+      await vi.advanceTimersByTimeAsync(8500);
+      // La síntesis aparece automáticamente, sin ningún click ni reload.
+      await screen.findByText(SAMPLE_ANALYSIS.content.summary);
+      expect(getSpy.mock.calls.length).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("polling se detiene cuando llega ok (no hay 4ta llamada)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getSpy = vi.spyOn(analysisApi, "getAnalysis")
+        .mockRejectedValueOnce(nope404())
+        .mockResolvedValue({ source: "stored", analysis: SAMPLE_ANALYSIS });
+      render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+      await screen.findByText(/Todavía no hay síntesis del asistente IA/i);
+      await vi.advanceTimersByTimeAsync(8500);
+      await screen.findByText(SAMPLE_ANALYSIS.content.summary);
+      const callsAfterOk = getSpy.mock.calls.length;
+      // Avanzar mucho más tiempo: el polling debe estar detenido.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(getSpy.mock.calls.length).toBe(callsAfterOk);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("cambio de sesión cancela polling anterior y no mezcla datos", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getSpy = vi.spyOn(analysisApi, "getAnalysis").mockImplementation((id) => {
+        if (id === 4333) return Promise.reject(nope404());
+        if (id === 7777) return Promise.resolve({ source: "stored", analysis: { ...SAMPLE_ANALYSIS, id: 2, session_id: 7777, content: { ...SAMPLE_ANALYSIS.content, summary: "resumen de 7777" } } });
+        return Promise.reject(nope404());
+      });
+      const { rerender } = render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+      await screen.findByText(/Todavía no hay síntesis del asistente IA/i);
+      const callsBeforeSwitch = getSpy.mock.calls.length;
+      rerender(<AnalysisAsistidoPanel session={{ id: 7777, status: "completed" }} />);
+      await screen.findByText(/resumen de 7777/);
+      // Avanzar tiempo: no debe aparecer summary de 4333 ni haber nuevas calls a 4333.
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(screen.queryByText(SAMPLE_ANALYSIS.content.summary)).not.toBeInTheDocument();
+      const callsFor4333 = getSpy.mock.calls.filter((c) => c[0] === 4333).length;
+      expect(callsFor4333).toBe(callsBeforeSwitch);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("desmontaje limpia timers (sin actualizaciones de estado post-unmount)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const getSpy = vi.spyOn(analysisApi, "getAnalysis").mockRejectedValue(nope404());
+      const { unmount } = render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+      await screen.findByText(/Todavía no hay síntesis del asistente IA/i);
+      const callsBeforeUnmount = getSpy.mock.calls.length;
+      unmount();
+      await vi.advanceTimersByTimeAsync(30_000);
+      // Después del unmount no deberían dispararse nuevos polls.
+      expect(getSpy.mock.calls.length).toBe(callsBeforeUnmount);
+      // Y React no debería haber reportado warnings de state update post-unmount.
+      const stateUpdateWarnings = errSpy.mock.calls.filter((c) =>
+        String(c?.[0] ?? "").includes("state update on an unmounted"),
+      );
+      expect(stateUpdateWarnings.length).toBe(0);
+    } finally {
+      errSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  test("error temporal de red hace backoff y se recupera cuando el backend responde", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const err500 = Object.assign(new Error("boom"), { status: 500, data: {} });
+      const getSpy = vi.spyOn(analysisApi, "getAnalysis")
+        .mockRejectedValueOnce(err500)
+        .mockResolvedValue({ source: "stored", analysis: SAMPLE_ANALYSIS });
+      render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+      // Primer error → el panel muestra errorMessage pero no se rinde.
+      await waitFor(() => expect(getSpy).toHaveBeenCalledTimes(1));
+      // Avanzar el backoff inicial (10s) + margen.
+      await vi.advanceTimersByTimeAsync(10_500);
+      await screen.findByText(SAMPLE_ANALYSIS.content.summary);
+      expect(getSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("no hace solicitudes duplicadas: inFlightRef previene overlapping", async () => {
+    // Dejamos un GET colgado para simular inflight prolongado; mientras tanto
+    // nada debe disparar un segundo GET espontáneo.
+    let resolveFirst;
+    const getSpy = vi.spyOn(analysisApi, "getAnalysis").mockImplementation(
+      () => new Promise((resolve) => { resolveFirst = resolve; })
+    );
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    // Pequeño yield de microtasks para que el runOnce arranque.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getSpy).toHaveBeenCalledTimes(1);
+    // Resolver y confirmar que no hay duplicación.
+    resolveFirst({ source: "stored", analysis: SAMPLE_ANALYSIS });
+    await screen.findByText(SAMPLE_ANALYSIS.content.summary);
+    expect(getSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("regresión 4812: last_failed → ok automático sin cambiar de sesión", async () => {
+    // Reproduce el bug observado: el worker produce un failed transient
+    // (ej. OLLAMA_TIMEOUT), el GET devuelve last_failed, el panel muestra
+    // el cartel rojo. Luego el worker reintenta y persiste ok. El panel
+    // debe actualizarse automáticamente sin que el profesional toque nada.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getSpy = vi.spyOn(analysisApi, "getAnalysis")
+        .mockResolvedValueOnce({ status: "last_failed", error_code: "OLLAMA_TIMEOUT" })
+        .mockResolvedValue({ source: "stored", analysis: SAMPLE_ANALYSIS });
+      render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+      // Primer poll: panel muestra el estado de fallo.
+      await screen.findByText(/No se pudo generar la síntesis del asistente IA/i);
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      // Avanzar al próximo poll (PENDING_POLL_INTERVAL_MS = 8s).
+      await vi.advanceTimersByTimeAsync(8500);
+      // El análisis OK aparece sin ninguna interacción del profesional.
+      await screen.findByText(SAMPLE_ANALYSIS.content.summary);
+      // El cartel rojo del last_failed desapareció.
+      expect(screen.queryByText(/No se pudo generar la síntesis del asistente IA/i)).not.toBeInTheDocument();
+      expect(getSpy.mock.calls.length).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("last_failed persistente mantiene polling activo (no se detiene)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getSpy = vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({
+        status: "last_failed",
+        error_code: "OLLAMA_TIMEOUT",
+      });
+      render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+      await screen.findByText(/No se pudo generar la síntesis del asistente IA/i);
+      const callsAfterFirst = getSpy.mock.calls.length;
+      // Avanzar 2 ciclos de PENDING_POLL_INTERVAL_MS.
+      await vi.advanceTimersByTimeAsync(8500);
+      await vi.advanceTimersByTimeAsync(8500);
+      // Debe haber al menos 1-2 polls más — el loop sigue vivo.
+      expect(getSpy.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("el botón manual se sigue mostrando y funcionando en estado no_analysis", async () => {
+    const getSpy = vi.spyOn(analysisApi, "getAnalysis").mockRejectedValue(nope404());
+    const genSpy = vi.spyOn(analysisApi, "generateAnalysis").mockResolvedValue({
+      source: "generated",
+      analysis: SAMPLE_ANALYSIS,
+    });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    const btn = await screen.findByRole("button", { name: /Generar síntesis IA/i });
+    expect(btn).toBeEnabled();
+    await userEvent.click(btn);
+    await screen.findByText(SAMPLE_ANALYSIS.content.summary);
+    expect(genSpy).toHaveBeenCalledTimes(1);
+    expect(getSpy).toHaveBeenCalled();
+  });
+
   // v2: nuevos campos opcionales.
   test("renderiza el bloque 'Comparación con sesiones recientes' cuando comparison viene", async () => {
     const v2Analysis = {
