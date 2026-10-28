@@ -59,8 +59,8 @@ loop {
           { claim_id, claim_token, raw_text, latency_ms }
     if res == 200: ok, continue
     if res == 409: lease perdido (crash/reclaimed); dropear, continue
-    if res == 422 && retriable: ONE retry same claim si lease vigente
-    if res == 422 && !retriable: dropear, continue
+    if res == 422: el backend ya persistió failed y cerró el claim;
+                   NO reintentar con este claim, NO enviar /failed; continue
   } catch (ollamaErr) {
     stopHeartbeatTicker()
     POST /api/worker/analysis/failed
@@ -83,9 +83,14 @@ procesa lo que `/claim` le devuelve. La cola NO filtra por profesional.
 Si una sesión falla, el worker **sigue con la siguiente**. No "ataca"
 nunca a la misma sesión en bucle:
 - 409 (CLAIM_LOST) → el claim ya no es suyo; no reintentar.
-- 422 retriable=true → UNA sola repetición permitida con mismo claim
-  mientras el lease esté vivo.
-- 422 retriable=false → entregar al backend y pedir el próximo claim.
+- 422 (con `retriable` true o false) → al responder, el backend ya
+  marcó la fila como `failed` con un `error_code` de generación
+  (`ANALYSIS_*`) y anuló `claim_token` y `lease_expires_at`. El worker
+  NO reintenta con ese claim ni envía `/failed`: pide el próximo claim.
+  La cola puede volver a ofrecer la sesión con un claim nuevo (token y
+  lease nuevos), sujeto a `MAX_GENERATION_ATTEMPTS` y al cooldown.
+  `retriable` es informativo: indica si otra generación podría pasar el
+  validador, no que el claim siga abierto.
 - `OLLAMA_OFFLINE/TIMEOUT` → reportar `/failed`, el backend aplica
   cooldown + bucket transient. El próximo `/claim` puede devolver la
   misma sesión u otra; el worker trata ambos casos igual.

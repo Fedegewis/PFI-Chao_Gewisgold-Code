@@ -6,8 +6,37 @@
 //  3) Instanciar logger + clientes (backend + Ollama).
 //  4) Correr loop infinito; terminar en SIGINT/SIGTERM con shutdown ordenado.
 
-import "dotenv/config";
+import path from "node:path";
+import fs from "node:fs";
+import dotenv from "dotenv";
 import { loadConfig, ConfigError } from "./config.js";
+
+// Selección explícita del archivo .env.
+//   WORKER_ENV_FILE=.env.production  → carga ese archivo (prod, vía tarea programada).
+//   WORKER_ENV_FILE=.env.local        → carga ese archivo (dev manual con perfil separado).
+//   (unset)                           → carga .env del cwd (comportamiento legado).
+// Ruta relativa se resuelve contra el cwd del proceso.
+(function loadEnvFile() {
+  const explicit = process.env.WORKER_ENV_FILE;
+  const target = explicit && explicit.length > 0 ? explicit : ".env";
+  const abs = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+  if (fs.existsSync(abs)) {
+    dotenv.config({ path: abs });
+  } else if (explicit) {
+    // Si el usuario pidió explícitamente un archivo y no existe, fallamos ruidosamente.
+    const payload = {
+      ts: new Date().toISOString(),
+      level: "error",
+      msg: "WORKER_ENV_FILE apunta a un archivo inexistente",
+      meta: { path: abs },
+    };
+    process.stdout.write(JSON.stringify(payload) + "\n");
+    process.exit(2);
+  }
+  // Sin archivo y sin WORKER_ENV_FILE explícito: puede haber vars en el entorno
+  // del proceso (p. ej. tarea programada con argumentos). Dejamos seguir y que
+  // loadConfig valide.
+})();
 import { createLogger } from "./logger.js";
 import { acquireLock, SingleInstanceError } from "./singleInstance.js";
 import { createBackendClient } from "./backendClient.js";
@@ -70,6 +99,23 @@ async function main() {
   process.on("SIGTERM", () => requestShutdown("SIGTERM"));
   // En Windows SIGBREAK (Ctrl+Break) también desencadena shutdown.
   try { process.on("SIGBREAK", () => requestShutdown("SIGBREAK")); } catch { /* no-op */ }
+
+  // Shutdown cooperativo por archivo-centinela.
+  // Motivación: en Windows no hay forma portable de enviar SIGINT/SIGTERM a un
+  // proceso Node desde otra consola. stop-worker.ps1 crea este archivo; el
+  // worker lo detecta a 1 Hz, lo elimina, y dispara el mismo shutdown que una
+  // señal. El ciclo actual (incluida una inferencia activa) se completa antes
+  // de salir — nunca se interrumpe trabajo en vuelo por este camino.
+  const stopFlagPoller = setInterval(() => {
+    try {
+      if (fs.existsSync(config.stopFlagFile)) {
+        try { fs.unlinkSync(config.stopFlagFile); } catch { /* no-op */ }
+        clearInterval(stopFlagPoller);
+        requestShutdown("STOP_FLAG");
+      }
+    } catch { /* no-op: ENOENT u otros errores de FS son no fatales */ }
+  }, 1000);
+  stopFlagPoller.unref?.();
 
   const backend = createBackendClient({ backendUrl: config.backendUrl, token: config.token });
   const ollama = createOllamaClient({

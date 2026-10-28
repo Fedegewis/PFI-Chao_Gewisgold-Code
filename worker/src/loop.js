@@ -43,7 +43,7 @@ function nextBackoffMs(attempt, maxMs) {
  * No duerme: el caller decide cuánto esperar entre ciclos.
  */
 export async function runOneCycle(ctx) {
-  const { backend, ollama, config, logger, shutdownSignal } = ctx;
+  const { backend, ollama, config, logger } = ctx;
 
   // 1) /claim
   let claimResp;
@@ -139,8 +139,7 @@ export async function runOneCycle(ctx) {
     return { kind: "failed", claim_id: claim.claim_id, error_code: errorCode };
   }
 
-  // 3) /result. Si el backend responde 422 retriable, hacer UN segundo
-  // intento inmediato con el MISMO claim (sin pasar por /claim nuevo).
+  // 3) /result. Un único envío por claim.
   try {
     await backend.result({
       claimId: claim.claim_id,
@@ -155,24 +154,16 @@ export async function runOneCycle(ctx) {
       logger.info("claim perdido al entregar resultado", { claim_id: claim.claim_id });
       return { kind: "lost", claim_id: claim.claim_id };
     }
-    if (err?.code === BackendErrorCodes.BACKEND_VALIDATION && err.retriable) {
-      logger.warn("validator rechazó, reintentando una vez", {
-        claim_id: claim.claim_id, validation_code: err.body?.validation_code,
+    if (err?.code === BackendErrorCodes.BACKEND_VALIDATION) {
+      // Al responder 422 el backend ya registró el failed y cerró el claim:
+      // no hay reintento con este claim ni /failed. La cola puede ofrecer un
+      // claim nuevo, sujeto a MAX_GENERATION_ATTEMPTS y al cooldown.
+      logger.warn("validator rechazó el resultado; el backend reprograma", {
+        claim_id: claim.claim_id,
+        validation_code: err.body?.validation_code,
+        retriable: Boolean(err.retriable),
       });
-      try {
-        const retryText = (await ollama({ prompt: claim.prompt, abortSignal: shutdownSignal })).text;
-        await backend.result({
-          claimId: claim.claim_id, claimToken: claim.claim_token, rawText: retryText, latencyMs: ollamaLatency,
-        });
-        logger.info("resultado persistido (retry)", { claim_id: claim.claim_id });
-        return { kind: "processed", claim_id: claim.claim_id };
-      } catch (err2) {
-        if (err2?.code === BackendErrorCodes.BACKEND_CLAIM_LOST) {
-          return { kind: "lost", claim_id: claim.claim_id };
-        }
-        logger.warn("retry falló", { claim_id: claim.claim_id, code: err2?.code });
-        return { kind: "failed", claim_id: claim.claim_id, error_code: err2?.code || "RESULT_FAILED" };
-      }
+      return { kind: "failed", claim_id: claim.claim_id, error_code: err.code };
     }
     logger.warn("backend rechazó resultado", { claim_id: claim.claim_id, code: err?.code });
     return { kind: "failed", claim_id: claim.claim_id, error_code: err?.code || "RESULT_FAILED" };
