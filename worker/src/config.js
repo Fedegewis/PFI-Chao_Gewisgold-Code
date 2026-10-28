@@ -80,6 +80,10 @@ export function loadConfig(env = process.env) {
     heartbeatMs: parseIntPositive(env.WORKER_HEARTBEAT_MS, 60_000),
     backendRetryMaxMs: parseIntPositive(env.WORKER_BACKEND_RETRY_MAX_MS, 120_000),
     lockFile: env.WORKER_LOCK_FILE || ".worker.lock",
+    // Archivo-centinela para shutdown cooperativo en Windows. El worker lo
+    // observa a 1 Hz y, al detectarlo, dispara el mismo shutdown ordenado
+    // que SIGINT (termina el ciclo actual, no interrumpe la inferencia).
+    stopFlagFile: env.WORKER_STOP_FLAG || ".worker.stop",
     logLevel: env.WORKER_LOG_LEVEL || "info",
   };
 }

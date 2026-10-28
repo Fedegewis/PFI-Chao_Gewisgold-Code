@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { runOneCycle } from "../src/loop.js";
+import { runOneCycle, runLoop } from "../src/loop.js";
 import { BackendError, BackendErrorCodes } from "../src/backendClient.js";
 import { OllamaError, OllamaErrorCodes } from "../src/ollamaClient.js";
 
@@ -117,38 +117,30 @@ describe("worker loop — un ciclo", () => {
     assert.equal(backend.calls.result, 1);
   });
 
-  it("/result 422 retriable → reintenta una vez y persiste", async () => {
-    let results = 0;
-    const backend = makeBackendMock({
-      onClaim: () => sampleClaim(),
-      onResult: () => {
-        results++;
-        if (results === 1) throw new BackendError(BackendErrorCodes.BACKEND_VALIDATION, "x", { httpStatus: 422, retriable: true, body: { validation_code: "SCHEMA_INVALID", retriable: true } });
-        return { status: 200, body: { ok: true } };
-      },
+  for (const retriable of [true, false]) {
+    it(`/result 422 (retriable=${retriable}) → una inferencia, un /result, sin /failed, kind=failed`, async () => {
+      const backend = makeBackendMock({
+        onClaim: () => sampleClaim(),
+        onResult: () => {
+          throw new BackendError(BackendErrorCodes.BACKEND_VALIDATION, "x", {
+            httpStatus: 422, retriable, body: { validation_code: "SCHEMA_INVALID", retriable },
+          });
+        },
+      });
+      let ollamaCalls = 0;
+      const ollama = makeOllamaMock(async () => { ollamaCalls++; return { text: "{}", latencyMs: 1 }; });
+      const r = await runOneCycle({
+        backend, ollama, config: BASE_CONFIG, logger: silentLogger,
+        shutdownSignal: new AbortController().signal,
+      });
+      assert.equal(r.kind, "failed");
+      assert.equal(r.error_code, BackendErrorCodes.BACKEND_VALIDATION);
+      assert.equal(ollamaCalls, 1);
+      assert.equal(backend.calls.claim, 1);
+      assert.equal(backend.calls.result, 1);
+      assert.equal(backend.calls.failed, 0);
     });
-    const ollama = makeOllamaMock(async () => ({ text: "{}", latencyMs: 1 }));
-    const r = await runOneCycle({
-      backend, ollama, config: BASE_CONFIG, logger: silentLogger,
-      shutdownSignal: new AbortController().signal,
-    });
-    assert.equal(r.kind, "processed");
-    assert.equal(backend.calls.result, 2);
-  });
-
-  it("/result 422 NO retriable → kind=failed sin reintentar", async () => {
-    const backend = makeBackendMock({
-      onClaim: () => sampleClaim(),
-      onResult: () => { throw new BackendError(BackendErrorCodes.BACKEND_VALIDATION, "x", { httpStatus: 422, retriable: false, body: { validation_code: "UNEXPECTED_FIELD" } }); },
-    });
-    const ollama = makeOllamaMock(async () => ({ text: "{}", latencyMs: 1 }));
-    const r = await runOneCycle({
-      backend, ollama, config: BASE_CONFIG, logger: silentLogger,
-      shutdownSignal: new AbortController().signal,
-    });
-    assert.equal(r.kind, "failed");
-    assert.equal(backend.calls.result, 1);
-  });
+  }
 
   it("heartbeat con CLAIM_LOST → aborta inferencia → kind=lost (sin enviar result)", async () => {
     // Config con heartbeat agresivo.
@@ -209,5 +201,37 @@ describe("worker loop — un ciclo", () => {
       shutdownSignal: new AbortController().signal,
     });
     assert.equal(backend.calls.claim, 1, "exactamente un /claim por ciclo");
+  });
+});
+
+describe("worker loop — reprogramación tras 422", () => {
+  it("el siguiente intento llega como un claim NUEVO de la cola, no como reintento", async () => {
+    const shutdown = new AbortController();
+    const resultTokens = [];
+    const backend = makeBackendMock({
+      onClaim: (n) => {
+        if (n === 1) return sampleClaim({ claim_id: 1, claim_token: "t1" });
+        if (n === 2) return sampleClaim({ claim_id: 2, claim_token: "t2" });
+        shutdown.abort();
+        return { status: 204, body: null };
+      },
+      onResult: (args) => {
+        resultTokens.push(args.claimToken);
+        if (args.claimToken === "t1") {
+          throw new BackendError(BackendErrorCodes.BACKEND_VALIDATION, "x", { httpStatus: 422, retriable: true, body: { retriable: true } });
+        }
+        return { status: 200, body: { ok: true } };
+      },
+    });
+    let ollamaCalls = 0;
+    const ollama = makeOllamaMock(async () => { ollamaCalls++; return { text: "{}", latencyMs: 1 }; });
+    const code = await runLoop({
+      backend, ollama, config: BASE_CONFIG, logger: silentLogger,
+      shutdownSignal: shutdown.signal,
+    });
+    assert.equal(code, 0);
+    assert.deepEqual(resultTokens, ["t1", "t2"], "un /result por claim, cada uno con su token");
+    assert.equal(ollamaCalls, 2, "una inferencia por claim");
+    assert.equal(backend.calls.failed, 0);
   });
 });

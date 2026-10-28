@@ -2,5 +2,12 @@ node_modules/
 .env
 .env.*
 !.env.example
+!.env.local.example
+!.env.production.example
 .worker.lock
+.worker.*.lock
+.worker-wrapper.lock
+.worker.stop
+.worker.*.stop
+logs/
 *.log

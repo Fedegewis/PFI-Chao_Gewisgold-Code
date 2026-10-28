@@ -105,4 +105,14 @@ describe("config.loadConfig", () => {
     assert.equal(c.backendUrl, "https://api.menteactiva.ar");
     assert.equal(c.ollamaUrl, "http://127.0.0.1:11434");
   });
+
+  it("stopFlagFile tiene default .worker.stop", () => {
+    const c = loadConfig(base());
+    assert.equal(c.stopFlagFile, ".worker.stop");
+  });
+
+  it("stopFlagFile respeta WORKER_STOP_FLAG", () => {
+    const c = loadConfig(base({ WORKER_STOP_FLAG: ".worker.prod.stop" }));
+    assert.equal(c.stopFlagFile, ".worker.prod.stop");
+  });
 });
