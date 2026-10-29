@@ -37,6 +37,48 @@ function classify(err) {
 }
 
 /**
+ * Chequeo liviano previo al /claim: GET /api/tags y presencia del modelo.
+ * Nunca lanza; devuelve { ok: true } o { ok: false, code }.
+ * Es una foto del momento: Ollama puede caerse entre este chequeo y la
+ * inferencia, y ese caso sigue cubierto por el /failed del ciclo.
+ */
+export function createOllamaHealthCheck({ ollamaUrl, model, timeoutMs = 5_000, fetchImpl } = {}) {
+  if (typeof ollamaUrl !== "string" || ollamaUrl.length === 0) {
+    throw new TypeError("ollamaUrl requerido");
+  }
+  if (typeof model !== "string" || model.length === 0) {
+    throw new TypeError("model requerido");
+  }
+  const doFetch = fetchImpl || globalThis.fetch;
+  const base = ollamaUrl.replace(/\/+$/, "");
+
+  return async function checkReady() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res;
+    try {
+      res = await doFetch(`${base}/api/tags`, { method: "GET", signal: controller.signal });
+    } catch (err) {
+      return { ok: false, code: classify(err).code };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      return { ok: false, code: OllamaErrorCodes.OLLAMA_HTTP_ERROR };
+    }
+    let payload;
+    try {
+      payload = await res.json();
+    } catch {
+      return { ok: false, code: OllamaErrorCodes.OLLAMA_INVALID_JSON };
+    }
+    const models = Array.isArray(payload?.models) ? payload.models : [];
+    const present = models.some((m) => m?.name === model || m?.model === model);
+    return present ? { ok: true } : { ok: false, code: OllamaErrorCodes.OLLAMA_MODEL_NOT_FOUND };
+  };
+}
+
+/**
  * Factory. fetchImpl y signal inyectables para tests y para cancelación
  * externa (cuando el claim se pierde mid-inferencia).
  */
