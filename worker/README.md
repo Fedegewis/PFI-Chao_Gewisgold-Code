@@ -81,7 +81,15 @@ Durante operación:
 
 ## Comportamiento ante fallos
 
-- Ollama apagado → `OLLAMA_OFFLINE` → `/failed` → siguiente ciclo.
+- Antes de cada `/claim` el worker consulta `GET /api/tags` (timeout 5 s)
+  y verifica que el modelo esté pullado. Si Ollama no responde o falta el
+  modelo, **no reclama** (no toma ningún lease), espera `idlePollMs` y
+  vuelve a consultar. Sólo loguea las transiciones (`ollama no
+  disponible…` / `ollama disponible nuevamente`). Cubre, por ejemplo, la
+  auto-actualización de Ollama, que lo cierra durante algunos minutos.
+- El chequeo es una foto del momento, **no una garantía**: si Ollama se
+  cae entre el chequeo y la inferencia → `OLLAMA_OFFLINE` → `/failed` →
+  siguiente ciclo, igual que antes.
 - Backend inaccesible → backoff exponencial 15 s..120 s hasta recuperar.
 - 401 del backend → fatal (exit 1), hay que revisar WORKER_TOKEN.
 - Claim perdido mid-inferencia → aborta Ollama (via AbortController), no
@@ -150,8 +158,28 @@ El script:
 - Registra la tarea `MenteActivaWorker`: inicio de sesión del usuario
   actual + 30 s (`Delay=PT30S`, formato ISO 8601), usuario interactivo
   (`-RunLevel Limited`, sin elevación, sin SYSTEM), cwd = `worker/`,
-  PowerShell con `-WindowStyle Hidden`. La tarea queda visible en el
-  Programador para poder deshabilitarla desde la interfaz.
+  acción `conhost.exe --headless powershell.exe … -File start-worker.ps1`.
+  La tarea queda visible en el Programador para poder deshabilitarla
+  desde la interfaz.
+
+**Por qué `conhost --headless`.** Con `powershell.exe -WindowStyle
+Hidden` a secas, Windows 11 entrega la consola a Windows Terminal (la
+terminal predeterminada) antes de que PowerShell pueda ocultarla: queda
+una ventana vacía y, si se la cierra, el wrapper muere con `0xC000013A`
+(`STATUS_CONTROL_C_EXIT`), la tarea pasa a `Ready` y el worker queda
+corriendo sin supervisión. `conhost.exe --headless` crea una consola sin
+ventana y no pasa por Windows Terminal (verificado: `GetConsoleWindow()`
+devuelve 0 y no se abre ninguna instancia nueva de Windows Terminal).
+Limitación: **no propaga el exit code**, así que el Programador ve
+siempre 0 en `LastTaskResult`; el código real del wrapper se registra en
+`logs/wrapper-*.log` (`wrapper finalizado exit_code=N`).
+
+Otra limitación: `conhost --headless` usa sus handles estándar como
+canal de la pseudoconsola. Si se lo lanza con stdin/stdout redirigidos
+(por ejemplo a `NUL`), termina enseguida **sin ejecutar** al wrapper.
+Lanzado sin handles heredados (doble clic, `Start-Process`, Programador
+de tareas) funciona. Para probarlo a mano usar `Start-Process`, no una
+redirección.
 - Los argumentos de la tarea sólo contienen la ruta del wrapper, el
   nombre del perfil y el modelo. El token sólo vive en `.env.production`.
 - Si la tarea ya existe, pide confirmación y la reemplaza en una sola
@@ -161,7 +189,21 @@ El script:
 
 1. Fija el cwd a la carpeta `worker/`.
 2. Verifica que el `.env.production` exista (error 11 si falta).
-3. **Espera indefinidamente** a que Ollama responda `/api/version`
+3. Antes de cada lanzamiento evalúa el lockfile del worker del perfil
+   (`Get-WorkerLockState`):
+   - **Worker vivo** → lo **adopta**: no lanza otro, lo supervisa cada
+     15 s y, cuando termina, vuelve a evaluar. Para adoptar exige que el
+     PID exista, que sea `node … src\index.js`, que el proceso sea
+     anterior al lockfile y, si su línea de comandos trae `--profile`,
+     que sea el mismo perfil (si es otro: exit 17). Que el lockfile sea
+     exclusivo del perfil ya lo garantiza el chequeo de colisiones.
+   - **Lock vencido** (PID inexistente, ilegible, o reasignado a otro
+     programa o a un proceso posterior al lock, típico tras reiniciar
+     Windows) → lo re-verifica y recién entonces lo borra.
+   - **node.exe vivo cuya línea de comandos no se puede leer** (p. ej.
+     elevado) → no lo adopta ni borra su lock; espera a que termine.
+   - **Sin lock** → sigue con el paso 4.
+4. **Espera indefinidamente** a que Ollama responda `/api/version`
    Y a que `llama3.2:3b` aparezca en `/api/tags`. Mientras tanto:
    - polea cada 10 s para Ollama caído, cada 30 s para modelo faltante.
    - loguea sólo transiciones de estado (offline↔online, modelo
@@ -170,19 +212,39 @@ El script:
    - respeta cancelación cooperativa: si alguien borra
      `.worker-wrapper.lock`, el wrapper sale limpio sin arrancar el
      worker. `stop-worker.ps1` usa este canal.
-4. Sólo cuando Ollama + modelo están OK, setea
-   `WORKER_ENV_FILE=.env.production` y lanza `node src/index.js`.
-5. Lanza Node vía `cmd.exe /c ... >> log 2>&1` en una ventana oculta
+5. Sólo cuando Ollama + modelo están OK, setea
+   `WORKER_ENV_FILE=.env.production` y lanza
+   `node src/index.js --profile .env.production` (Node ignora
+   `--profile`; sirve para verificar el perfil al adoptar).
+6. Lanza Node vía `cmd.exe /c ... >> log 2>&1` en una ventana oculta
    propia: stdout y stderr se **agregan** a `logs/worker-YYYY-MM-DD.log`
    sin sobrescribir entre reinicios. La fecha del archivo es la del
    lanzamiento; si un mismo proceso corre varios días, sigue escribiendo
    en el archivo del día en que arrancó.
-6. Si el worker muere con exit code != 0, 1 o 2, re-verifica Ollama
-   antes de reintentar; luego sleep de 30 s hasta `MaxRestarts=5`.
-   Exit 1 (auth del backend) y exit 2 (config inválida) son no
-   reintenciables.
-7. Mantiene su propio lockfile `.worker-wrapper.lock` separado del
-   lockfile interno del worker.
+7. Según el exit code del worker:
+   - `0` (stop-flag o señal) → el wrapper termina con 0.
+   - `1` (auth rechazada o excepción del loop) y `2` (config inválida)
+     → no reintenta, exit 16.
+   - cualquier otro (incluido el fin de un worker adoptado, cuyo código
+     no se conoce) → espera 30 s, vuelve al paso 3 y reintenta.
+   `MaxRestarts=5` cuenta fallos **consecutivos**: una ejecución que
+   duró al menos `StableRunSec` (600 s) reinicia el contador. Superado
+   el límite, exit 15.
+8. Mantiene su propio lockfile `.worker-wrapper.lock` separado del
+   lockfile interno del worker. Si se borra (lo hace `stop-worker.ps1`),
+   corta la espera de Ollama, la supervisión de un worker adoptado o la
+   espera entre reintentos y sale con 0 sin relanzar.
+
+Exit codes del wrapper: 0 fin normal o detención pedida, 10 ya hay otro
+wrapper vivo, 11 perfil inexistente, 12 no se pudo escribir el lock del
+wrapper, 13 `node` no está en el PATH, 14 colisión de lockfile o
+stop-flag entre perfiles, 15 demasiados fallos consecutivos, 16 error no
+reintenciable del worker, 17 el lockfile pertenece a un worker de otro
+perfil.
+
+Si el wrapper muere de forma abrupta, el worker sigue corriendo (tiene
+su propia consola oculta) y el próximo wrapper lo adopta en lugar de
+lanzar un duplicado.
 
 ### Detener (cooperativamente)
 
@@ -285,7 +347,13 @@ se convierten en comillas que rompen el parseo. Un test lo verifica.
   structured; nunca contiene el token, prompt completo ni respuesta
   del modelo).
 - `worker/logs/wrapper-YYYY-MM-DD.log` — eventos del wrapper
-  PowerShell (inicio, espera a Ollama, reinicios).
+  PowerShell (inicio, adopción, espera a Ollama, reinicios y
+  `wrapper finalizado exit_code=N`). Fecha del archivo en hora local;
+  timestamps en UTC.
+
+Con `conhost --headless`, `LastTaskResult` es siempre 0 aunque el
+wrapper haya fallado: el código real está en el log del wrapper. Mientras
+el wrapper corre, `Get-ScheduledTask` muestra `Running`.
 
 Para ver la tarea:
 

@@ -5,8 +5,9 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -232,5 +233,364 @@ describe("scripts — regresiones estáticas", () => {
     assert.doesNotMatch(src, /\[string\]\$EnvFile/);
     const argLine = src.match(/\$argLine = (.*)/)[1];
     assert.doesNotMatch(argLine, /TOKEN|WORKER_BACKEND_URL/i);
+  });
+});
+
+// --- Supervisión del worker (fix/worker-autostart) ---------------------------
+
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Worker falso que queda vivo hasta que se lo mata. Su línea de comandos
+// coincide con la del worker real (`node src\index.js --profile ...`).
+function spawnFakeWorker(dir, profile) {
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "index.js"), "setInterval(() => {}, 1000);\n");
+  const args = ["src\\index.js"];
+  if (profile) args.push("--profile", profile);
+  return spawn(process.execPath, args, { cwd: dir, stdio: "ignore", windowsHide: true });
+}
+
+function killQuiet(child) {
+  try { child.kill(); } catch { /* no-op */ }
+}
+
+describe("WorkerCommon — decisiones de supervisión", () => {
+  it("clasifica exit codes: 0 stop, 1/2 fatal, resto retry", winOnly, () => {
+    const out = runCommon(
+      `(@(0,1,2,3,7,-1073741510,3221225786) | ForEach-Object { Get-WorkerExitAction -ExitCode $_ }) -join ','`
+    );
+    assert.equal(out, "stop,fatal,fatal,retry,retry,retry,retry");
+  });
+
+  it("contador de fallos: suma si la ejecución fue corta y reinicia tras un período estable", winOnly, () => {
+    const out = runCommon([
+      "$a = Step-WorkerFailureCount -Failures 0 -RunSeconds 5 -StableRunSec 600",
+      "$b = Step-WorkerFailureCount -Failures 4 -RunSeconds 5 -StableRunSec 600",
+      "$c = Step-WorkerFailureCount -Failures 4 -RunSeconds 600 -StableRunSec 600",
+      "$d = Step-WorkerFailureCount -Failures 5 -RunSeconds 86400 -StableRunSec 600",
+      "\"$a,$b,$c,$d\"",
+    ].join("; "));
+    assert.equal(out, "1,5,1,1");
+  });
+
+  it("lee el perfil declarado con --profile en la línea de comandos", winOnly, () => {
+    const out = runCommon([
+      `$a = Get-WorkerProfileTag -CommandLine '"C:\\node.exe" "src\\index.js" --profile ".env.production"'`,
+      `$b = Get-WorkerProfileTag -CommandLine '"C:\\node.exe"  "src\\index.js"'`,
+      `$c = Get-WorkerProfileTag -CommandLine 'node src\\index.js --profile .env.local'`,
+      "\"$a|$b|$c\"",
+    ].join("; "));
+    assert.equal(out, ".env.production||.env.local");
+  });
+});
+
+describe("WorkerCommon — estado del lockfile del worker", () => {
+  function lockState(lock, profile = ".env.production") {
+    return JSON.parse(runCommon(
+      `Get-WorkerLockState -LockFile ${psQuote(lock)} -EnvFile '${profile}' | Select-Object Status,Pid,Reason | ConvertTo-Json -Compress`
+    ));
+  }
+
+  it("sin lockfile → none; ilegible o PID inexistente → stale", winOnly, () => {
+    const dir = tmpWorkerDir();
+    try {
+      const lock = path.join(dir, ".worker.production.lock");
+      assert.equal(lockState(lock).Status, "none");
+      fs.writeFileSync(lock, "no-es-un-pid");
+      assert.equal(lockState(lock).Status, "stale");
+      fs.writeFileSync(lock, "4194300");
+      const s = lockState(lock);
+      assert.equal(s.Status, "stale");
+      assert.match(s.Reason, /inexistente/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("PID reutilizado por otro programa → stale (caso típico tras reiniciar)", winOnly, () => {
+    const dir = tmpWorkerDir();
+    try {
+      const lock = path.join(dir, ".worker.production.lock");
+      // El node que corre estos tests: vivo, pero no es `src\index.js`.
+      fs.writeFileSync(lock, String(process.pid));
+      const s = lockState(lock);
+      assert.equal(s.Status, "stale");
+      assert.match(s.Reason, /otro programa node/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("worker vivo del mismo perfil → alive; de otro perfil → mismatch; sin --profile → alive", winOnly, async () => {
+    const dir = tmpWorkerDir();
+    const tagged = spawnFakeWorker(dir, ".env.production");
+    const untagged = spawnFakeWorker(dir, null);
+    try {
+      await sleepMs(300);
+      const lock = path.join(dir, ".worker.production.lock");
+      fs.writeFileSync(lock, String(tagged.pid));
+      assert.equal(lockState(lock).Status, "alive");
+      assert.equal(lockState(lock, ".env.local").Status, "mismatch");
+      fs.writeFileSync(lock, String(untagged.pid));
+      assert.equal(lockState(lock).Status, "alive");
+    } finally {
+      killQuiet(tagged);
+      killQuiet(untagged);
+      await sleepMs(200);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("worker creado después de escribirse el lock (PID reasignado) → stale", winOnly, async () => {
+    const dir = tmpWorkerDir();
+    const child = spawnFakeWorker(dir, ".env.production");
+    try {
+      await sleepMs(300);
+      const lock = path.join(dir, ".worker.production.lock");
+      fs.writeFileSync(lock, String(child.pid));
+      const past = new Date(Date.now() - 3600_000);
+      fs.utimesSync(lock, past, past);
+      const s = lockState(lock);
+      assert.equal(s.Status, "stale");
+      assert.match(s.Reason, /posterior/);
+    } finally {
+      killQuiet(child);
+      await sleepMs(200);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("Remove-StaleWorkerLock borra sólo locks vencidos y nunca el de un worker vivo", winOnly, async () => {
+    const dir = tmpWorkerDir();
+    const child = spawnFakeWorker(dir, ".env.production");
+    try {
+      await sleepMs(300);
+      const lock = path.join(dir, ".worker.production.lock");
+      fs.writeFileSync(lock, String(child.pid));
+      assert.equal(runCommon(
+        `Remove-StaleWorkerLock -LockFile ${psQuote(lock)} -EnvFile '.env.production' -ExpectedPid ${child.pid}`
+      ), "False");
+      assert.ok(fs.existsSync(lock), "el lock de un worker vivo no se toca");
+
+      fs.writeFileSync(lock, "4194300");
+      // PID esperado distinto del actual → no se borra (cambió entre evaluación y borrado).
+      assert.equal(runCommon(
+        `Remove-StaleWorkerLock -LockFile ${psQuote(lock)} -EnvFile '.env.production' -ExpectedPid 123`
+      ), "False");
+      assert.ok(fs.existsSync(lock));
+      assert.equal(runCommon(
+        `Remove-StaleWorkerLock -LockFile ${psQuote(lock)} -EnvFile '.env.production' -ExpectedPid 4194300`
+      ), "True");
+      assert.equal(fs.existsSync(lock), false);
+    } finally {
+      killQuiet(child);
+      await sleepMs(200);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("Invoke-WorkerNode agrega --profile a la línea de comandos de Node", winOnly, () => {
+    const dir = tmpWorkerDir();
+    try {
+      fs.mkdirSync(path.join(dir, "src"));
+      fs.mkdirSync(path.join(dir, "logs"));
+      fs.writeFileSync(path.join(dir, "src", "index.js"), "console.log(JSON.stringify(process.argv.slice(2)));\n");
+      const log = path.join(dir, "logs", "worker-test.log");
+      const code = runCommon(
+        `Invoke-WorkerNode -WorkerDir ${psQuote(dir)} -LogFile ${psQuote(log)} -NodeExe ${psQuote(process.execPath)} -ProfileTag '.env.production'`
+      );
+      assert.equal(code, "0");
+      assert.match(fs.readFileSync(log, "utf8"), /\["--profile",".env.production"\]/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Copia los scripts a un worker/ temporal con un perfil sin token real.
+// Nunca usa el worker/ del repo, sus .env ni sus lockfiles.
+function makeSandboxWorker() {
+  const dir = tmpWorkerDir();
+  fs.mkdirSync(path.join(dir, "scripts"));
+  for (const f of ["WorkerCommon.ps1", "start-worker.ps1"]) {
+    fs.copyFileSync(path.join(SCRIPTS_DIR, f), path.join(dir, "scripts", f));
+  }
+  fs.writeFileSync(path.join(dir, ".env.production"), [
+    `WORKER_TOKEN=${FAKE_TOKEN}`,
+    "WORKER_LOCK_FILE=./.worker.production.lock",
+    "WORKER_STOP_FLAG=./.worker.production.stop",
+  ].join("\n"));
+  return dir;
+}
+
+// Ollama falso: /api/version y /api/tags con el modelo pedido.
+async function startFakeOllama() {
+  const server = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url === "/api/version") return res.end(JSON.stringify({ version: "test" }));
+    if (req.url === "/api/tags") return res.end(JSON.stringify({ models: [{ name: "llama3.2:3b" }] }));
+    res.statusCode = 404;
+    return res.end("{}");
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  return { server, url: `http://127.0.0.1:${server.address().port}` };
+}
+
+function runWrapperAsync(dir, extraArgs) {
+  const child = spawn("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-File", path.join(dir, "scripts", "start-worker.ps1"),
+    "-EnvFile", ".env.production",
+    ...extraArgs,
+  ], { stdio: "ignore", windowsHide: true });
+  const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+  return { child, exited };
+}
+
+function wrapperLog(dir) {
+  const logs = path.join(dir, "logs");
+  if (!fs.existsSync(logs)) return "";
+  return fs.readdirSync(logs).filter((f) => f.startsWith("wrapper-"))
+    .map((f) => fs.readFileSync(path.join(logs, f), "utf8")).join("");
+}
+
+async function waitFor(pred, timeoutMs, what) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pred()) return;
+    await sleepMs(200);
+  }
+  throw new Error(`timeout esperando: ${what}`);
+}
+
+describe("start-worker.ps1 — sandbox temporal (sin Ollama ni backend reales)", () => {
+  it("lock vencido + fallos rápidos → limpia el lock, reintenta y sale con 15", winOnly, async () => {
+    const dir = makeSandboxWorker();
+    const ollama = await startFakeOllama();
+    try {
+      fs.mkdirSync(path.join(dir, "src"));
+      fs.writeFileSync(path.join(dir, "src", "index.js"), "process.exit(7);\n");
+      fs.writeFileSync(path.join(dir, ".worker.production.lock"), "4194300");
+      const { exited } = runWrapperAsync(dir, [
+        "-OllamaUrl", ollama.url, "-MaxRestarts", "1", "-RestartDelaySec", "0", "-StableRunSec", "600",
+      ]);
+      const code = await Promise.race([exited, sleepMs(45_000).then(() => "timeout")]);
+      const log = wrapperLog(dir);
+      assert.equal(code, 15, log);
+      assert.match(log, /lockfile del worker vencido pid=4194300/);
+      assert.equal((log.match(/lanzando node src\/index\.js/g) || []).length, 2);
+      assert.match(log, /exit_code=7/);
+      assert.match(log, /wrapper finalizado exit_code=15/);
+      assert.equal(fs.existsSync(path.join(dir, ".worker-wrapper.lock")), false);
+    } finally {
+      ollama.server.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exit 2 del worker → no reintenta y sale con 16", winOnly, async () => {
+    const dir = makeSandboxWorker();
+    const ollama = await startFakeOllama();
+    try {
+      fs.mkdirSync(path.join(dir, "src"));
+      fs.writeFileSync(path.join(dir, "src", "index.js"), "process.exit(2);\n");
+      const { exited } = runWrapperAsync(dir, ["-OllamaUrl", ollama.url, "-RestartDelaySec", "0"]);
+      const code = await Promise.race([exited, sleepMs(45_000).then(() => "timeout")]);
+      const log = wrapperLog(dir);
+      assert.equal(code, 16, log);
+      assert.equal((log.match(/lanzando node/g) || []).length, 1);
+    } finally {
+      ollama.server.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("adopta un worker vivo sin lanzar otro y respeta la detención cooperativa", winOnly, async () => {
+    const dir = makeSandboxWorker();
+    const fake = spawnFakeWorker(dir, ".env.production");
+    try {
+      await sleepMs(300);
+      fs.writeFileSync(path.join(dir, ".worker.production.lock"), String(fake.pid));
+      // Ollama inalcanzable: si el wrapper intentara lanzar, se quedaría esperándolo.
+      const { exited } = runWrapperAsync(dir, [
+        "-OllamaUrl", "http://127.0.0.1:9", "-OllamaPollSec", "1", "-AdoptPollSec", "1", "-RestartDelaySec", "1",
+      ]);
+      await waitFor(() => /adoptando worker existente pid=/.test(wrapperLog(dir)), 30_000, "adopción");
+
+      // El worker adoptado termina: el wrapper lo detecta y vuelve a esperar a Ollama.
+      killQuiet(fake);
+      await waitFor(() => /worker adoptado pid=\d+ termino/.test(wrapperLog(dir)), 30_000, "fin del adoptado");
+      await waitFor(() => /Ollama no responde/.test(wrapperLog(dir)), 30_000, "espera de Ollama");
+
+      // Detención cooperativa: stop-worker.ps1 borra el lock del wrapper.
+      fs.rmSync(path.join(dir, ".worker-wrapper.lock"), { force: true });
+      const code = await Promise.race([exited, sleepMs(30_000).then(() => "timeout")]);
+      const log = wrapperLog(dir);
+      assert.equal(code, 0, log);
+      assert.doesNotMatch(log, /lanzando node/, "nunca lanzó un segundo worker");
+      assert.match(log, /espera cancelada/);
+    } finally {
+      killQuiet(fake);
+      await sleepMs(200);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("WorkerCommon — log del wrapper con lectores concurrentes", () => {
+  // Regresión: con Add-Content, leer el log mientras el wrapper escribía
+  // producía EBUSY en el lector y líneas perdidas en silencio en el wrapper.
+  it("no pierde líneas ni bloquea a quien lee el log al mismo tiempo", winOnly, async () => {
+    const dir = tmpWorkerDir();
+    try {
+      const log = path.join(dir, "wrapper-test.log");
+      fs.writeFileSync(log, "");
+      const N = 400;
+      const writer = spawn("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+        `. ${psQuote(COMMON)}; $e=0; for($i=0;$i -lt ${N};$i++){ if (-not (Add-WorkerLogLine -Path ${psQuote(log)} -Line "linea $i")) { $e++ } }; "errores=$e"`,
+      ], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+      let out = "";
+      writer.stdout.on("data", (b) => { out += b; });
+      let done = false;
+      writer.on("exit", () => { done = true; });
+      let ebusy = 0;
+      while (!done) {
+        try { fs.readFileSync(log, "utf8"); } catch (err) { if (err.code === "EBUSY") ebusy++; else throw err; }
+        await sleepMs(1);
+      }
+      assert.equal(out.trim(), "errores=0");
+      assert.equal(ebusy, 0, "el lector no debe recibir EBUSY");
+      const lines = fs.readFileSync(log, "utf8").split(/\r?\n/).filter(Boolean);
+      assert.equal(lines.length, N);
+      assert.equal(lines[N - 1], `linea ${N - 1}`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("scripts — regresiones estáticas del autoinicio", () => {
+  it("el wrapper no escribe su log con Add-Content", () => {
+    const src = fs.readFileSync(path.join(SCRIPTS_DIR, "start-worker.ps1"), "utf8");
+    assert.doesNotMatch(src, /Add-Content/);
+    assert.match(src, /Add-WorkerLogLine/);
+  });
+
+  it("la tarea ejecuta el wrapper bajo conhost --headless, sin ventana visible", () => {
+    const src = fs.readFileSync(path.join(SCRIPTS_DIR, "install-autostart.ps1"), "utf8");
+    assert.match(src, /System32\\conhost\.exe/);
+    assert.match(src, /New-ScheduledTaskAction -Execute \$conhostExe/);
+    const argLine = src.match(/\$argLine = (.*)/)[1];
+    assert.match(argLine, /^"--headless /);
+    assert.doesNotMatch(argLine, /-WindowStyle/);
+  });
+
+  it("el wrapper evalúa el lockfile antes de lanzar y etiqueta el perfil", () => {
+    const src = fs.readFileSync(path.join(SCRIPTS_DIR, "start-worker.ps1"), "utf8");
+    assert.ok(src.indexOf("Get-WorkerLockState") < src.indexOf("Invoke-WorkerNode -WorkerDir"));
+    assert.match(src, /Invoke-WorkerNode [^\n]*-ProfileTag \$EnvFile/);
+    // `continue` dentro de un switch no avanza el while en PowerShell.
+    assert.doesNotMatch(src, /switch \(\$state\.Status\)/);
   });
 });

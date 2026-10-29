@@ -235,3 +235,88 @@ describe("worker loop — reprogramación tras 422", () => {
     assert.equal(backend.calls.failed, 0);
   });
 });
+
+describe("worker loop — chequeo de Ollama previo al claim", () => {
+  it("Ollama no listo → kind=ollama_unavailable sin llamar a /claim", async () => {
+    const backend = makeBackendMock({ onClaim: () => sampleClaim() });
+    let ollamaCalls = 0;
+    const ollama = makeOllamaMock(async () => { ollamaCalls++; return { text: "{}", latencyMs: 1 }; });
+    const r = await runOneCycle({
+      backend, ollama, config: BASE_CONFIG, logger: silentLogger,
+      ollamaReady: async () => ({ ok: false, code: OllamaErrorCodes.OLLAMA_OFFLINE }),
+      shutdownSignal: new AbortController().signal,
+    });
+    assert.equal(r.kind, "ollama_unavailable");
+    assert.equal(r.error_code, OllamaErrorCodes.OLLAMA_OFFLINE);
+    assert.equal(backend.calls.claim, 0, "no se toma lease si Ollama no está listo");
+    assert.equal(ollamaCalls, 0);
+    assert.equal(backend.calls.failed, 0);
+  });
+
+  it("Ollama listo → reclama y procesa normalmente", async () => {
+    const backend = makeBackendMock({ onClaim: () => sampleClaim() });
+    const ollama = makeOllamaMock(async () => ({ text: "{}", latencyMs: 1 }));
+    const r = await runOneCycle({
+      backend, ollama, config: BASE_CONFIG, logger: silentLogger,
+      ollamaReady: async () => ({ ok: true }),
+      shutdownSignal: new AbortController().signal,
+    });
+    assert.equal(r.kind, "processed");
+    assert.equal(backend.calls.claim, 1);
+  });
+
+  it("Ollama se cae entre el chequeo y la inferencia → /failed como antes", async () => {
+    const backend = makeBackendMock({ onClaim: () => sampleClaim() });
+    const ollama = makeOllamaMock(async () => {
+      throw new OllamaError(OllamaErrorCodes.OLLAMA_OFFLINE, "down");
+    });
+    const r = await runOneCycle({
+      backend, ollama, config: BASE_CONFIG, logger: silentLogger,
+      ollamaReady: async () => ({ ok: true }),
+      shutdownSignal: new AbortController().signal,
+    });
+    assert.equal(r.kind, "failed");
+    assert.equal(r.error_code, OllamaErrorCodes.OLLAMA_OFFLINE);
+    assert.equal(backend.calls.failed, 1);
+  });
+
+  it("runLoop: no reclama mientras Ollama está caído y loguea sólo las transiciones", async () => {
+    const shutdown = new AbortController();
+    const readiness = [false, false, false, true];
+    let checks = 0;
+    const ollamaReady = async () => {
+      const ok = readiness[Math.min(checks, readiness.length - 1)];
+      checks++;
+      return ok ? { ok: true } : { ok: false, code: OllamaErrorCodes.OLLAMA_OFFLINE };
+    };
+    const backend = makeBackendMock({
+      onClaim: (n) => { if (n === 2) shutdown.abort(); return { status: 204, body: null }; },
+    });
+    const logs = [];
+    const logger = {
+      info: (msg) => logs.push(["info", msg]), warn: (msg) => logs.push(["warn", msg]),
+      debug: () => {}, error: (msg) => logs.push(["error", msg]),
+    };
+    const code = await runLoop({
+      backend, ollama: makeOllamaMock(async () => ({ text: "{}", latencyMs: 1 })),
+      ollamaReady, config: BASE_CONFIG, logger, shutdownSignal: shutdown.signal,
+    });
+    assert.equal(code, 0);
+    assert.equal(checks, 5);
+    assert.equal(backend.calls.claim, 2, "sólo reclama cuando Ollama volvió");
+    const ollamaLogs = logs.filter(([, m]) => /ollama/i.test(m));
+    assert.deepEqual(ollamaLogs, [
+      ["warn", "ollama no disponible; no se reclaman sesiones"],
+      ["info", "ollama disponible nuevamente"],
+    ]);
+  });
+
+  it("sin ollamaReady en el contexto el comportamiento previo no cambia", async () => {
+    const backend = makeBackendMock({ onClaim: () => ({ status: 204, body: null }) });
+    const r = await runOneCycle({
+      backend, ollama: makeOllamaMock(async () => ({ text: "{}", latencyMs: 1 })),
+      config: BASE_CONFIG, logger: silentLogger, shutdownSignal: new AbortController().signal,
+    });
+    assert.equal(r.kind, "idle");
+  });
+});

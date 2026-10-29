@@ -35,6 +35,8 @@ function nextBackoffMs(attempt, maxMs) {
 
 /**
  * Ejecuta UN ciclo del worker (una iteración del loop):
+ *  - si ctx.ollamaReady existe y Ollama no está listo: { kind: "ollama_unavailable" }
+ *    sin llamar a /claim
  *  - pide /claim al backend
  *  - si no hay trabajo: devuelve { kind: "idle" }
  *  - si hay: corre Ollama con heartbeats, entrega /result o /failed
@@ -43,7 +45,17 @@ function nextBackoffMs(attempt, maxMs) {
  * No duerme: el caller decide cuánto esperar entre ciclos.
  */
 export async function runOneCycle(ctx) {
-  const { backend, ollama, config, logger } = ctx;
+  const { backend, ollama, ollamaReady, config, logger } = ctx;
+
+  // 0) Chequeo previo de Ollama (opcional). Si no está listo, no se
+  //    reclama nada: no se toma un lease que sólo terminaría en /failed.
+  //    No es garantía: Ollama puede caerse después del chequeo.
+  if (ollamaReady) {
+    const health = await ollamaReady();
+    if (!health?.ok) {
+      return { kind: "ollama_unavailable", error_code: health?.code };
+    }
+  }
 
   // 1) /claim
   let claimResp;
@@ -176,12 +188,25 @@ export async function runOneCycle(ctx) {
 export async function runLoop(ctx) {
   const { config, logger, shutdownSignal } = ctx;
   let backendBackoffAttempt = 0;
+  let ollamaUnavailable = false;
 
   while (!shutdownSignal.aborted) {
     const cycle = await runOneCycle(ctx);
     if (shutdownSignal.aborted) break;
 
+    // Sólo se loguean las transiciones de Ollama para no saturar el log.
+    if (cycle.kind === "ollama_unavailable" && !ollamaUnavailable) {
+      ollamaUnavailable = true;
+      logger.warn("ollama no disponible; no se reclaman sesiones", { code: cycle.error_code });
+    } else if (cycle.kind !== "ollama_unavailable" && ollamaUnavailable) {
+      ollamaUnavailable = false;
+      logger.info("ollama disponible nuevamente");
+    }
+
     switch (cycle.kind) {
+      case "ollama_unavailable":
+        await sleep(config.idlePollMs, shutdownSignal);
+        break;
       case "idle":
         backendBackoffAttempt = 0;
         logger.debug("cola vacía", { wait_ms: config.idlePollMs });

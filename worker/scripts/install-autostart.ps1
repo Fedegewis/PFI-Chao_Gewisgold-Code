@@ -91,7 +91,7 @@ if ($ollamaHits.Count -gt 0) {
     Write-Host "    No se registrará tarea adicional para Ollama."
 } else {
     Write-Host ""
-    Write-Warning "No se detectó autostart de Ollama. El wrapper esperará hasta OllamaWaitSec segundos."
+    Write-Warning "No se detectó autostart de Ollama. El wrapper lo esperará indefinidamente."
     Write-Host "    Opciones:"
     Write-Host "      - Reinstalar Ollama permitiendo que agregue su acceso directo al Startup."
     Write-Host "      - O crear una tarea separada manualmente (fuera del alcance de este script)."
@@ -113,11 +113,21 @@ if ($existing) {
 
 # 4) Acción. Argumentos sin secretos: sólo ruta del wrapper, nombre del
 #    perfil y modelo. El token se lee del .env.production dentro de Node.
-#    -WindowStyle Hidden evita que quede una consola visible al iniciar
-#    sesión (cerrarla terminaría el wrapper).
+#    El wrapper corre bajo `conhost.exe --headless`: una consola sin
+#    ventana. Con `powershell.exe -WindowStyle Hidden` a secas, Windows 11
+#    entrega la consola a Windows Terminal (terminal predeterminada) antes
+#    de que PowerShell pueda ocultarla; queda una ventana vacía y cerrarla
+#    mata al wrapper (0xC000013A) dejando al worker sin supervisión.
+#    Limitación: conhost --headless no propaga el exit code; el Programador
+#    ve siempre 0 y el código real queda en logs\wrapper-*.log.
+$conhostExe = Join-Path $env:SystemRoot "System32\conhost.exe"
+if (-not (Test-Path -LiteralPath $conhostExe)) {
+    Write-Error "No se encuentra $conhostExe"
+    exit 1
+}
 $psExe = (Get-Command powershell.exe).Source
-$argLine = "-NoProfile -NoLogo -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$startScript`" -EnvFile `"$EnvFile`" -Model `"$Model`""
-$action = New-ScheduledTaskAction -Execute $psExe -Argument $argLine -WorkingDirectory $workerDir
+$argLine = "--headless `"$psExe`" -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File `"$startScript`" -EnvFile `"$EnvFile`" -Model `"$Model`""
+$action = New-ScheduledTaskAction -Execute $conhostExe -Argument $argLine -WorkingDirectory $workerDir
 
 # 5) Trigger: logon del usuario actual + delay en formato ISO 8601 (PT30S),
 #    que es el que exige el Programador de tareas.
@@ -126,8 +136,10 @@ $trigger = New-ScheduledTaskTrigger -AtLogOn -User $taskUser
 $trigger.Delay = "PT{0}S" -f $StartDelaySec
 
 # 6) Settings: no detener por batería, sin límite de ejecución, reinicio
-#    si la tarea falla al arrancar. La tarea queda VISIBLE en el
-#    Programador para poder deshabilitarla desde la interfaz.
+#    si la tarea falla al arrancar (con conhost --headless sólo aplica si
+#    no se pudo lanzar el proceso: los reintentos del worker los maneja el
+#    wrapper). La tarea queda VISIBLE en el Programador para poder
+#    deshabilitarla desde la interfaz.
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `

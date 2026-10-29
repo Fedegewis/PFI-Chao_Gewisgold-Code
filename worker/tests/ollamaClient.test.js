@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createOllamaClient, OllamaError, OllamaErrorCodes } from "../src/ollamaClient.js";
+import { createOllamaClient, createOllamaHealthCheck, OllamaError, OllamaErrorCodes } from "../src/ollamaClient.js";
 
 function makeRes(status, body) {
   const text = body === null ? "" : JSON.stringify(body);
@@ -86,5 +86,45 @@ describe("ollamaClient", () => {
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 10);
     await assert.rejects(generate({ prompt: "x", abortSignal: ctrl.signal }), (err) => err.code === OllamaErrorCodes.OLLAMA_TIMEOUT);
+  });
+});
+
+describe("ollamaClient — health check previo al claim", () => {
+  const opts = { ollamaUrl: "http://127.0.0.1:11434/", model: "llama3.2:3b" };
+
+  it("modelo presente en /api/tags → ok", async () => {
+    let url;
+    const fetchImpl = async (u) => { url = u; return makeRes(200, { models: [{ name: "llama3.2:3b" }] }); };
+    const check = createOllamaHealthCheck({ ...opts, fetchImpl });
+    assert.deepEqual(await check(), { ok: true });
+    assert.equal(url, "http://127.0.0.1:11434/api/tags");
+  });
+
+  it("modelo ausente → OLLAMA_MODEL_NOT_FOUND", async () => {
+    const fetchImpl = async () => makeRes(200, { models: [{ name: "otro:1b" }] });
+    const check = createOllamaHealthCheck({ ...opts, fetchImpl });
+    assert.deepEqual(await check(), { ok: false, code: OllamaErrorCodes.OLLAMA_MODEL_NOT_FOUND });
+  });
+
+  it("ECONNREFUSED → OLLAMA_OFFLINE sin lanzar", async () => {
+    const fetchImpl = async () => { throw Object.assign(new Error("x"), { cause: { code: "ECONNREFUSED" } }); };
+    const check = createOllamaHealthCheck({ ...opts, fetchImpl });
+    assert.deepEqual(await check(), { ok: false, code: OllamaErrorCodes.OLLAMA_OFFLINE });
+  });
+
+  it("HTTP 500 → OLLAMA_HTTP_ERROR", async () => {
+    const fetchImpl = async () => makeRes(500, {});
+    const check = createOllamaHealthCheck({ ...opts, fetchImpl });
+    assert.deepEqual(await check(), { ok: false, code: OllamaErrorCodes.OLLAMA_HTTP_ERROR });
+  });
+
+  it("sin respuesta dentro del timeout → no ok, sin lanzar", async () => {
+    const fetchImpl = async (_u, init) => new Promise((_, reject) => {
+      init.signal.addEventListener("abort", () => reject(Object.assign(new Error("abort"), { name: "AbortError" })));
+    });
+    const check = createOllamaHealthCheck({ ...opts, timeoutMs: 20, fetchImpl });
+    const r = await check();
+    assert.equal(r.ok, false);
+    assert.equal(r.code, OllamaErrorCodes.OLLAMA_TIMEOUT);
   });
 });

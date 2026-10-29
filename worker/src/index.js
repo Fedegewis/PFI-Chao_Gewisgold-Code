@@ -40,7 +40,7 @@ import { loadConfig, ConfigError } from "./config.js";
 import { createLogger } from "./logger.js";
 import { acquireLock, SingleInstanceError } from "./singleInstance.js";
 import { createBackendClient } from "./backendClient.js";
-import { createOllamaClient } from "./ollamaClient.js";
+import { createOllamaClient, createOllamaHealthCheck } from "./ollamaClient.js";
 import { runLoop } from "./loop.js";
 
 async function main() {
@@ -123,11 +123,12 @@ async function main() {
     model: config.model,
     timeoutMs: config.ollamaTimeoutMs,
   });
+  const ollamaReady = createOllamaHealthCheck({ ollamaUrl: config.ollamaUrl, model: config.model });
 
   let exitCode = 0;
   try {
     exitCode = await runLoop({
-      backend, ollama, config, logger,
+      backend, ollama, ollamaReady, config, logger,
       shutdownSignal: shutdown.signal,
     });
   } catch (err) {
