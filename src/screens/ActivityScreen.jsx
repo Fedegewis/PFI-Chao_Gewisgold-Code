@@ -288,7 +288,9 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
           <p className="prompt-copy">{activity.intro}</p>
           <div className="chip-row">
             <StatusChip icon={Clock3} text="Sin límite estricto" />
-            <StatusChip icon={Bot} text="Dificultad adaptativa" />
+            {usingBackend
+              ? <StatusChip icon={RefreshCw} text="Preguntas variadas en cada sesión" />
+              : <StatusChip icon={Bot} text="Dificultad adaptativa" />}
           </div>
           <div className="session-card">
             <p>{ACTIVITY_DRAFT_MESSAGE}</p>
