@@ -145,3 +145,33 @@ El envío por email vía Resend es **opcional**. Sin `RESEND_API_KEY` + `EMAIL_F
 En producción (Render) hay que configurar `RESEND_API_KEY`, `EMAIL_FROM` y `FRONTEND_URL`. La API key **nunca** debe estar en el frontend (Vercel) ni en variables `VITE_*`.
 
 Detalle de seguridad: el backend nunca persiste el token plaintext. El endpoint de envío por email requiere que el frontend le pase el token temporal (obtenido al crear la invitación) y el backend lo valida por SHA-256 contra `token_hash`. Las invitaciones pendientes recuperadas después de un reload (`GET /api/invitations`) no incluyen el token — por eso el botón "Enviar por email" sólo se ofrece justo después de crear la invitación.
+
+## Topología mismo origen (proxy `/api`)
+
+El frontend puede llamar al backend de dos maneras, según `VITE_API_URL` (variable de build del frontend):
+
+| Modo | `VITE_API_URL` | Camino de las llamadas |
+|---|---|---|
+| Entre orígenes (actual) | `https://menteactiva-api.onrender.com/api` | Navegador → Render directo (CORS) |
+| Mismo origen | `/api` | Navegador → Vercel (`vercel.json` rewrite) → Render |
+
+En desarrollo, `vite.config.js` reenvía `/api` a `API_PROXY_TARGET` (default `http://localhost:3001`) tanto en `npm run dev` como en `npm run preview`.
+
+> Windows + Git Bash: `VITE_API_URL=/api npm run build` se compila mal porque MSYS convierte `/api` en `C:/Program Files/Git/api`. Usar `MSYS_NO_PATHCONV=1 VITE_API_URL=/api npm run build`, o definir la variable en `.env.local`. En Vercel (Linux) no ocurre.
+
+El modo mismo origen es requisito para cookies `HttpOnly` de primera parte (sesiones persistentes de pacientes, fase posterior). Mientras `VITE_API_URL` siga absoluta, el rewrite existe pero no se usa: no hay cambio de comportamiento.
+
+Reglas:
+- El backend **no cambia**. El navegador sigue enviando `Origin`, así que el origen del frontend debe permanecer en `CORS_ORIGINS`. No quitar esos orígenes ni el acceso directo a Render: los usa el worker, los bundles viejos abiertos en pestañas y el rollback.
+- El worker Ollama sigue usando `WORKER_BACKEND_URL` directo a Render; no pasa por Vercel.
+- Google OAuth no se ve afectado: los "orígenes autorizados" son los del frontend, que no cambian.
+
+Activación (requiere autorización explícita, fuera de horario de actividad):
+1. Mergear con `VITE_API_URL` absoluta y comprobar `GET https://<frontend>/api/health` a través del proxy.
+2. Cambiar `VITE_API_URL=/api` en Vercel (Production) y redesplegar.
+3. Prueba rápida: login profesional (email y Google), paciente con contraseña, una actividad completa, resultados, logs del worker.
+
+Rollback:
+1. Vercel → *Instant Rollback* al deployment anterior (tiene la URL absoluta embebida; no requiere rebuild).
+2. Volver `VITE_API_URL` a la URL absoluta para los builds siguientes.
+3. Opcional: revertir el commit de `vercel.json` (inocuo mientras la variable sea absoluta). El backend no requiere rollback.
