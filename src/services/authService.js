@@ -43,16 +43,35 @@ export function persistAuthSession({ user, token }) {
   saveUser(user);
 }
 
+export const SERVER_UNAVAILABLE_MESSAGE =
+  "No se pudo conectar con el servidor. Intentá nuevamente en unos minutos.";
+
+// La respuesta puede no ser JSON (p. ej. página de error 502/504 del proxy de
+// Vercel o de Render). Devuelve null en lugar de propagar un SyntaxError.
+async function readJsonSafely(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function buildResponseError(res, data) {
+  const fallback = data ? "Error del servidor" : SERVER_UNAVAILABLE_MESSAGE;
+  const err = new Error((data && data.error) || fallback);
+  err.status = res.status;
+  return err;
+}
+
 async function apiRequest(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
   });
-  const data = await res.json();
-  if (!res.ok) {
-    const err = new Error(data.error || "Error del servidor");
-    err.status = res.status;
-    throw err;
+  const data = await readJsonSafely(res);
+  // Un 2xx sin JSON tampoco es una respuesta válida: evita persistir token/user indefinidos.
+  if (!res.ok || !data) {
+    throw buildResponseError(res, data);
   }
   return data;
 }
@@ -98,18 +117,13 @@ export async function loginWithGoogle(credential) {
     throw err;
   }
   console.debug(`${tag} fetch RESPONSE received status=${res.status} ok=${res.ok} after ${Date.now() - t0}ms`);
-  let data;
-  try {
-    data = await res.json();
-  } catch (err) {
-    console.debug(`${tag} JSON PARSE FAILED after ${Date.now() - t0}ms name=${err?.name} message=${err?.message}`);
-    throw err;
+  const data = await readJsonSafely(res);
+  if (!data) {
+    console.debug(`${tag} JSON PARSE FAILED after ${Date.now() - t0}ms status=${res.status}`);
   }
-  if (!res.ok) {
+  if (!res.ok || !data) {
     console.debug(`${tag} response NOT OK status=${res.status} error=${data?.error}`);
-    const err = new Error(data.error || "Error del servidor");
-    err.status = res.status;
-    throw err;
+    throw buildResponseError(res, data);
   }
   setToken(data.token);
   saveUser(data.user);
