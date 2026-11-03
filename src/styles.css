@@ -427,6 +427,14 @@ textarea { min-height: 150px; resize: vertical; }
 .training-warning { margin: 0; }
 .training-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 4px; }
 .training-actions .training-save { flex: 0 0 auto; }
+/* F1 — Acceso sin contraseña (checkbox nativo, área clicable ≥ 24px) */
+.access-toggle { display: flex; align-items: flex-start; gap: 12px; }
+.access-toggle__input { flex-shrink: 0; width: 22px; height: 22px; margin: 2px 0 0; accent-color: #3f5639; cursor: pointer; }
+.access-toggle__input:disabled { cursor: progress; }
+.access-toggle__input:focus-visible { outline: 3px solid #617a58; outline-offset: 2px; }
+.access-toggle__text { display: grid; gap: 4px; min-width: 0; }
+.access-toggle__label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 24px; font-size: 0.9375rem; font-weight: 700; color: #233020; cursor: pointer; }
+.access-toggle__badge { padding: 2px 8px; border: 1px solid #b9c9b1; border-radius: 999px; background: #f0f4ed; color: #3f5639; font-size: 0.75rem; font-weight: 800; }
 @media (max-width: 480px) {
   .training-config-inline__head { flex-wrap: wrap; }
   .training-actions .training-save { width: 100%; justify-content: center; }
