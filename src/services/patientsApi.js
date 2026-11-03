@@ -34,6 +34,18 @@ export async function deletePatientApi(patientId) {
   return apiRequest(`/patients/${patientId}`, { method: "DELETE" });
 }
 
+// F1: permiso individual de acceso sin contraseña (sólo el profesional dueño).
+export async function fetchPatientAccess(patientId) {
+  return apiRequest(`/patients/${patientId}/access`, { method: "GET" });
+}
+
+export async function savePatientAccess(patientId, allowPasswordless) {
+  return apiRequest(`/patients/${patientId}/access`, {
+    method: "PATCH",
+    body: JSON.stringify({ allow_passwordless: allowPasswordless }),
+  });
+}
+
 export async function fetchPatientSessionsApi(patientId, { signal } = {}) {
   return apiRequest(`/patients/${patientId}/sessions`, { method: "GET", signal });
 }

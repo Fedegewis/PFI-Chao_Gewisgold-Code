@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MetricCard } from "../common/MetricCard.jsx";
 import { AnalysisAsistidoPanel } from "./AnalysisAsistidoPanel.jsx";
 import { TrainingConfigPanel } from "./TrainingConfigPanel.jsx";
+import { PatientAccessPanel } from "./PatientAccessPanel.jsx";
 import { MedicalDisclaimerBanner } from "../common/MedicalDisclaimer.jsx";
 import { cx } from "../../lib/cx.js";
 import { formatLatency, formatShortDate } from "../../lib/format.js";
@@ -288,6 +289,8 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
               />
               <hr className="panel-divider" />
               <TrainingConfigPanel patientId={selectedPatient.id} />
+              <hr className="panel-divider" />
+              <PatientAccessPanel key={selectedPatient.id} patientId={selectedPatient.id} />
             </div>
           </div>
 
