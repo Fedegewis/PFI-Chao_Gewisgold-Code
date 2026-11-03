@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   SERVER_UNAVAILABLE_MESSAGE,
+  clearAuth,
+  fetchCurrentUser,
   getSavedUser,
   getToken,
   loginWithGoogle,
   loginWithPassword,
+  persistAuthSession,
   registerProfessional,
+  setToken,
 } from "./authService.js";
 
 beforeEach(() => {
@@ -120,5 +124,66 @@ describe("authService – comportamiento existente preservado", () => {
     const err = await loginWithPassword({ email: "pro@example.test", password: "x" }).catch((e) => e);
     expect(err).toBeInstanceOf(TypeError);
     expect(err.message).toBe("Failed to fetch");
+  });
+});
+
+describe("authService – sesión guardada", () => {
+  test("setToken(null) borra el token y clearAuth borra token y usuario", () => {
+    persistAuthSession({ user: USER, token: "jwt" });
+    setToken(null);
+    expect(getToken()).toBeNull();
+    persistAuthSession({ user: USER, token: "jwt" });
+    clearAuth();
+    expect(getToken()).toBeNull();
+    expect(getSavedUser()).toBeNull();
+  });
+
+  test("getSavedUser con JSON corrupto devuelve null", () => {
+    localStorage.setItem("ma_auth_user", "{no-json");
+    expect(getSavedUser()).toBeNull();
+  });
+
+  test("getToken devuelve null si localStorage falla", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("bloqueado");
+    });
+    expect(getToken()).toBeNull();
+  });
+
+  test("registerProfessional: 201 JSON guarda token y usuario", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ user: USER, token: "jwt-reg" }, 201)));
+    await registerProfessional({ name: "Dra. Test", email: USER.email, password: "secreto123" });
+    expect(getToken()).toBe("jwt-reg");
+  });
+
+  test("loginWithGoogle: fallo de red se propaga", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    await expect(loginWithGoogle("cred")).rejects.toThrow("Failed to fetch");
+  });
+});
+
+describe("authService – fetchCurrentUser", () => {
+  test("sin token no llama al backend", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchCurrentUser()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("con token válido actualiza el usuario guardado", async () => {
+    setToken("jwt");
+    const fetchMock = vi.fn(() => jsonResponse({ user: USER }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchCurrentUser()).resolves.toEqual(USER);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer jwt");
+    expect(getSavedUser()).toEqual(USER);
+  });
+
+  test("con token rechazado limpia la sesión", async () => {
+    persistAuthSession({ user: USER, token: "vencido" });
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ error: "Token inválido" }, 401)));
+    await expect(fetchCurrentUser()).resolves.toBeNull();
+    expect(getToken()).toBeNull();
+    expect(getSavedUser()).toBeNull();
   });
 });

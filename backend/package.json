@@ -11,7 +11,8 @@
     "seed": "knex seed:run --knexfile src/db/knexfile.js",
     "test": "node scripts/run-tests.js",
     "test:prepare": "node scripts/prepare-test-db.js",
-    "db:reset": "knex migrate:rollback --all --knexfile src/db/knexfile.js && knex migrate:latest --knexfile src/db/knexfile.js && knex seed:run --knexfile src/db/knexfile.js"
+    "db:reset": "knex migrate:rollback --all --knexfile src/db/knexfile.js && knex migrate:latest --knexfile src/db/knexfile.js && knex seed:run --knexfile src/db/knexfile.js",
+    "test:coverage": "c8 node scripts/run-tests.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -25,6 +26,7 @@
     "resend": "^4.8.0"
   },
   "devDependencies": {
+    "c8": "^10.1.3",
     "supertest": "^7.1.0"
   }
 }

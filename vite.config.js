@@ -22,6 +22,15 @@ export default defineConfig({
     // 6E.1: limitar Vitest a tests del frontend (src/). Los tests del backend
     // usan node:test y se ejecutan con `npm run test:backend`.
     include: ["src/**/*.{test,spec}.{js,jsx,ts,tsx}"],
-    exclude: ["backend/**", "node_modules/**", "dist/**"]
+    exclude: ["backend/**", "node_modules/**", "dist/**"],
+    // Cobertura (`npm run test:coverage`): mide todo src/ salvo los propios
+    // tests. Falla si líneas, sentencias o funciones bajan del 85%.
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{js,jsx}"],
+      exclude: ["src/**/*.{test,spec}.{js,jsx}", "src/test/**"],
+      reporter: ["text", "text-summary", "html"],
+      thresholds: { lines: 85, statements: 85, functions: 85 }
+    }
   }
 });

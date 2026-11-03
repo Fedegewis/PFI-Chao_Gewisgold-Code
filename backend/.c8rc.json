@@ -1,0 +1,11 @@
+{
+  "all": true,
+  "src": ["src"],
+  "include": ["src/**/*.js"],
+  "exclude": ["src/db/migrations/**", "src/db/seeds/**"],
+  "reporter": ["text", "text-summary", "html"],
+  "check-coverage": true,
+  "lines": 85,
+  "statements": 85,
+  "functions": 85
+}
