@@ -8,6 +8,7 @@ import {
   MedicalDisclaimerLink,
 } from "./MedicalDisclaimer.jsx";
 import {
+  MEDICAL_DISCLAIMER_COMPACT,
   MEDICAL_DISCLAIMER_FULL_TEXT,
   MEDICAL_DISCLAIMER_NOTE,
   MEDICAL_DISCLAIMER_SHORT,
@@ -91,6 +92,42 @@ describe("MedicalDisclaimerBanner", () => {
     expect(closeBtn).toHaveFocus();
     await user.tab({ shift: true });
     expect(closeBtn).toHaveFocus();
+  });
+});
+
+describe("MedicalDisclaimerBanner — variante compacta (mobile)", () => {
+  test("el texto compacto conserva las tres ideas núcleo del aviso resumido", () => {
+    // 1) carácter operativo de entrenamiento cognitivo, 2) sin validez
+    // médica/diagnóstica, 3) remisión a un profesional de la salud.
+    expect(MEDICAL_DISCLAIMER_COMPACT).toMatch(/métricas operativas de entrenamiento cognitivo/);
+    expect(MEDICAL_DISCLAIMER_COMPACT).toMatch(/sin validez médica ni diagnóstica/);
+    expect(MEDICAL_DISCLAIMER_COMPACT).toMatch(/consultá a un profesional de la salud/);
+    // Misma frase final que el aviso resumido aprobado.
+    expect(MEDICAL_DISCLAIMER_SHORT).toContain("Ante cualquier inquietud, consultá a un profesional de la salud.");
+    expect(MEDICAL_DISCLAIMER_COMPACT).toContain("Ante cualquier inquietud, consultá a un profesional de la salud.");
+    // Es más breve que el resumido (objetivo: ocupar menos espacio en mobile).
+    expect(MEDICAL_DISCLAIMER_COMPACT.length).toBeLessThan(MEDICAL_DISCLAIMER_SHORT.length);
+  });
+
+  test("compact muestra el texto compacto (no el resumido) dentro de un role=note", () => {
+    render(<MedicalDisclaimerBanner compact />);
+    const note = screen.getByRole("note", { name: /aviso legal y limitaciones de uso/i });
+    expect(note).toHaveClass("medical-disclaimer--compact");
+    expect(within(note).getByText(MEDICAL_DISCLAIMER_COMPACT, { exact: false })).toBeInTheDocument();
+    expect(within(note).queryByText(MEDICAL_DISCLAIMER_SHORT, { exact: false })).not.toBeInTheDocument();
+  });
+
+  test("compact mantiene accesible el aviso legal completo (teclado) y restaura el foco", async () => {
+    const user = userEvent.setup();
+    render(<MedicalDisclaimerBanner compact />);
+    const trigger = screen.getByRole("button", { name: /ver aviso legal completo/i });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    const dialog = screen.getByRole("dialog", { name: MEDICAL_DISCLAIMER_TITLE });
+    expect(within(dialog).getByText(MEDICAL_DISCLAIMER_FULL_TEXT)).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 });
 

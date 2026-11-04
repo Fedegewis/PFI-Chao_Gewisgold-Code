@@ -13,10 +13,14 @@ export const MEDICAL_DISCLAIMER_SHORT =
   "Las puntuaciones, gráficos e indicadores que ves son métricas operativas de entrenamiento cognitivo. No tienen validez médica ni diagnóstica. Ante cualquier inquietud, consultá a un profesional de la salud.";
 
 // Variante compacta para la pantalla del paciente en mobile (≤ 760 px).
-// Conserva las tres ideas núcleo; el texto completo sigue disponible en el
-// modal "Ver aviso legal completo".
+// Es MEDICAL_DISCLAIMER_SHORT condensado: une las dos primeras oraciones y
+// abrevia el sujeto ("puntuaciones e indicadores"). Conserva las tres ideas
+// núcleo (métricas operativas de entrenamiento cognitivo, sin validez médica
+// ni diagnóstica, consulta a un profesional) sin agregar afirmaciones nuevas.
+// El texto completo sigue disponible en el modal "Ver aviso legal completo".
+// Pendiente de validación humana (legal/clínica).
 export const MEDICAL_DISCLAIMER_COMPACT =
-  "Métricas operativas de entrenamiento, sin validez médica ni diagnóstica. Ante cualquier inquietud, consultá a un profesional de la salud.";
+  "Las puntuaciones e indicadores son métricas operativas de entrenamiento cognitivo, sin validez médica ni diagnóstica. Ante cualquier inquietud, consultá a un profesional de la salud.";
 
 export const MEDICAL_DISCLAIMER_NOTE =
   "Indicador operativo de la app. No reemplaza una evaluación profesional.";
