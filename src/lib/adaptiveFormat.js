@@ -91,7 +91,8 @@ export function formatAdaptiveSummary(adaptive) {
     level: formatAdaptiveLevel(adaptive.level),
     change: formatChange(decision, adaptive.level),
     reason: formatReason(decision),
-    evidence: formatEvidence(decision.evidence),
+    // Registro incompleto (nivel sin traza): no se afirma que no hubo evidencia.
+    evidence: adaptive.decision ? formatEvidence(decision.evidence) : "—",
     mix,
     target,
     usedFallback,

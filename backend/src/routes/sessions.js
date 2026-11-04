@@ -262,6 +262,25 @@ function parseNumericFields(row) {
   };
 }
 
+// Respuesta uniforme cuando un UPDATE condicionado al estado no afectó filas:
+// la sesión fue eliminada (404) o cambió de estado en paralelo (409).
+async function respondSessionGoneOrChanged(res, sessionId, verb) {
+  const current = await db("sessions").where("id", sessionId).first("status");
+  if (!current) {
+    return res.status(404).json({ error: "Sesión no encontrada" });
+  }
+  return res.status(409).json({
+    error: `No se puede ${verb} una sesión en estado '${current.status}'`,
+    status: current.status,
+  });
+}
+
+// Estados que el profesional puede eliminar. "completed" NUNCA: sus
+// resultados son evidencia del mecanismo adaptativo, de la comparación entre
+// sesiones y de los análisis IA. "created" se muestra en el panel como
+// "Iniciada" e "in_progress" como "En progreso".
+export const DELETABLE_SESSION_STATUSES = Object.freeze(["created", "in_progress", "abandoned"]);
+
 router.post("/sessions", requireAuth, requireRole("professional"), async (req, res, next) => {
   try {
     const { patient_id, sections } = req.body;
@@ -747,10 +766,17 @@ router.post("/sessions/:id/start", requireAuth, async (req, res, next) => {
       });
     }
 
+    // UPDATE condicionado al estado: si la sesión fue eliminada por el
+    // profesional (o cambió de estado) entre la lectura y la escritura, no
+    // se pisa nada y se responde según el estado real.
     const [updated] = await db("sessions")
-      .where("id", sessionId)
+      .where({ id: sessionId, status: "created" })
       .update({ status: "in_progress", started_at: db.fn.now() })
       .returning("*");
+
+    if (!updated) {
+      return respondSessionGoneOrChanged(res, sessionId, "iniciar");
+    }
 
     res.json(updated);
   } catch (err) {
@@ -837,6 +863,11 @@ router.post("/sessions/:id/answers", requireAuth, async (req, res, next) => {
           status: "already_answered",
         });
       }
+      // 23503 (FK): la sesión (y en cascada sus preguntas) fue eliminada por
+      // el profesional mientras el paciente respondía.
+      if (err && err.code === "23503") {
+        return res.status(404).json({ error: "Sesión no encontrada" });
+      }
       throw err;
     }
 
@@ -880,6 +911,19 @@ router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
     let outcome;
     try {
       outcome = await db.transaction(async (trx) => {
+        // Lock de la fila y re-chequeo del estado dentro de la transacción:
+        // serializa contra DELETE /sessions/:id (que toma el mismo lock). Si
+        // la eliminación ganó, la fila ya no existe; si ganó complete, la
+        // eliminación ve status=completed y la rechaza.
+        const locked = await trx("sessions")
+          .where("id", sessionId)
+          .forUpdate()
+          .first("id", "status");
+        if (!locked) return { kind: "gone" };
+        if (locked.status !== "in_progress") {
+          return { kind: "status_changed", status: locked.status };
+        }
+
         const sessionSections = await trx("session_sections")
           .where("session_id", sessionId)
           .select("id", "section_id");
@@ -960,6 +1004,16 @@ router.post("/sessions/:id/complete", requireAuth, async (req, res, next) => {
       throw err;
     }
 
+    if (outcome.kind === "gone") {
+      return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+    if (outcome.kind === "status_changed") {
+      return res.status(409).json({
+        error: `No se puede completar una sesión en estado '${outcome.status}'`,
+        status: outcome.status,
+      });
+    }
+
     if (outcome.kind === "incomplete") {
       return res.status(409).json({
         error: "Faltan respuestas para completar la sesión",
@@ -1028,8 +1082,13 @@ router.post("/sessions/:id/abandon", requireAuth, async (req, res, next) => {
 
     const [updated] = await db("sessions")
       .where("id", sessionId)
+      .whereIn("status", ["created", "in_progress"])
       .update({ status: "abandoned", abandoned_at: db.fn.now() })
       .returning("*");
+
+    if (!updated) {
+      return respondSessionGoneOrChanged(res, sessionId, "abandonar");
+    }
 
     res.json({
       id: updated.id,
@@ -1083,6 +1142,79 @@ router.get("/sessions/:id/results", requireAuth, requireRole("professional"), as
       global: parseNumericFields(globalResult),
       sections: sectionResults.map(parseNumericFields),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/sessions/:id
+// Eliminación FÍSICA de una sesión no completada por el profesional que
+// gestiona al paciente. Las FKs hacia sessions son ON DELETE CASCADE
+// (session_sections → session_questions → answers, session_results,
+// session_analyses), así que la fila de sessions arrastra todo lo demás en
+// la misma transacción: no quedan huérfanos.
+//
+// Concurrencia:
+// - SELECT ... FOR UPDATE sobre la fila de sessions: serializa contra
+//   /complete (que toma el mismo lock) y contra otra eliminación. El estado
+//   se re-chequea con la fila ya bloqueada.
+// - Advisory lock por (paciente, actividad), el mismo que usa la creación de
+//   sesiones: una creación concurrente lee el historial adaptativo y de
+//   rotación antes o después de la eliminación, nunca a mitad.
+// - Un claim del worker sobre un análisis de esta sesión desaparece en
+//   cascada; result/failed/heartbeat responden CLAIM_LOST (409).
+router.delete("/sessions/:id", requireAuth, requireRole("professional"), async (req, res, next) => {
+  try {
+    const sessionId = Number(req.params.id);
+    if (!Number.isInteger(sessionId) || sessionId < 1) {
+      return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+
+    const outcome = await db.transaction(async (trx) => {
+      const session = await trx("sessions")
+        .where("id", sessionId)
+        .forUpdate()
+        .first("id", "status", "patient_id");
+      if (!session) return { kind: "not_found" };
+
+      // Ownership: el paciente de la sesión debe estar gestionado HOY por el
+      // profesional autenticado (JWT). 404 uniforme para no revelar sesiones
+      // de otros profesionales.
+      const patient = await trx("users")
+        .where({ id: session.patient_id, role: "patient", professional_id: req.user.id })
+        .first("id");
+      if (!patient) return { kind: "not_found" };
+
+      if (!DELETABLE_SESSION_STATUSES.includes(session.status)) {
+        return { kind: "not_deletable", status: session.status };
+      }
+
+      const sectionIds = (await trx("session_sections")
+        .where("session_id", sessionId)
+        .pluck("section_id"))
+        .sort((a, b) => a - b);
+      for (const sectionId of sectionIds) {
+        await lockPatientSection(trx, session.patient_id, sectionId);
+      }
+
+      const deleted = await trx("sessions")
+        .where({ id: sessionId })
+        .whereIn("status", DELETABLE_SESSION_STATUSES)
+        .del();
+      if (deleted !== 1) return { kind: "not_found" };
+      return { kind: "deleted", status: session.status };
+    });
+
+    if (outcome.kind === "not_found") {
+      return res.status(404).json({ error: "Sesión no encontrada" });
+    }
+    if (outcome.kind === "not_deletable") {
+      return res.status(409).json({
+        error: "Sólo se pueden eliminar sesiones iniciadas, en progreso o abandonadas",
+        status: outcome.status,
+      });
+    }
+    return res.status(204).send();
   } catch (err) {
     next(err);
   }
