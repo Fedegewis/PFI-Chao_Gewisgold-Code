@@ -10,7 +10,7 @@ const ROLE_LABELS = {
 export function GlobalHeader({ screen, role, onLogout, onNavigate }) {
   const [switchTarget, setSwitchTarget] = useState(null);
 
-  const isAuthScreen = screen !== SCREEN_NAMES.login && screen !== SCREEN_NAMES.invite;
+  const isAuthScreen = screen !== SCREEN_NAMES.login && screen !== SCREEN_NAMES.invite && screen !== SCREEN_NAMES.loginLink;
   const currentHome = role === "professional" ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
   const otherRole = role === "professional" ? "patient" : "professional";
   const CurrentIcon = ROLE_LABELS[role]?.Icon ?? UserRound;

@@ -1,6 +1,10 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App.jsx";
+import { takeLoginLinkTokenFromUrl } from "./services/navigationService.js";
 import "./styles.css";
+
+// F2: sacar el token del enlace de acceso de la URL antes del primer render.
+takeLoginLinkTokenFromUrl();
 
 export { App } from "./app/App.jsx";
 

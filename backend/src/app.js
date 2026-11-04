@@ -11,8 +11,23 @@ import invitationsRouter from "./routes/invitations.js";
 import analysisRouter from "./routes/analysis.js";
 import trainingConfigRouter from "./routes/training-config.js";
 import workerRouter from "./routes/worker.js";
+import patientPasswordlessRouter from "./routes/patient-passwordless.js";
 
 const app = express();
+
+// F2: rate limiting por IP de los enlaces de acceso. Detrás de proxies
+// (Vercel → Render) req.ip sólo es la IP del cliente si Express confía en la
+// cantidad correcta de saltos. TRUST_PROXY: "true", un número de saltos o una
+// lista de subredes (ver docs/patient-passwordless-auth.md). Sin la variable,
+// Express no confía en X-Forwarded-For (comportamiento anterior).
+function parseTrustProxy(raw) {
+  if (raw === undefined || raw === "") return false;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+}
+app.set("trust proxy", parseTrustProxy(process.env.TRUST_PROXY));
 
 // 6E.1 (H3): CORS con allowlist explícita.
 // - CORS_ORIGINS: lista separada por comas (allowlist multi-origen, recomendado en prod).
@@ -36,6 +51,7 @@ app.use(express.json());
 
 app.use("/api", healthRouter);
 app.use("/api", authRouter);
+app.use("/api", patientPasswordlessRouter);
 app.use("/api", googleAuthRouter);
 app.use("/api", sectionsRouter);
 app.use("/api", usersRouter);

@@ -1,11 +1,24 @@
-import { AlertTriangle, ChevronRight, ShieldCheck, Stethoscope, UserPlus, UserRound } from "lucide-react";
+import { AlertTriangle, ChevronRight, Mail, ShieldCheck, Stethoscope, UserPlus, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MOTIVATION_MESSAGES } from "../constants/appConfig.js";
 import { MedicalDisclaimerLink } from "../components/common/MedicalDisclaimer.jsx";
+import { PasswordlessRequestPanel } from "../components/patient/PasswordlessRequestPanel.jsx";
+import { fetchPasswordlessConfig } from "../services/authService.js";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) {
+export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin, initialMode = null }) {
+  // F2: ingreso del paciente con enlace por correo. El botón sólo aparece si
+  // el backend confirma que el flujo está disponible (kill switch + correo).
+  const [passwordlessEnabled, setPasswordlessEnabled] = useState(false);
+  const [showPasswordless, setShowPasswordless] = useState(initialMode === "passwordless");
+  useEffect(() => {
+    let cancelled = false;
+    fetchPasswordlessConfig().then((config) => {
+      if (!cancelled) setPasswordlessEnabled(config.enabled === true);
+    });
+    return () => { cancelled = true; };
+  }, []);
   const loginMotivation = useMemo(() => {
     const day = new Date().getDay();
     const offset = Math.floor(MOTIVATION_MESSAGES.length / 2);
@@ -128,6 +141,20 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
 
   const isProfessional = mode === "professional";
 
+  if (!isProfessional && showPasswordless) {
+    return (
+      <section className="login-layout" aria-label="Ingresar con un enlace a mi correo">
+        <div className="login-copy">
+          <p className="eyebrow"></p>
+          <h1>MenteActiva</h1>
+          <p>Te enviamos un enlace a tu correo. Al abrirlo, entrás sin escribir contraseña.</p>
+          <div className="motivation-banner">{loginMotivation}</div>
+        </div>
+        <PasswordlessRequestPanel onBack={() => setShowPasswordless(false)} />
+      </section>
+    );
+  }
+
   return (
     <section className="login-layout" aria-label="Inicio de sesión">
       <div className="login-copy">
@@ -221,6 +248,18 @@ export function LoginScreen({ loginError, onLogin, onRegister, onGoogleLogin }) 
               : <>Entrar como {mode === "patient" ? "paciente" : "psicólogo"} <ChevronRight size={22} aria-hidden="true" /></>
           )}
         </button>
+        {!isProfessional && passwordlessEnabled && (
+          <>
+            <div className="login-divider" aria-hidden="true"><span>o</span></div>
+            <button
+              type="button"
+              className="secondary-action passwordless-entry"
+              onClick={() => { setShowPasswordless(true); setDirty(true); }}
+            >
+              <Mail size={22} aria-hidden="true" /> Ingresar con un enlace a mi correo
+            </button>
+          </>
+        )}
         {isProfessional && (
           <button
             type="button"

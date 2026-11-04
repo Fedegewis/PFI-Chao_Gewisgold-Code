@@ -265,23 +265,21 @@ export function buildInvitationEmail({ patientName, professionalName, inviteUrl,
   return { subject, html, text };
 }
 
-async function realSend({ to, patientName, professionalName, inviteUrl, expiresAt }) {
+function resendConfig() {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
-  const replyTo = process.env.EMAIL_REPLY_TO;
   if (!apiKey || !from) {
     const err = new Error("Email service not configured");
     err.code = "email_not_configured";
     throw err;
   }
+  return { apiKey, from, replyTo: process.env.EMAIL_REPLY_TO };
+}
+
+async function sendViaResend({ to, subject, html, text }) {
+  const { apiKey, from, replyTo } = resendConfig();
   const { Resend } = await import("resend");
   const client = new Resend(apiKey);
-  const { subject, html, text } = buildInvitationEmail({
-    patientName,
-    professionalName,
-    inviteUrl,
-    expiresAt,
-  });
   const payload = { from, to, subject, html, text };
   if (replyTo) payload.replyTo = replyTo;
   const result = await client.emails.send(payload);
@@ -295,12 +293,130 @@ async function realSend({ to, patientName, professionalName, inviteUrl, expiresA
   return result && result.data ? { id: result.data.id } : { id: null };
 }
 
+async function realSend({ to, patientName, professionalName, inviteUrl, expiresAt }) {
+  resendConfig();
+  const { subject, html, text } = buildInvitationEmail({
+    patientName,
+    professionalName,
+    inviteUrl,
+    expiresAt,
+  });
+  return sendViaResend({ to, subject, html, text });
+}
+
+// F2 — correo con el enlace de acceso sin contraseña.
+// Mismas reglas de diseño que la invitación (tablas, estilos inline, sin JS ni
+// imágenes externas). Lenguaje simple y adulto. El enlace vence en 30 minutos
+// y sirve una sola vez; se aclara qué hacer si no fue un pedido propio.
+export function buildLoginLinkEmail({ patientName, loginUrl, ttlMinutes = 30 }) {
+  const safeName = escapeHtml(patientName || "");
+  const safeUrl = escapeHtml(loginUrl);
+  const subject = "Tu enlace para ingresar a MenteActiva";
+  const text = [
+    patientName ? `Hola ${patientName}:` : "Hola:",
+    "",
+    "Recibimos un pedido para ingresar a MenteActiva con tu correo.",
+    "",
+    "Para ingresar, abrí este enlace:",
+    loginUrl,
+    "",
+    `El enlace vence en ${ttlMinutes} minutos y se puede usar una sola vez.`,
+    "No lo compartas con otras personas.",
+    "",
+    "Si no lo pediste, podés ignorar este mensaje: nadie puede ingresar sin abrir este enlace.",
+    "",
+    "— MenteActiva · Entrenamiento cognitivo",
+  ].join("\n");
+
+  const font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
+  const html = `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:${BRAND.cream};color:${BRAND.text};">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+    Tu enlace para ingresar a MenteActiva. Vence en ${ttlMinutes} minutos.
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${BRAND.cream};">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;background-color:#ffffff;border:1px solid ${BRAND.containerBorder};border-radius:12px;font-family:${font};">
+          <tr>
+            <td align="center" style="padding:36px 32px 8px 32px;color:${BRAND.primaryDark};font-size:14px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;">
+              MenteActiva
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:4px 32px 24px 32px;color:${BRAND.primaryDark};font-size:26px;line-height:34px;font-weight:800;">
+              Tu enlace para ingresar
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 8px 32px;font-size:18px;line-height:28px;color:${BRAND.text};">
+              <p style="margin:0 0 16px 0;">${safeName ? `Hola, ${safeName}:` : "Hola:"}</p>
+              <p style="margin:0 0 16px 0;">Recibimos un pedido para ingresar a MenteActiva con tu correo. Tocá el botón para ingresar.</p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:8px 32px 24px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="border-radius:10px;background-color:${BRAND.primary};">
+                    <a href="${safeUrl}" rel="noreferrer noopener" style="display:inline-block;padding:18px 36px;font-family:${font};font-size:19px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px;">
+                      Ingresar a MenteActiva
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 24px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${BRAND.sage};border-radius:10px;">
+                <tr>
+                  <td style="padding:18px 22px;font-size:16px;line-height:24px;color:${BRAND.primaryDark};">
+                    <p style="margin:0 0 8px 0;">El enlace vence en <strong>${ttlMinutes} minutos</strong> y se puede usar <strong>una sola vez</strong>. No lo compartas con otras personas.</p>
+                    <p style="margin:0;">Si no lo pediste, podés ignorar este mensaje: nadie puede ingresar sin abrir este enlace.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px 32px;font-size:13px;line-height:20px;color:${BRAND.muted};">
+              Si el botón no funciona, copiá y pegá este enlace en tu navegador:<br>
+              <span style="word-break:break-all;">${safeUrl}</span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  return { subject, html, text };
+}
+
+async function realSendLoginLink({ to, patientName, loginUrl, ttlMinutes }) {
+  resendConfig();
+  const { subject, html, text } = buildLoginLinkEmail({ patientName, loginUrl, ttlMinutes });
+  return sendViaResend({ to, subject, html, text });
+}
+
 const emailService = {
   isConfigured() {
     return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
   },
   async sendInvitationEmail(payload) {
     return realSend(payload);
+  },
+  async sendPatientLoginLinkEmail(payload) {
+    return realSendLoginLink(payload);
   },
 };
 

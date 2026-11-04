@@ -3,7 +3,7 @@ import { createPatientSession } from "./patientSessionsApi.js";
 import * as authService from "./authService.js";
 
 beforeEach(() => {
-  vi.spyOn(authService, "getToken").mockReturnValue("fake-jwt-token");
+  vi.spyOn(authService, "authHeaders").mockReturnValue({ Authorization: "Bearer fake-jwt-token" });
 });
 
 afterEach(() => {

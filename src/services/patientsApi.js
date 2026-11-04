@@ -1,10 +1,12 @@
-import { getToken } from "./authService.js";
+import { authHeaders } from "./authService.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
 
 async function apiRequest(path, options = {}) {
-  const token = getToken();
-  if (!token) {
+  // JWT (Authorization) o, para pacientes con sesión por enlace, sólo el
+  // header anti-CSRF: la cookie HttpOnly la adjunta el navegador (same-origin).
+  const auth = authHeaders();
+  if (!auth) {
     const err = new Error("No hay sesión activa");
     err.status = 401;
     throw err;
@@ -13,7 +15,7 @@ async function apiRequest(path, options = {}) {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      ...auth,
       ...options.headers,
     },
   });
@@ -21,6 +23,7 @@ async function apiRequest(path, options = {}) {
   if (!res.ok) {
     const err = new Error((data && data.error) || "Error del servidor");
     err.status = res.status;
+    err.data = data;
     throw err;
   }
   return data;
@@ -39,11 +42,19 @@ export async function fetchPatientAccess(patientId) {
   return apiRequest(`/patients/${patientId}/access`, { method: "GET" });
 }
 
-export async function savePatientAccess(patientId, allowPasswordless) {
+// E2: al desactivar con sesiones abiertas el backend exige confirmación
+// explícita (409 confirmation_required) antes de revocarlas.
+export async function savePatientAccess(patientId, allowPasswordless, { confirmRevokeSessions } = {}) {
+  const body = { allow_passwordless: allowPasswordless };
+  if (confirmRevokeSessions) body.confirm_revoke_sessions = true;
   return apiRequest(`/patients/${patientId}/access`, {
     method: "PATCH",
-    body: JSON.stringify({ allow_passwordless: allowPasswordless }),
+    body: JSON.stringify(body),
   });
+}
+
+export async function revokePatientSessions(patientId) {
+  return apiRequest(`/patients/${patientId}/access/revoke-sessions`, { method: "POST" });
 }
 
 // Eliminación física de una sesión no completada (sólo el profesional dueño).

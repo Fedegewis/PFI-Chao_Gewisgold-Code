@@ -695,3 +695,13 @@ textarea { min-height: 150px; resize: vertical; }
   .patient-mood-mobile .mood-chip:hover { border-color: #7d8f77; }
   .mood-chip--selected:hover, .patient-mood-mobile .mood-chip--selected:hover { border-color: #3f7d68; }
 }
+
+/* F2 — ingreso del paciente con enlace por correo. Botones y textos grandes
+   (≥ 56px de alto, ≥ 1.0625rem) pensados para personas mayores de 60 años. */
+.passwordless-entry { min-height: 56px; width: 100%; font-size: 1.0625rem; border: 2px solid #617a58; color: #30442a; }
+.passwordless-secondary { min-height: 56px; width: 100%; font-size: 1.0625rem; }
+.passwordless-steps { margin: 0; padding-left: 1.25rem; display: grid; gap: 8px; font-size: 1.0625rem; line-height: 1.5; color: #30442a; }
+.link-button.passwordless-back { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; font-size: 1rem; }
+.access-sessions { display: grid; gap: 8px; margin-top: 8px; }
+.access-confirm { display: grid; gap: 10px; padding: 12px; border: 2px solid #f1b5a7; border-radius: 8px; background: #fff7f4; }
+.access-confirm__actions { display: flex; flex-wrap: wrap; gap: 8px; }
