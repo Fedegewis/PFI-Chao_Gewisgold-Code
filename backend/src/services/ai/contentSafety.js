@@ -164,6 +164,12 @@ export const CLAIM_FAMILIES = Object.freeze([
       re("(?:funcion|funcionamiento|rendimiento|desempeno|estado|perfil|nivel) cognitiv\\w*"),
       re("(?:" + COGNITIVE_FUNCTIONS + ") (?:del|de la) (?:paciente|persona|usuari[oa])"),
       re("(?:calidad|nivel) de (?:la )?(?:" + COGNITIVE_FUNCTIONS + ")"),
+      // Evaluación 3.5: "respuestas que indican dificultad para organizar y
+      // priorizar tareas". Una dificultad para una acción es una atribución
+      // a la persona, no un dato registrado. Se excluye "completar", que sí
+      // describe el registro (preguntas sin responder).
+      re("(?:indica|indican|muestra|muestran|refleja|reflejan|evidencia|evidencian|revela|revelan) (?:una |cierta |alguna )?dificultad(?:es)?"),
+      re("dificultad(?:es)? (?:para|en) (?!completar)[a-z]+(?:ar|er|ir)"),
     ],
   },
   {

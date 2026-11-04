@@ -24,6 +24,7 @@ import { buildSessionAnalysisPrompt as buildV34 } from "./legacyPromptV34.js";
 import { buildObservations } from "../../src/services/ai/observationsBuilder.js";
 import { parseAndValidateSessionAnalysis } from "../../src/services/ai/responseValidator.js";
 import { AI_GENERATE_OPTIONS } from "../../src/services/ai/analysisService.js";
+import { GENERATION_VALIDATION_OPTIONS } from "../../src/services/ai/contentSafety.js";
 
 function parseArgs(argv) {
   const a = { reps: 3, model: "llama3.2:3b", out: null };
@@ -77,7 +78,7 @@ export const CASES = [
   { id: "C10-medicacion-baja", section: "medic", metrics: m({ correct: 0, incorrect: 4 }) },
 ];
 
-function contextFor(c) {
+export function contextFor(c) {
   const section = { ...SECTIONS[c.section], metrics: c.metrics };
   return {
     schema_version: "2", language: "es", duration_seconds: 120,
@@ -106,7 +107,7 @@ async function generate({ url, model, prompt, seed }) {
 function judge(text, ctx, obs, aspectsPolicy) {
   try {
     parseAndValidateSessionAnalysis(text, ctx, {
-      observations: obs.observations, followUp: obs.follow_up, checkFacts: true, aspectsPolicy,
+      observations: obs.observations, followUp: obs.follow_up, ...GENERATION_VALIDATION_OPTIONS, aspectsPolicy,
     });
     return { ok: true, reason: null };
   } catch (err) {
@@ -147,6 +148,8 @@ async function main() {
           row.discard = judge(out.text, ctx, obs, "discard");
         }
         results.push(row);
+        // Resultados parciales: si la corrida se interrumpe, lo generado se conserva.
+        if (args.out) writeFileSync(`${args.out}.partial.json`, JSON.stringify({ partial: true, done: results.length, total: args.reps * CASES.length * 2, results }, null, 2));
         console.log(`${c.id} rep${rep} v${version}: ${row.discard.ok ? "ACEPTADO" : `rechazado (${row.discard.reason})`}${row.validate ? ` · con aspects: ${row.validate.ok ? "ACEPTADO" : `rechazado (${row.validate.reason})`}` : ""}`);
       }
     }

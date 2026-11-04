@@ -565,7 +565,33 @@ análisis tras la auditoría de los 8 análisis persistidos en producción
   `scripts/eval/legacyPromptV34.js`) vs 3.5 sobre 10 casos sintéticos contra
   Ollama local, con el validador vigente. Mide tasa de aceptación por
   intento, no calidad clínica.
+- **Forma del summary** (`malformed_summary`, reintenciable): rechaza el
+  summary truncado o con entidades HTML. Observado en la evaluación: si el
+  modelo copia una comilla doble del nombre de la actividad, la gramática
+  JSON de Ollama cierra el string ("La sesión de entrenamiento cognitivo ").
+  Por eso el prompt nombra la actividad SIN comillas.
 - `PROMPT_VERSION` 3.4 → **3.5**. Sin migraciones.
+
+**Resultado medido (2026-11-04, llama3.2:3b local, CPU, temperature 0.2,
+num_predict 300, seed 1-3; 10 casos sintéticos × 3 repeticiones = 30
+generaciones por variante; mismo validador final para todas):**
+
+| Variante | Aceptadas por intento |
+|---|---|
+| 3.4 con `aspects_to_review` (como estaba en producción) | 3/30 (10%) |
+| 3.4 sólo `summary` | 11/30 (37%) |
+| 3.5 | 20/30 (67%) |
+
+Rechazos de 3.5: contradicción con los datos 3 (casos de sesión incompleta
+descripta como completa), mejora/eficacia 3, especulación 2, atribución de
+capacidad 1, juicio evaluativo 1. Las 20 aceptadas fueron revisadas a mano
+y no contienen afirmaciones fuera de los hechos. Una corrida preliminar
+mostró 2 problemas que se corrigieron antes de esta medición: summaries
+truncados aceptados (→ `malformed_summary` + prompt sin comillas) y un falso
+negativo ("respuestas que indican dificultad para organizar y priorizar
+tareas" → `capacity_attribution`). Limitaciones: muestra chica, un solo
+modelo, casos sintéticos de una actividad; la tasa de aceptación no mide
+utilidad ni calidad clínica. Tiempo medio por generación ≈ 28 s en CPU.
 
 **Limitaciones conocidas del validador (documentadas, no resueltas):**
 - El anclaje es léxico por raíces de 5 caracteres: colisiones posibles
@@ -703,6 +729,7 @@ mood ni comparaciones. Los lee de estos campos.
   `capacity_attribution`, `evaluative_judgment`, `speculative_interpretation`,
   `prompt_rule_echo`, `unauthorized_observation_about_actor`,
   `clinical_recommendation`, `trend_claim`, `mood_or_state_claim` (3.5).
+- Forma (3.5, generación y lectura): `info.reason: "malformed_summary"`.
 - Patrones numéricos (porcentajes, X/Y, "N preguntas", "N segundos")
   (`SCHEMA_INVALID` + `info.reason: "numeric_metric_in_text"`).
 - Anclaje: cada oración del `summary` debe estar respaldada por las
@@ -739,7 +766,8 @@ mantiene los bloques determinísticos.
 Reasons reintenciables (`RETRIABLE_SEMANTIC_REASONS`, compartido por el
 flujo in-process y el del worker):
 - `max_length_exceeded` (summary > 1000).
-- `numeric_metric_in_text`, `ungrounded_statement`, `contradicts_recorded_data`.
+- `numeric_metric_in_text`, `ungrounded_statement`, `contradicts_recorded_data`,
+  `malformed_summary`.
 - Todas las familias de afirmaciones no permitidas.
 
 NO reintenciables: `INVALID_JSON`, `UNEXPECTED_FIELD`, campo faltante,

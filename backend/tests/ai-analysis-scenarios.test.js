@@ -306,3 +306,20 @@ describe("Forma del summary (observado en la evaluación 3.5 con Ollama)", () =>
     assert.ok(review.reasons.includes("malformed_summary"));
   });
 });
+
+describe("Falso negativo detectado en la evaluación 3.5 (C07 rep 2)", () => {
+  const c = ctx({ m: metrics({ correct: 1, incorrect: 3 }), comparison: comparison({ accuracy: "bajó", levelSame: false }) });
+
+  it("rechaza atribuir una dificultad para una acción", () => {
+    rejectedWith(
+      "La sesión de Agenda de turnos se completó en su totalidad, pero se registraron más respuestas incorrectas que correctas. Durante la sesión se registraron respuestas que indican dificultad para organizar y priorizar tareas.",
+      c,
+      "capacity_attribution",
+    );
+  });
+
+  it("no bloquea el nivel de dificultad ni completar la actividad", () => {
+    assert.equal(findForbiddenClaim("La sesión anterior comparable se realizó con un nivel de dificultad distinto."), null);
+    assert.equal(findForbiddenClaim("Verificar si el paciente tuvo dificultades para completar la actividad en el tiempo disponible."), null);
+  });
+});

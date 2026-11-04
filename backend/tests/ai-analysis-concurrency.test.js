@@ -193,7 +193,7 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       return {
         text: JSON.stringify({
           schema_version: "3",
-          summary: "Sesión trabajada por el paciente.",
+          summary: "Sesión trabajada por el paciente con la actividad asignada.",
           aspects_to_review: [],
         }),
         raw: {},
@@ -224,7 +224,7 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       return {
         text: JSON.stringify({
           schema_version: "3",
-          summary: "Sesión trabajada por el paciente.",
+          summary: "Sesión trabajada por el paciente con la actividad asignada.",
           aspects_to_review: [],
         }),
         raw: {},
@@ -254,7 +254,7 @@ describe("7J.1B — Advisory lock por identidad de análisis", () => {
       return {
         text: JSON.stringify({
           schema_version: "3",
-          summary: "Sesión trabajada por el paciente.",
+          summary: "Sesión trabajada por el paciente con la actividad asignada.",
           aspects_to_review: [],
         }),
         raw: {},

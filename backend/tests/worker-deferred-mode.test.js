@@ -352,7 +352,7 @@ describe("W-3 — AI_PROVIDER=deferred", () => {
       analysisRouteDeps.generate = async () => ({
         text: JSON.stringify({
           schema_version: "3",
-          summary: "ok local",
+          summary: "La sesión de entrenamiento fue completada en su totalidad.",
           aspects_to_review: [],
         }),
         raw: {},
