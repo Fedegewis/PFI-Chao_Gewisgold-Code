@@ -722,6 +722,38 @@ describe("AnalysisAsistidoPanel", () => {
     expect(screen.getByText(/Síntesis del asistente IA/i)).toBeInTheDocument();
   });
 
+  test("síntesis IA retenida por el backend: muestra aviso y conserva los bloques determinísticos", async () => {
+    const WITHHELD = {
+      id: 12, session_id: 4333, model: "llama3.2:3b",
+      schema_version: "3", prompt_version: "3.4", latency_ms: 4000,
+      created_at: "2026-11-04T15:21:00.000Z",
+      ai_text_withheld: true,
+      ai_text_withheld_reasons: ["clinical_rule_out"],
+      content: {
+        schema_version: "3",
+        activities: DETERMINISTIC_CONTEXT.activities,
+        evidence: DETERMINISTIC_CONTEXT.evidence,
+        comparison_metrics: null,
+        observations: DETERMINISTIC_CONTEXT.observations,
+        follow_up: DETERMINISTIC_CONTEXT.follow_up,
+      },
+    };
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({ source: "stored", analysis: WITHHELD });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    const notice = await screen.findByTestId("ai-text-withheld");
+    expect(notice).toHaveTextContent(/no cumple las reglas vigentes de lenguaje descriptivo/i);
+    expect(screen.queryByTestId("block-sintesis-ia")).not.toBeInTheDocument();
+    expect(screen.getByTestId("block-observaciones")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Regenerar análisis/i })).toBeInTheDocument();
+  });
+
+  test("análisis conforme: no muestra el aviso de síntesis retenida", async () => {
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({ source: "stored", analysis: { ...SAMPLE_ANALYSIS, ai_text_withheld: false } });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    await screen.findByText(SAMPLE_ANALYSIS.content.summary);
+    expect(screen.queryByTestId("ai-text-withheld")).not.toBeInTheDocument();
+  });
+
   test("compat lectura v1: análisis viejo (schema v1) sigue renderizándose completo", async () => {
     // SAMPLE_ANALYSIS tiene schema_version "1" en el content: no debe romper
     // la UI aunque el campo `comparison` no exista en v1.

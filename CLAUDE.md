@@ -510,7 +510,73 @@ Conectar frontend con backend, reemplazo de pacientes/métricas mock, reemplazo 
 
 Tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
 
-## Contrato IA v3 (prompt_version 3.4, output schema_version 3)
+## Contrato IA v3 (prompt_version 3.5, output schema_version 3)
+
+**v3.5 (2026-11-04, rama `fix/ai-content-safety`)**: seguridad y calidad del
+análisis tras la auditoría de los 8 análisis persistidos en producción
+(ninguno cumplía las reglas vigentes). Cambios:
+- **Prompt reescrito en positivo**: rol + guía de 7 pautas + ejemplo de
+  estilo con una actividad ficticia ("Actividad de ejemplo") + `HECHOS
+  REGISTRADOS` (las observaciones determinísticas). Ya NO enumera términos
+  clínicos ni frases como "sesión aislada": el 3B las copiaba como contenido
+  ("No se detectaron patologías ni condiciones clínicas en esta sesión
+  aislada"). El modelo puede reformular las comparaciones VÁLIDAS (las que
+  emitió observationsBuilder) conservando su dirección, y debe repetir la
+  aclaración de "no es directamente comparable" cuando los niveles difieren.
+  No recibe cifras, mood, slugs, dominios, niveles de dificultad ni historial.
+- **`aspects_to_review` ya no se pide**. Concentraba la mayoría de las
+  afirmaciones especulativas (eficacia, capacidades, recomendaciones) y no
+  estaba anclado a datos. Si el modelo lo devuelve igual, se DESCARTA sin
+  validarlo (`aspectsPolicy: "discard"`) y se persiste `[]`. Los aspectos de
+  seguimiento son los `follow_up` determinísticos. El campo sigue existiendo
+  en el schema (compatibilidad de API y de análisis anteriores).
+- **Validación de hechos** (`contentSafety.findFactContradiction`): además
+  de familias y anclaje léxico, se contrasta cada oración con una ficha de
+  hechos estructurada (completitud, distribución correctas/incorrectas,
+  todas/ninguna correcta, dirección de precisión y tiempo, existencia de
+  comparación y comparabilidad por `difficulty_level`). Rechaza con
+  `contradicts_recorded_data` p. ej. "más correctas" cuando hubo más
+  incorrectas, o "la precisión bajó" cuando los niveles difieren (P1 del
+  mecanismo adaptativo: una baja de precisión con otro nivel no es declive).
+  Hecho desconocido ⇒ la afirmación se rechaza (comportamiento seguro).
+- **Familias nuevas**: `clinical_recommendation` (derivar, consultar,
+  evaluación neuropsicológica, ajustar/subir/bajar dificultad o nivel: Ollama
+  no decide niveles), `trend_claim` (tendencias, progresivo, empeoró, declive),
+  `mood_or_state_claim` (estado de ánimo/estado de la persona, que el backend
+  muestra aparte), términos clínicos indirectos ("problemas de memoria",
+  "compatible con", "olvidos", "riesgo").
+- **Misma validación en los dos caminos**: `GENERATION_VALIDATION_OPTIONS`
+  (`{checkFacts: true, aspectsPolicy: "discard"}`) y `formatValidationFailure`
+  compartidos por `analysisService` (in-process) y `analysisQueue` (worker).
+  El `error_message` del intento fallido empieza con `[reason]`; no se
+  devuelve al worker ni a la API el texto del modelo.
+- **Sin regeneración automática del historial**: la cola del worker antes
+  re-reclamaba toda sesión cuyo último ok tuviera otra triple
+  (modelo, schema, prompt): subir PROMPT_VERSION regeneraba todo. Ahora, por
+  defecto, una sesión con CUALQUIER análisis ok no se reclama. Se habilita con
+  `WORKER_REGENERATE_OUTDATED_ANALYSES=true` (default `false`).
+- **Regeneración controlada**: `backend/scripts/regenerate-analyses.js`
+  (`npm run analyses:review`). Dry-run por defecto (lista ids, versión y
+  reasons, sin texto). `--apply` exige `--session-ids` (máx. 20) y
+  `--confirm-database <current_database()>`; agrega filas nuevas, nunca borra.
+  Requiere autorización explícita antes de usarse contra producción.
+- **Evaluación reproducible**: `backend/scripts/eval/eval-prompts.js`
+  (`npm run eval:prompts`) compara 3.4 (copia congelada en
+  `scripts/eval/legacyPromptV34.js`) vs 3.5 sobre 10 casos sintéticos contra
+  Ollama local, con el validador vigente. Mide tasa de aceptación por
+  intento, no calidad clínica.
+- `PROMPT_VERSION` 3.4 → **3.5**. Sin migraciones.
+
+**Limitaciones conocidas del validador (documentadas, no resueltas):**
+- El anclaje es léxico por raíces de 5 caracteres: colisiones posibles
+  ("entretenida" comparte raíz con "entrenamiento" y cuenta como respaldada).
+  Por eso se complementa con la ficha de hechos, que sí es semántica pero
+  sólo cubre las dimensiones enumeradas arriba.
+- Las familias son patrones: una paráfrasis clínica no prevista puede pasar.
+  Los textos aceptados NO quedan validados clínicamente; el profesional sigue
+  siendo quien interpreta.
+- Puede haber falsos positivos (texto correcto rechazado); el costo es que
+  el panel muestra sólo los bloques determinísticos.
 
 Simplificación radical del output del modelo. Autorizada el 2026-10-13 para
 estabilizar llama3.2:3b tras iteraciones v2.0 → v2.5 que no lograron
@@ -587,13 +653,12 @@ sin haberla recibido, es salida no confiable y se rechaza. Cambios:
 ```json
 {
   "schema_version": "3",
-  "summary": "síntesis descriptiva, máximo 500 chars",
-  "aspects_to_review": ["observación breve", "..."]
+  "summary": "síntesis descriptiva, 1-2 oraciones"
 }
 ```
 
 - `summary`: 1 string, 1-2 oraciones breves, idealmente 100-250 chars, máximo absoluto **1000** chars (rechazo sobre 1000; nunca se trunca silenciosamente).
-- `aspects_to_review`: opcional, 0-5 items, cada uno ≤ 180 chars.
+- `aspects_to_review`: desde 3.5 NO se pide; si llega se descarta y se persiste `[]` (en contratos anteriores: 0-5 items ≤ 180 chars).
 - Cualquier otro campo (observations_by_section, comparison, evidence, mood,
   métricas, cognitive_domains, section_slug, …) → `UNEXPECTED_FIELD`.
 
@@ -617,8 +682,10 @@ mood ni comparaciones. Los lee de estos campos.
   `pobre`, `nivel adecuado/inadecuado`, …).
 - Cifras numéricas en el texto (porcentajes, fracciones X/Y, "N preguntas",
   "N segundos", latencias) — las expone el backend aparte.
-- Mencionar sesiones anteriores, cambios, comparaciones (van en
-  `comparison_metrics`).
+- Comparaciones que no figuren en los HECHOS REGISTRADOS, o con otra
+  dirección; describir como subida/bajada una diferencia "no directamente
+  comparable"; hablar de evolución o tendencia sin sesiones comparables.
+- Recomendaciones (derivar, consultar, ajustar dificultad o nivel).
 - Mencionar estado de ánimo autorreportado — el backend lo renderiza aparte.
 - Inventar nombre, edad, antecedentes, pacientes, normativas.
 
@@ -628,24 +695,59 @@ mood ni comparaciones. Los lee de estos campos.
 - `schema_version === "3"` (`SCHEMA_INVALID`).
 - Sólo campos permitidos (`UNEXPECTED_FIELD`).
 - Tipos y longitudes (`SCHEMA_INVALID`).
-- Términos clínicos / calificaciones subjetivas: lista cerrada específica
-  (`SCHEMA_INVALID` + `info.reason: "forbidden_clinical_term"`).
+- Afirmaciones no permitidas por FAMILIAS (`backend/src/services/ai/contentSafety.js`),
+  sobre texto normalizado (minúsculas, sin tildes) y por raíces, no frases
+  sueltas (`SCHEMA_INVALID` + `info.reason`):
+  `clinical_rule_out` (descartes: "no se detectaron patologías", "sin signos de…"),
+  `forbidden_clinical_term`, `therapeutic_or_improvement_claim`,
+  `capacity_attribution`, `evaluative_judgment`, `speculative_interpretation`,
+  `prompt_rule_echo`, `unauthorized_observation_about_actor`,
+  `clinical_recommendation`, `trend_claim`, `mood_or_state_claim` (3.5).
 - Patrones numéricos (porcentajes, X/Y, "N preguntas", "N segundos")
   (`SCHEMA_INVALID` + `info.reason: "numeric_metric_in_text"`).
+- Anclaje: cada oración del `summary` debe estar respaldada por las
+  OBSERVATIONS/follow_up de la sesión y los nombres de las actividades
+  (`info.reason: "ungrounded_statement"`). Detecta afirmaciones nuevas que
+  ninguna lista anticipa.
+- Hechos (3.5, generación y lectura): `info.reason: "contradicts_recorded_data"`
+  cuando una oración contradice la ficha de hechos de la sesión.
 
-NO se bloquean palabras genéricas como "memoria", "atención", "mejoró",
-"dificultad": las validaciones son patrones específicos observados como
-errores reales del modelo.
+NO se bloquean palabras genéricas como "memoria", "atención" o "dificultad".
+Sí se bloquean "mejora/mejoró" referidas a funciones cognitivas o a la
+precisión entre sesiones (una diferencia entre sesiones con preguntas
+distintas no es una mejora).
+
+**Auditoría 2026-11-04 (fase 1):** el patrón anterior `/\bpatolog[ií]a\b/`
+no cubría el plural y `\b` falla con tildes; el modelo produjo "No se
+detectaron patologías ni condiciones clínicas en esta sesión aislada." (eco
+de la REGLA 1 del prompt). Los 8 análisis persistidos en producción hasta
+esa fecha no cumplen las reglas vigentes; quedan como fixture de regresión
+en `backend/tests/fixtures/ai-outputs-prod-2026-11.json`.
+
+### Protección al leer
+
+`serializeAnalysisRow` (`backend/src/routes/analysis.js`) vuelve a evaluar el
+texto del modelo de cada análisis persistido con las reglas vigentes. Si no
+cumple, omite `summary`/`aspects_to_review` (y los campos equivalentes de
+contratos v1/v2) y devuelve `ai_text_withheld: true` +
+`ai_text_withheld_reasons`. La DB NO se modifica (reversible, conserva la
+evidencia). El panel muestra un aviso (`data-testid="ai-text-withheld"`) y
+mantiene los bloques determinísticos.
 
 ### Reintentos (máximo 2 llamadas a Ollama en total)
 
-Reasons reintenciables:
-- `max_length_exceeded` (summary > 500).
-- `forbidden_clinical_term`.
-- `numeric_metric_in_text`.
+Reasons reintenciables (`RETRIABLE_SEMANTIC_REASONS`, compartido por el
+flujo in-process y el del worker):
+- `max_length_exceeded` (summary > 1000).
+- `numeric_metric_in_text`, `ungrounded_statement`, `contradicts_recorded_data`.
+- Todas las familias de afirmaciones no permitidas.
 
 NO reintenciables: `INVALID_JSON`, `UNEXPECTED_FIELD`, campo faltante,
 errores de Ollama (OFFLINE/TIMEOUT/MODEL_NOT_FOUND/HTTP_ERROR).
+
+Worker: `MAX_GENERATION_ATTEMPTS=3` claims por sesión (cooldown entre
+intentos); agotados, la sesión queda sin análisis ok y el panel muestra sólo
+los bloques determinísticos. Un análisis rechazado nunca se persiste como ok.
 
 ### Compatibilidad histórica
 
@@ -655,7 +757,10 @@ errores de Ollama (OFFLINE/TIMEOUT/MODEL_NOT_FOUND/HTTP_ERROR).
 - `AnalysisAsistidoPanel.jsx` tiene branch por `content.schema_version`:
   v3 usa el render nuevo; v1/v2 usan el render legacy.
 - Al regenerar un análisis siempre se usa v3.
-- No hay backfill ni regeneración automática.
+- No hay backfill ni regeneración automática (la cola tampoco regenera
+  análisis de versiones anteriores salvo `WORKER_REGENERATE_OUTDATED_ANALYSES=true`).
+- Los análisis 3.0-3.4 que no cumplen las reglas vigentes se ocultan al leer
+  (`ai_text_withheld`), sin modificarse en la DB.
 
 ### Regeneración
 
@@ -669,13 +774,16 @@ errores de Ollama (OFFLINE/TIMEOUT/MODEL_NOT_FOUND/HTTP_ERROR).
 
 ### Archivos clave
 
-- `backend/src/services/ai/promptBuilder.js` — PROMPT_VERSION "3.4", 5 reglas, OBSERVATIONS como anclaje.
+- `backend/src/services/ai/promptBuilder.js` — PROMPT_VERSION "3.5", guía en positivo, HECHOS REGISTRADOS como única fuente.
+- `backend/src/services/ai/contentSafety.js` — familias, anclaje, ficha de hechos, revisión de análisis persistidos, opciones de validación compartidas.
 - `backend/src/services/ai/observationsBuilder.js` — determinístico: `{observations, follow_up}`.
 - `backend/src/routes/analysis.js` — endpoint `GET /sessions/:id/analysis-context` (v3.4).
 - `backend/src/services/ai/responseValidator.js` — ANALYSIS_SCHEMA_VERSION "3".
 - `backend/src/services/ai/analysisService.js` — inyecta activities, evidence,
-  comparison_metrics; MAX_ATTEMPTS=2; SEMANTIC_RETRIABLE = {forbidden_clinical_term,
-  numeric_metric_in_text}.
+  comparison_metrics; MAX_ATTEMPTS=2; SEMANTIC_RETRIABLE = RETRIABLE_SEMANTIC_REASONS.
+- `backend/src/services/ai/analysisQueue.js` — worker; misma validación;
+  `REGENERATE_OUTDATED` (default false).
+- `backend/scripts/regenerate-analyses.js`, `backend/scripts/eval/eval-prompts.js`.
 - `backend/src/services/ai/analysisRepository.js` — acepta v1/v2/v3.
 - `src/components/professional/AnalysisAsistidoPanel.jsx` — branch por
   content.schema_version.

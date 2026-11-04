@@ -692,6 +692,16 @@ export function AnalysisAsistidoPanel({ session }) {
             promptVersion={analysis.prompt_version}
             deterministicFallback={deterministic}
           />
+          {analysis.ai_text_withheld && (
+            <div className="analysis-block" data-testid="ai-text-withheld">
+              <p className="eyebrow">Síntesis del asistente IA</p>
+              <p className="ai-hint">
+                La síntesis generada para esta sesión no se muestra porque no cumple las reglas vigentes de lenguaje descriptivo
+                (por ejemplo, contenía afirmaciones de tipo clínico, interpretativo o no respaldadas por los datos registrados).
+                Los datos y las observaciones automáticas de arriba no se ven afectados.
+              </p>
+            </div>
+          )}
           <div className="activity-actions single">
             <button
               type="button"

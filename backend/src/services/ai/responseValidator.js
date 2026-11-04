@@ -48,6 +48,14 @@ import {
   AnalysisValidationCodes as CODES,
   AnalysisValidationError,
 } from "./validationErrors.js";
+import {
+  buildFactSheet,
+  buildSupportedStems,
+  findFactContradiction,
+  findForbiddenClaim,
+  findMalformedSummary,
+  findUngroundedSentence,
+} from "./contentSafety.js";
 
 const SCHEMA_VERSION = "3";
 
@@ -134,36 +142,12 @@ function validateAspects(rawList) {
 // corresponde a un error observado en salidas reales del modelo. No bloqueamos
 // términos descriptivos válidos ("memoria", "atención", "preguntas", etc).
 
-// 1) Términos clínicos / diagnósticos / calificaciones subjetivas sin criterio.
-const CLINICAL_PATTERNS = [
-  /\bdeterioro\s+cognitivo\b/i,
-  /\bd[eé]ficit\s+(cognitivo|de\s+atenci[oó]n|de\s+memoria|ejecutivo)\b/i,
-  /\bdisfunci[oó]n\s+cognitiva\b/i,
-  /\btrastorno\s+(cognitivo|de\s+memoria|de\s+atenci[oó]n)\b/i,
-  /\bpatolog[ií]a\b/i,
-  /\bdificultades\s+cognitivas\b/i,
-  /\bcapacidades\s+cognitivas\b/i,
-  /\balteraci[oó]n\s+cognitiva\b/i,
-  // Valoraciones directas sobre funciones cognitivas con adjetivo evaluativo:
-  /\b(buena|mala|buenas|malas|excelentes?|p[oó]bres?)\s+(memoria|atenci[oó]n|funciones\s+ejecutivas|orientaci[oó]n)\b/i,
-  /\b(memoria|atenci[oó]n|funciones\s+ejecutivas|orientaci[oó]n)\s+(deficiente|deficientes|disminuida|disminuidas|afectada|afectadas)\b/i,
-  // Calificaciones subjetivas del desempeño:
-  /\b(alto|bajo|muy\s+alto|muy\s+bajo)\s+nivel\s+de\s+(precisi[oó]n|desempe[nñ]o|rendimiento|acierto|exactitud)\b/i,
-  /\bnivel\s+(alto|bajo|muy\s+alto|muy\s+bajo)\s+de\s+(precisi[oó]n|desempe[nñ]o|rendimiento|acierto|exactitud)\b/i,
-  /\b(excelentes?|p[oó]bres?|destacad[oa]s?|insuficientes?|muy\s+bueno?s?|muy\s+bajos?)\s+(desempe[nñ]o|rendimiento|precisi[oó]n)\b/i,
-  /\b(desempe[nñ]o|rendimiento|precisi[oó]n)\s+(muy\s+bueno?s?|muy\s+malo?s?|muy\s+alto|muy\s+bajo|excelente|p[oó]bre|destacad[oa]|insuficiente)\b/i,
-  /\bnivel\s+(adecuado|inadecuado)\b/i,
-];
-
-// 1b) v3.4 — Atribución de afirmaciones a terceros (el "profesional"
-//     o el "paciente") sin fundamento. El modelo tiende a decir "el
-//     profesional observó X" cuando no tiene nada concreto que redactar.
-//     También frases evaluativas sobre el paciente ("mostró una buena/mala X").
-const UNAUTHORIZED_ACTOR_PATTERNS = [
-  /\b(el|la)\s+profesional\s+(observ[oó]|afirm[oó]|concluy[oó]|destac[oó]|not[oó]|detect[oó]|evalu[oó]|interpret[oó]|identific[oó])/i,
-  /\bseg[uú]n\s+(el|la)\s+profesional\b/i,
-  /\bel\s+paciente\s+(mostr[oó]|demostr[oó]|evidenci[oó]|exhibi[oó])\s+(una|un)?\s*(buena|mala|excelente|p[oó]bre|alta|baja|destacad[ao])/i,
-];
+// 1) Afirmaciones no permitidas (diagnóstico, descarte clínico, eficacia
+//    terapéutica, capacidades, juicios evaluativos, especulación, eco de las
+//    reglas, atribución a terceros). Se evalúan por FAMILIAS sobre texto
+//    normalizado (sin tildes, minúsculas): ver contentSafety.js. Reemplaza a
+//    las listas CLINICAL_PATTERNS / UNAUTHORIZED_ACTOR_PATTERNS anteriores,
+//    que no cubrían plurales ("patologías") ni límites con tildes.
 
 // 2) Métricas numéricas inventadas o repetidas por el modelo. Detectamos
 //    patrones específicos de cifras que corresponden a métricas (porcentajes,
@@ -192,28 +176,17 @@ function failSemantic(reason, path, message) {
   fail(CODES.SCHEMA_INVALID, message, path, { reason });
 }
 
-function runSemanticChecks({ summary, aspects }) {
+function runSemanticChecks({ summary, aspects }, grounding, facts) {
   const aspTexts = Array.isArray(aspects) ? aspects : [];
   const fullText = joinTexts([summary, ...aspTexts]);
 
-  for (const re of CLINICAL_PATTERNS) {
-    if (re.test(fullText)) {
-      failSemantic(
-        "forbidden_clinical_term",
-        "summary",
-        `Término clínico o calificación subjetiva prohibida (match: ${re})`
-      );
-    }
-  }
-
-  for (const re of UNAUTHORIZED_ACTOR_PATTERNS) {
-    if (re.test(fullText)) {
-      failSemantic(
-        "unauthorized_observation_about_actor",
-        "summary",
-        `Afirmación atribuida al profesional o calificación evaluativa del paciente no autorizada (match: ${re})`
-      );
-    }
+  const claim = findForbiddenClaim(fullText);
+  if (claim) {
+    failSemantic(
+      claim.reason,
+      "summary",
+      `Afirmación no permitida (${claim.label}): "${claim.match}"`
+    );
   }
 
   for (const re of NUMERIC_METRIC_PATTERNS) {
@@ -225,6 +198,33 @@ function runSemanticChecks({ summary, aspects }) {
       );
     }
   }
+
+  // Anclaje: el summary debe parafrasear las OBSERVATIONS determinísticas.
+  // Sólo aplica cuando quien llama provee las observaciones de la sesión.
+  if (grounding) {
+    const ungrounded = findUngroundedSentence(summary, grounding);
+    if (ungrounded) {
+      failSemantic(
+        "ungrounded_statement",
+        "summary",
+        `Oración sin respaldo en las observaciones de la sesión: "${ungrounded.sentence}"`
+      );
+    }
+  }
+
+  // Consistencia: los hechos cerrados que el texto afirme (completitud,
+  // distribución de respuestas, comparación y su validez según el nivel de
+  // dificultad) deben coincidir con los datos registrados.
+  if (facts) {
+    const contradiction = findFactContradiction(summary, facts);
+    if (contradiction) {
+      failSemantic(
+        "contradicts_recorded_data",
+        "summary",
+        `Afirmación que contradice los datos registrados (${contradiction.claim}): "${contradiction.sentence}"`
+      );
+    }
+  }
 }
 
 /**
@@ -232,10 +232,19 @@ function runSemanticChecks({ summary, aspects }) {
  *
  * @param {string} rawText
  * @param {object} context   Salida de buildSessionAnalysisContext (v2+).
+ * @param {{observations?: string[], followUp?: string[],
+ *          checkFacts?: boolean, aspectsPolicy?: "validate"|"discard"}} [options]
+ *   - observations/followUp: observaciones determinísticas de la sesión. Si
+ *     se proveen, el summary debe estar anclado a ellas.
+ *   - checkFacts: verifica que el summary no contradiga los datos del
+ *     contexto (contentSafety.findFactContradiction).
+ *   - aspectsPolicy: "validate" (contrato ≤3.4, default) valida
+ *     aspects_to_review; "discard" (prompt 3.5) no lo pide al modelo y, si
+ *     igual llega, lo descarta sin evaluarlo: no se persiste ni se muestra.
  * @returns {object}         Objeto congelado con campos canónicos v3.
  * @throws {AnalysisValidationError}
  */
-export function parseAndValidateSessionAnalysis(rawText, context) {
+export function parseAndValidateSessionAnalysis(rawText, context, options = {}) {
   if (typeof rawText !== "string") {
     fail(CODES.INVALID_JSON, "rawText debe ser string");
   }
@@ -265,9 +274,32 @@ export function parseAndValidateSessionAnalysis(rawText, context) {
   }
 
   const summary = validateSummary(parsed.summary);
-  const aspects = validateAspects(parsed.aspects_to_review);
+  const discardAspects = options.aspectsPolicy === "discard";
+  const aspects = discardAspects ? [] : validateAspects(parsed.aspects_to_review);
 
-  runSemanticChecks({ summary, aspects });
+  const observations = Array.isArray(options.observations) ? options.observations : [];
+  const grounding = observations.length > 0
+    ? buildSupportedStems({
+      observations,
+      followUp: Array.isArray(options.followUp) ? options.followUp : [],
+      activityNames: (Array.isArray(context.sections) ? context.sections : [])
+        .flatMap((s) => [s?.name, s?.slug])
+        .filter((x) => typeof x === "string"),
+    })
+    : null;
+
+  const facts = options.checkFacts ? buildFactSheet(context) : null;
+
+  // Forma (3.5): summary truncado por la gramática JSON o con entidades
+  // HTML. Sólo en la política de generación vigente (checkForm).
+  if (options.checkForm) {
+    const malformed = findMalformedSummary(summary);
+    if (malformed) {
+      failSemantic("malformed_summary", "summary", `Summary incompleto o mal formado (${malformed})`);
+    }
+  }
+
+  runSemanticChecks({ summary, aspects }, grounding, facts);
 
   const out = {
     schema_version: SCHEMA_VERSION,

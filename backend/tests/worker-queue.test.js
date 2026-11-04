@@ -81,7 +81,9 @@ async function makeCompletedSession(patient, professional, completedAt) {
 function validRawText() {
   return JSON.stringify({
     schema_version: "3",
-    summary: "Resumen breve del entrenamiento sin cifras ni términos clínicos.",
+    // Paráfrasis anclada a las observaciones determinísticas de la sesión
+    // (el validador exige anclaje desde la auditoría 2026-11-04).
+    summary: "La sesión de entrenamiento fue completada en su totalidad.",
     aspects_to_review: [],
   });
 }
@@ -233,14 +235,13 @@ describe("Worker queue (claim/result/failed)", () => {
     assert.equal(claim, null, "una sesión con ok existente no se reclama");
   });
 
-  it("Sesión con ok de OTRO modelo sí se reclama", async () => {
-    const s = await makeCompletedSession(patientA, profA, new Date());
+  async function insertOkFor(sessionId, { model, promptVersion }) {
     await db("session_analyses").insert({
-      session_id: s.id,
+      session_id: sessionId,
       status: "ok",
-      model: "otro-modelo",
+      model,
       schema_version: CURRENT_SCHEMA,
-      prompt_version: CURRENT_PROMPT,
+      prompt_version: promptVersion,
       analysis: {
         schema_version: "3",
         summary: "x",
@@ -248,7 +249,39 @@ describe("Worker queue (claim/result/failed)", () => {
         activities: [], evidence: [],
       },
     });
+  }
+
+  // Fase 2 (2026-11-04): por defecto la cola NO regenera automáticamente
+  // análisis ok de otra versión (modelo/prompt). Si lo hiciera, subir
+  // PROMPT_VERSION regeneraría todo el historial sin autorización. La
+  // regeneración es explícita (scripts/regenerate-analyses.js) o con
+  // WORKER_REGENERATE_OUTDATED_ANALYSES=true.
+  it("Sesión con ok de OTRO modelo NO se reclama por defecto", async () => {
+    const s = await makeCompletedSession(patientA, profA, new Date());
+    await insertOkFor(s.id, { model: "otro-modelo", promptVersion: CURRENT_PROMPT });
     const claim = await claimNextSession();
+    assert.equal(claim, null);
+  });
+
+  it("Sesión con ok de un prompt ANTERIOR NO se reclama por defecto", async () => {
+    const s = await makeCompletedSession(patientA, profA, new Date());
+    await insertOkFor(s.id, { model: "llama3.2:3b", promptVersion: "3.4" });
+    const claim = await claimNextSession();
+    assert.equal(claim, null);
+  });
+
+  it("Con REGENERATE_OUTDATED=true, una sesión con ok de OTRO modelo sí se reclama", async () => {
+    const s = await makeCompletedSession(patientA, profA, new Date());
+    await insertOkFor(s.id, { model: "otro-modelo", promptVersion: CURRENT_PROMPT });
+    const claim = await claimNextSession({ configOverrides: { REGENERATE_OUTDATED: true } });
+    assert.ok(claim);
+    assert.equal(claim.session_id, s.id);
+  });
+
+  it("Con REGENERATE_OUTDATED=true, una sesión con ok de un prompt ANTERIOR sí se reclama", async () => {
+    const s = await makeCompletedSession(patientA, profA, new Date());
+    await insertOkFor(s.id, { model: "llama3.2:3b", promptVersion: "3.4" });
+    const claim = await claimNextSession({ configOverrides: { REGENERATE_OUTDATED: true } });
     assert.ok(claim);
     assert.equal(claim.session_id, s.id);
   });
@@ -343,6 +376,61 @@ describe("Worker queue (claim/result/failed)", () => {
       .send({ claim_id: claim.claim_id, claim_token: claim.claim_token, raw_text: forbidden });
     assert.equal(res.status, 422);
     assert.equal(res.body.retriable, true);
+  });
+
+  // Fase 2: el worker (modo deferred) aplica EXACTAMENTE la misma política
+  // que el camino in-process (GENERATION_VALIDATION_OPTIONS). Mismos textos,
+  // mismas reasons que en ai-analysis-retry.test.js.
+  for (const [label, summary, reason] of [
+    ["descarte clínico", "No se detectaron patologías ni condiciones clínicas en esta sesión aislada.", "clinical_rule_out"],
+    ["recomendación clínica", "La sesión fue completada; se recomienda consultar a un especialista.", "clinical_recommendation"],
+    // La sesión del fixture tiene 1 correcta y 0 incorrectas.
+    ["contradicción con los datos", "La sesión fue completada y se registraron más respuestas incorrectas que correctas.", "contradicts_recorded_data"],
+  ]) {
+    it(`Paridad deferred: ${label} → 422 retriable, failed con [${reason}] y sin contenido`, async () => {
+      await makeCompletedSession(patientA, profA, new Date());
+      const claim = await claimNextSession();
+      assert.ok(claim);
+      const res = await request(app)
+        .post("/api/worker/analysis/result")
+        .set("Authorization", `Bearer ${VALID_TOKEN}`)
+        .send({
+          claim_id: claim.claim_id,
+          claim_token: claim.claim_token,
+          raw_text: JSON.stringify({ schema_version: "3", summary }),
+        });
+      assert.equal(res.status, 422);
+      assert.equal(res.body.retriable, true);
+      // La respuesta al worker no devuelve el texto del modelo.
+      assert.ok(!JSON.stringify(res.body).includes(summary));
+      const row = await db("session_analyses").where({ id: claim.claim_id }).first();
+      assert.equal(row.status, "failed");
+      assert.equal(row.analysis, null);
+      assert.ok(row.error_message.startsWith(`[${reason}]`), row.error_message);
+    });
+  }
+
+  it("Paridad deferred: aspects_to_review del modelo se descarta al persistir", async () => {
+    await makeCompletedSession(patientA, profA, new Date());
+    const claim = await claimNextSession();
+    assert.ok(claim);
+    const res = await request(app)
+      .post("/api/worker/analysis/result")
+      .set("Authorization", `Bearer ${VALID_TOKEN}`)
+      .send({
+        claim_id: claim.claim_id,
+        claim_token: claim.claim_token,
+        raw_text: JSON.stringify({
+          schema_version: "3",
+          summary: "La sesión de entrenamiento fue completada en su totalidad.",
+          aspects_to_review: ["Se recomienda derivar a un especialista."],
+        }),
+      });
+    assert.equal(res.status, 200);
+    const row = await db("session_analyses").where({ id: claim.claim_id }).first();
+    assert.equal(row.status, "ok");
+    assert.deepEqual(row.analysis.aspects_to_review, []);
+    assert.ok(Array.isArray(row.analysis.follow_up));
   });
 
   it("Validación OK: persiste status=ok con activities + evidence + observations + follow_up", async () => {

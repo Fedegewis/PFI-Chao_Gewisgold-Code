@@ -1,6 +1,7 @@
-// Tests del promptBuilder — v3.0.
+// Tests del promptBuilder — v3.5.
 //
-// Cubren: shape, versión, 5 reglas, ausencia de datos técnicos (slugs,
+// Cubren: shape, versión, guía de escritura en positivo (sin eco de términos
+// clínicos), HECHOS REGISTRADOS, ausencia de datos técnicos (slugs,
 // previous_sessions, patient_reported_mood, cognitive_domains), contrato
 // de output mínimo.
 
@@ -50,39 +51,68 @@ function makeCtx(extra = {}) {
   });
 }
 
-describe("promptBuilder v3 — shape básico", () => {
-  it("retorna { prompt, promptVersion } y versión '3.4'", () => {
+describe("promptBuilder v3.5 — shape básico", () => {
+  it("retorna { prompt, promptVersion } y versión '3.5'", () => {
     const { prompt, promptVersion } = buildSessionAnalysisPrompt(makeCtx());
     assert.equal(typeof prompt, "string");
     assert.ok(prompt.length > 0);
-    assert.equal(promptVersion, "3.4");
+    assert.equal(promptVersion, "3.5");
     assert.equal(promptVersion, PROMPT_BUILDER_VERSION);
   });
 
   it("schema de output es '3'", () => {
     assert.equal(PROMPT_OUTPUT_SCHEMA_VERSION, "3");
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.includes('schema_version'));
+    assert.ok(prompt.includes("schema_version"));
     assert.ok(prompt.includes('"3"'));
-  });
-
-  it("incluye las 5 reglas", () => {
-    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.includes("REGLA 1"));
-    assert.ok(prompt.includes("REGLA 2"));
-    assert.ok(prompt.includes("REGLA 3"));
-    assert.ok(prompt.includes("REGLA 4"));
-    assert.ok(prompt.includes("REGLA 5"));
-    assert.ok(!prompt.includes("REGLA 6"));
   });
 
   it("incluye el nombre humano de la actividad", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.includes("Agenda de turnos"));
+    assert.ok(prompt.includes("ACTIVIDAD: Agenda de turnos"));
+    // Sin comillas dobles en los datos de la sesión (truncan el JSON).
+    assert.ok(!prompt.includes('"Agenda de turnos"'));
+  });
+
+  it("el ejemplo de estilo usa una actividad ficticia, no la real", () => {
+    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
+    assert.ok(prompt.includes("Actividad de ejemplo"));
+    const example = prompt.slice(prompt.indexOf("EJEMPLO DE ESTILO"), prompt.indexOf("SESIÓN A SINTETIZAR"));
+    assert.ok(!example.includes("Agenda de turnos"));
   });
 });
 
-describe("promptBuilder v3 — NO filtra datos técnicos al modelo", () => {
+describe("promptBuilder v3.5 — sin eco de reglas de seguridad", () => {
+  // El 3B reprodujo como contenido frases de la REGLA 1 de 3.4. El prompt
+  // 3.5 no debe nombrar los términos ni las frases que no queremos ver.
+  const FORBIDDEN_IN_PROMPT = [
+    "patolog", "condición clínica", "condiciones clínicas", "sesión aislada",
+    "deterioro", "déficit", "demencia", "trastorno", "diagnóstic",
+    "mejoría", "tratamiento", "REGLA",
+  ];
+  for (const term of FORBIDDEN_IN_PROMPT) {
+    it(`no contiene "${term}"`, () => {
+      const { prompt } = buildSessionAnalysisPrompt(makeCtx(), {
+        observations: ["La sesión fue completada en su totalidad."],
+      });
+      assert.ok(!prompt.toLowerCase().includes(term.toLowerCase()), term);
+    });
+  }
+
+  it("deja las conclusiones sobre la persona al profesional", () => {
+    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
+    assert.ok(prompt.includes("corresponden exclusivamente al profesional"));
+  });
+
+  it("indica conservar la dirección y la aclaración de no comparabilidad", () => {
+    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
+    assert.ok(prompt.includes("Conservá la dirección"));
+    assert.ok(prompt.includes("no es directamente comparable"));
+    assert.ok(prompt.includes("no hables de evolución ni de tendencia"));
+  });
+});
+
+describe("promptBuilder v3.5 — NO filtra datos técnicos al modelo", () => {
   it("NO contiene VALID_SECTION_SLUGS", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
     assert.ok(!prompt.includes("VALID_SECTION_SLUGS"));
@@ -132,86 +162,79 @@ describe("promptBuilder v3 — NO filtra datos técnicos al modelo", () => {
   });
 });
 
-describe("promptBuilder v3 — contrato de output", () => {
-  it("incluye los dos campos del contrato", () => {
+describe("promptBuilder v3.5 — contrato de output", () => {
+  it("pide exactamente schema_version y summary (no aspects_to_review)", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.includes("summary"));
-    assert.ok(prompt.includes("aspects_to_review"));
+    assert.ok(prompt.includes('"summary"'));
+    assert.ok(!prompt.includes("aspects_to_review"));
+    assert.ok(prompt.includes("exactamente estos dos campos"));
   });
 
-  it("prohibe explícitamente los campos del contrato v2", () => {
+  it("no menciona campos de contratos anteriores", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.includes("observations_by_section"));
-    assert.ok(prompt.includes("comparison"));
-    assert.ok(prompt.includes("evidence"));
-    assert.ok(prompt.toLowerCase().includes("no agregues"));
+    assert.ok(!prompt.includes("observations_by_section"));
+    assert.ok(!prompt.includes("evidence"));
   });
 
-  it("prohibe cifras numéricas en el texto", () => {
+  it("prohíbe cifras numéricas en el texto", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.toLowerCase().includes("cifras") || prompt.includes("porcentajes"));
+    assert.ok(prompt.includes("No escribas números ni porcentajes"));
   });
 
-  it("pide 1-2 oraciones breves y menciona el máximo 1000", () => {
-    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.toUpperCase().includes("UNA O DOS"));
-    assert.ok(prompt.includes("1000"));
-    assert.ok(prompt.includes("100") && prompt.includes("250"));
-  });
-
-  it("v3.3: NO envía la línea METRICS ni cifras crudas al modelo", () => {
+  it("NO envía métricas ni cifras crudas al modelo", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
     assert.ok(!prompt.includes("METRICS:"));
-    assert.ok(!prompt.includes("total_questions="));
-    assert.ok(!prompt.includes("correct_count="));
-    assert.ok(!prompt.includes("accuracy="));
-    assert.ok(!prompt.includes("completion_rate="));
-    assert.ok(!prompt.includes("mean_latency_ms="));
-    // Y además, los valores crudos tampoco deben aparecer: 0.5, 3233, 1200.
+    assert.ok(!prompt.includes("total_questions"));
+    assert.ok(!prompt.includes("correct_count"));
+    assert.ok(!prompt.includes("accuracy"));
+    assert.ok(!prompt.includes("completion_rate"));
+    assert.ok(!prompt.includes("mean_latency_ms"));
     assert.ok(!prompt.includes("0.5"));
     assert.ok(!prompt.includes("3233"));
     assert.ok(!prompt.includes("1200"));
+    // Los únicos dígitos del prompt son la numeración de la guía y el schema;
+    // el bloque de la sesión real no lleva ninguno.
+    const real = prompt.slice(prompt.indexOf("SESIÓN A SINTETIZAR"));
+    assert.ok(!/\d/.test(real.replaceAll('"3"', "")), "sin dígitos en el bloque de la sesión");
   });
 
-  it("v3.3+: sigue incluyendo nombres humanos de las actividades", () => {
-    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.includes("Agenda de turnos"));
-    assert.ok(prompt.includes("SESSION activities="));
+  it("NO envía niveles de dificultad (Ollama no decide ni conoce niveles)", () => {
+    const ctx = makeCtx({
+      comparison_metrics: { difficulty_level: { current: 3, previous: 1, same: false } },
+    });
+    const { prompt } = buildSessionAnalysisPrompt(ctx);
+    assert.ok(!prompt.includes("difficulty_level"));
+    assert.ok(!/nivel \d/.test(prompt));
   });
 
-  it("v3.4: incluye el bloque OBSERVATIONS cuando se pasan observations", () => {
+  it("incluye el bloque HECHOS REGISTRADOS con las observaciones", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx(), {
       observations: [
         "La sesión fue completada en su totalidad.",
         "Se registraron más respuestas incorrectas que correctas.",
       ],
     });
-    assert.ok(prompt.includes("OBSERVATIONS:"));
-    assert.ok(prompt.includes("- La sesión fue completada en su totalidad."));
-    assert.ok(prompt.includes("- Se registraron más respuestas incorrectas que correctas."));
+    const real = prompt.slice(prompt.indexOf("SESIÓN A SINTETIZAR"));
+    assert.ok(real.includes("HECHOS REGISTRADOS:"));
+    assert.ok(real.includes("- La sesión fue completada en su totalidad."));
+    assert.ok(real.includes("- Se registraron más respuestas incorrectas que correctas."));
   });
 
-  it("v3.4: omite OBSERVATIONS si no se pasan observations", () => {
+  it("sin observaciones usa un hecho neutro de respaldo", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(!prompt.includes("OBSERVATIONS:"));
+    const real = prompt.slice(prompt.indexOf("SESIÓN A SINTETIZAR"));
+    assert.ok(real.includes("- La sesión fue registrada."));
   });
 
-  it("v3.4: pide parafrasear OBSERVATIONS, no inventar", () => {
-    const { prompt } = buildSessionAnalysisPrompt(makeCtx(), {
-      observations: ["La sesión fue completada en su totalidad."],
-    });
-    assert.ok(prompt.toUpperCase().includes("PARAFRASE"));
-  });
-
-  it("v3.4: prohibe atribuir afirmaciones al profesional", () => {
-    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.toLowerCase().includes("el profesional"));
-    // Y aparece en la REGLA 3.
-    assert.ok(prompt.includes("REGLA 3"));
+  it("el estado de ánimo nunca llega al modelo, esté o no presente", () => {
+    const withMood = buildSessionAnalysisPrompt(makeCtx()).prompt;
+    const withoutMood = buildSessionAnalysisPrompt(makeCtx({ patient_reported_mood: null })).prompt;
+    assert.equal(withMood, withoutMood);
+    assert.ok(!withMood.includes("cansancio"));
   });
 });
 
-describe("promptBuilder v3 — errores", () => {
+describe("promptBuilder v3.5 — errores", () => {
   it("lanza si no hay context", () => {
     assert.throws(() => buildSessionAnalysisPrompt(null), /obligatorio/);
   });

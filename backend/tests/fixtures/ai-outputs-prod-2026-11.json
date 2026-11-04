@@ -1,0 +1,93 @@
+{
+  "_note": "Textos generados por llama3.2:3b (prompt 3.4) y persistidos en producción hasta el 2026-11-04. Sólo summary y aspects_to_review; sin identificadores ni datos personales. Todos contienen al menos una afirmación fuera del alcance descriptivo de MenteActiva y deben ser rechazados.",
+  "analyses": [
+    {
+      "label": "analysis-1",
+      "summary": "La sesión de estimulación cognitiva se completó en su totalidad, pero se registraron más respuestas incorrectas que correctas. No existen sesiones comparables para describir una tendencia en la actividad de atención y cálculo.",
+      "aspects_to_review": [
+        "Revisar la efectividad de la sesión en la mejora de la atención y el cálculo.",
+        "Evaluar la relación entre el número de respuestas incorrectas y la calidad de la atención.",
+        "Revisar la posibilidad de ajustar la sesión para mejorar el equilibrio entre correctas e incorrectas.",
+        "Revisar la importancia de la atención y el cálculo en la sesión.",
+        "Revisar la posibilidad de agregar más actividades para mejorar la calidad de la sesión."
+      ]
+    },
+    {
+      "label": "analysis-2",
+      "summary": "La sesión de estimulación cognitiva en MenteActiva se completó con éxito. Se observó una mejora en la precisión y un tiempo promedio de respuesta más corto en comparación con una sesión anterior de la misma actividad.",
+      "aspects_to_review": [
+        "Revisar la precisión en la actividad de Atención y cálculo para asegurarse de que se mantenga a un nivel óptimo.",
+        "Evaluar el impacto de la reducción en el tiempo promedio de respuesta en la eficiencia de la sesión.",
+        "Revisar la relación entre la precisión y el tiempo promedio de respuesta para identificar posibles patrones o tendencias.",
+        "Verificar que la cantidad de respuestas correctas e incorrectas sea similar en futuras sesiones para mantener un equilibrio saludable.",
+        "Revisar la actividad de Atención y cálculo para asegurarse de que se mantenga desafiante pero no abrumadora para el paciente."
+      ]
+    },
+    {
+      "label": "analysis-3",
+      "summary": "La sesión de estimulación cognitiva se completó en su totalidad, pero se registraron más respuestas incorrectas que correctas. No hay sesiones comparables para describir una tendencia.",
+      "aspects_to_review": [
+        "Revisar la precisión de las respuestas para mejorar la calidad de la sesión.",
+        "Evaluar la efectividad de la actividad en la mejora de las funciones ejecutivas.",
+        "Revisar la cantidad de respuestas incorrectas para identificar patrones o tendencias.",
+        "Revisar la calidad de la atención del paciente durante la sesión.",
+        "Revisar la posibilidad de ajustar la intensidad o el tipo de estimulación para mejorar los resultados."
+      ]
+    },
+    {
+      "label": "analysis-4",
+      "summary": "La sesión de estimulación cognitiva en MenteActiva se completó de manera satisfactoria. La actividad de funciones ejecutivas mostró una mejora en la precisión y un tiempo promedio de respuesta más corto en comparación con una sesión anterior similar. Aunque la cantidad de respuestas correctas e incorrectas fue similar, la precisión fue superior. En la próxima sesión, el profesional podría revisar los detalles de la actividad y ajustar la estrategia según sea necesario.",
+      "aspects_to_review": [
+        "Revisar la actividad de funciones ejecutivas para asegurarse de que la precisión y el tiempo de respuesta sigan mejorando.",
+        "Evaluar la efectividad de la estrategia utilizada en la sesión para mejorar la precisión y reducir el tiempo de respuesta.",
+        "Revisar los datos de la sesión para identificar patrones o tendencias que puedan ayudar a ajustar la estrategia en la próxima sesión.",
+        "Ajustar la dificultad de la actividad según sea necesario para mantener el desafío y promover el aprendizaje.",
+        "Revisar la documentación de la sesión para asegurarse de que se hayan capturado todos los datos relevantes y se puedan utilizar para futuras sesiones."
+      ]
+    },
+    {
+      "label": "analysis-5",
+      "summary": "La sesión de estimulación cognitiva se completó con éxito, registrándose un mayor número de respuestas correctas que incorrectas. La actividad de orientación temporal se evaluó de manera objetiva, sin juicios evaluativos ni comparaciones. En la próxima sesión, el profesional podría revisar la precisión de las respuestas y la efectividad de la actividad en la mejora de la orientación temporal.",
+      "aspects_to_review": [
+        "Revisar la precisión de las respuestas en la próxima sesión",
+        "Evaluar la efectividad de la actividad en la mejora de la orientación temporal",
+        "Revisar la cantidad de respuestas correctas y incorrectas para identificar patrones o tendencias",
+        "Revisar la calidad de las respuestas y la claridad de la actividad",
+        "Revisar la relación entre la orientación temporal y otras habilidades cognitivas"
+      ]
+    },
+    {
+      "label": "analysis-6",
+      "summary": "La sesión de estimulación cognitiva en MenteActiva se completó de manera completa, pero con una precisión inferior a la de una sesión anterior comparable. El tiempo promedio de respuesta aumentó respecto de una sesión comparable. Es importante revisar los siguientes puntos en la próxima sesión: La cantidad de respuestas correctas e incorrectas fue similar, lo que sugiere que la actividad de orientación temporal se mantuvo estable. Sin embargo, es importante considerar la posibilidad de que el aumento en el tiempo promedio de respuesta pueda estar relacionado con la actividad en sí o con otros factores no relacionados con la estimulación cognitiva.",
+      "aspects_to_review": [
+        "La relación entre la actividad de orientación temporal y el tiempo promedio de respuesta",
+        "La consistencia en la cantidad de respuestas correctas e incorrectas",
+        "La posibilidad de que el aumento en el tiempo promedio de respuesta se deba a factores externos",
+        "La necesidad de revisar los resultados de la actividad en comparación con sesiones anteriores",
+        "La importancia de considerar la posibilidad de que el aumento en el tiempo promedio de respuesta pueda estar relacionado con la actividad en sí"
+      ]
+    },
+    {
+      "label": "analysis-7",
+      "summary": "La sesión de estimulación cognitiva se completó en su totalidad, pero se registraron más respuestas incorrectas que correctas en la actividad de memoria prospectiva.",
+      "aspects_to_review": [
+        "Revisar la efectividad de la actividad en la memoria prospectiva y considerar ajustes para mejorar la precisión.",
+        "Evaluar la importancia de la actividad en el contexto general de la sesión y considerar su relevancia para el objetivo del paciente.",
+        "Revisar la posibilidad de que la actividad de memoria prospectiva esté afectando negativamente otros aspectos de la función cognitiva del paciente.",
+        "Considerar la posibilidad de ajustar la duración o el ritmo de la actividad para mejorar la atención y la concentración del paciente.",
+        "Revisar la documentación del paciente para asegurarse de que la actividad de memoria prospectiva esté alineada con sus objetivos y necesidades."
+      ]
+    },
+    {
+      "label": "analysis-8",
+      "summary": "La sesión de estimulación cognitiva se completó con éxito, registrando más respuestas correctas que incorrectas. No se detectaron patologías ni condiciones clínicas en esta sesión aislada.",
+      "aspects_to_review": [
+        "Revisar la efectividad de la actividad en la mejora de las funciones ejecutivas.",
+        "Evaluar la relación entre la actividad y la precisión en la respuesta del paciente.",
+        "Revisar la cantidad de respuestas correctas y incorrectas para identificar patrones o tendencias.",
+        "Revisar la capacidad del paciente para procesar información y tomar decisiones.",
+        "Revisar la relación entre la actividad y la atención del paciente."
+      ]
+    }
+  ]
+}
