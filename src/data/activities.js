@@ -153,7 +153,7 @@ export const activities = [
     skill: "Comprensión funcional",
     time: "8 min",
     icon: Send,
-    status: "Comúnicacion",
+    status: "Comunicación",
     focus: "Comprensión de mensajes, seleccion de respuesta y memoria inmediata",
     intro: "Resuelve situaciónes simples de teléfono, mensajes y avisos.",
     questions: [

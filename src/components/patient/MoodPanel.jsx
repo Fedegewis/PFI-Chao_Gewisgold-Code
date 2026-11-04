@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { MOOD_OPTIONS } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";
 import { isMoodValidToday } from "../../services/patientService.js";
@@ -69,7 +70,8 @@ function MoodFace({ mood }) {
   );
 }
 
-export function MoodPanel({ patient, onUpdatePatient }) {
+export function MoodPanel({ patient, onUpdatePatient, className }) {
+  const headingId = useId();
   // H-S2: la selección sólo es válida durante el día calendario local en que
   // el paciente la realizó. Un mood guardado con fecha de ayer (o sin fecha
   // en absoluto) NO debe mostrarse como seleccionado en la UI.
@@ -94,9 +96,9 @@ export function MoodPanel({ patient, onUpdatePatient }) {
   }
 
   return (
-    <div className="panel">
-      <h3 id="mood-heading">¿Cómo te sentís hoy?</h3>
-      <div className="mood-grid" role="group" aria-labelledby="mood-heading">
+    <div className={cx("panel", className)}>
+      <h3 id={headingId}>¿Cómo te sentís hoy?</h3>
+      <div className="mood-grid" role="group" aria-labelledby={headingId}>
         {MOOD_OPTIONS.map((option) => {
           const selected = activeMood === option.id;
           return (
@@ -118,8 +120,7 @@ export function MoodPanel({ patient, onUpdatePatient }) {
       </div>
       <button
         type="button"
-        className="link-button"
-        style={{ display: "inline-flex", marginTop: 10 }}
+        className="link-button mood-clear"
         onClick={clearMood}
         disabled={activeMood === null}
         aria-label="Prefiero no indicar un estado de ánimo hoy"
