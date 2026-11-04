@@ -5,6 +5,13 @@ import { generateSessionAnalysis } from "../services/ai/analysisService.js";
 import { isAiEnabled, isDeferred } from "../services/ai/aiProvider.js";
 import { countEligibleQuestions, listEligibleQuestions } from "../services/questionEligibility.js";
 import { resolveEffectiveConfig } from "../services/trainingConfig.js";
+import {
+  ADAPTIVE_VERSION,
+  buildDifficultyTargets,
+  computeAdaptiveLevel,
+  isValidLevel,
+  selectByDifficulty,
+} from "../services/adaptiveDifficulty.js";
 
 // 7J.2 — Fire-and-forget del análisis IA después de que /complete responde.
 // Inyectable para tests para poder observar/mockear la disparo sin llamar
@@ -129,13 +136,17 @@ async function getRecentQuestionIds(trx, patientId, sectionId) {
   return new Set(rows.map((r) => r.question_id));
 }
 
+// `adaptiveLevel` (1-3) activa la selección por mezcla de dificultades del
+// mecanismo adaptativo; sin nivel se conserva la selección histórica
+// (no recientes primero, pseudoaleatoria) sin mirar la dificultad.
 async function selectQuestionsForSection(
   trx,
   patientId,
   sectionId,
   requestedCount,
   rng = Math.random,
-  domainSlugs = null
+  domainSlugs = null,
+  adaptiveLevel = null
 ) {
   const eligible = await listEligibleQuestions(trx, sectionId, domainSlugs);
 
@@ -144,6 +155,21 @@ async function selectQuestionsForSection(
   }
 
   const recentIds = await getRecentQuestionIds(trx, patientId, sectionId);
+
+  if (isValidLevel(adaptiveLevel)) {
+    const targets = buildDifficultyTargets(adaptiveLevel, requestedCount);
+    const picked = selectByDifficulty(eligible, recentIds, targets, adaptiveLevel, rng);
+    return {
+      error: false,
+      questions: picked.questions,
+      selection: {
+        targets,
+        actual_mix: picked.actual_mix,
+        fallback_count: picked.fallback_count,
+        recent_count: picked.recent_count,
+      },
+    };
+  }
 
   const preferred = eligible.filter((q) => !recentIds.has(q.id));
   const recent = eligible.filter((q) => recentIds.has(q.id));
@@ -163,18 +189,64 @@ async function selectQuestionsForSection(
   return { error: false, questions: selected };
 }
 
+// Límite defensivo de filas leídas para decidir el nivel. computeAdaptiveLevel
+// sólo recorre las sesiones del nivel vigente (máx. 4 completadas).
+const ADAPTIVE_HISTORY_LIMIT = 50;
+
+// Historial adaptativo del paciente en una actividad, más reciente primero.
+// Incluye sesiones de cualquier estado con nivel registrado; las métricas
+// salen de session_results de ESA actividad (no se recalculan desde answers).
+async function loadAdaptiveHistory(trx, patientId, sectionId) {
+  return trx("session_sections as ss")
+    .join("sessions as s", "s.id", "ss.session_id")
+    .leftJoin("session_results as sr", function joinSectionResult() {
+      this.on("sr.session_id", "=", "s.id").andOn("sr.section_id", "=", "ss.section_id");
+    })
+    .where("s.patient_id", patientId)
+    .where("ss.section_id", sectionId)
+    .whereNotNull("ss.adaptive_level")
+    .orderBy("s.created_at", "desc")
+    .orderBy("s.id", "desc")
+    .limit(ADAPTIVE_HISTORY_LIMIT)
+    .select(
+      "s.id as session_id",
+      "s.status",
+      "ss.adaptive_level",
+      "sr.correct_count",
+      "sr.incorrect_count"
+    );
+}
+
+// Serializa la creación de sesiones de un mismo paciente en una misma
+// actividad: la segunda transacción lee el historial ya confirmado por la
+// primera. Clave bigint única (forma de 1 argumento) para no compartir
+// espacio con los locks (int4, int4) del pipeline de análisis.
+async function lockPatientSection(trx, patientId, sectionId) {
+  await trx.raw(
+    "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+    [`adaptive:${patientId}:${sectionId}`]
+  );
+}
+
+function validDifficulty(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 3 ? value : null;
+}
+
 function stripCorrectAnswer(sq) {
   if (!sq) return sq;
   // eslint-disable-next-line no-unused-vars
-  const { correct_answer_snapshot: _drop, ...rest } = sq;
+  const { correct_answer_snapshot: _drop, difficulty_snapshot: _diff, ...rest } = sq;
   return rest;
 }
 
+// El paciente no ve el nivel ni la traza de la decisión adaptativa: son
+// información para el profesional.
 function sanitizeSectionsForPatient(sections) {
-  return (sections || []).map((s) => ({
-    ...s,
-    questions: (s.questions || []).map(stripCorrectAnswer),
-  }));
+  return (sections || []).map((s) => {
+    // eslint-disable-next-line no-unused-vars
+    const { adaptive_level: _l, adaptive_decision: _d, adaptive_version: _v, ...rest } = s;
+    return { ...rest, questions: (s.questions || []).map(stripCorrectAnswer) };
+  });
 }
 
 function parseNumericFields(row) {
@@ -226,12 +298,9 @@ router.post("/sessions", requireAuth, requireRole("professional"), async (req, r
         });
       }
 
-      const availableCount = await db("questions")
-        .where({ section_id: entry.section_id, is_active: true, is_validated: true })
-        .count("id as count")
-        .first();
-
-      const available = Number(availableCount.count);
+      // Mismo criterio que el selector (questionEligibility, sin filtro de
+      // dominios en este endpoint): incluye validation_level técnico/clínico.
+      const available = await countEligibleQuestions(db, entry.section_id, null);
       if (available < entry.question_count) {
         return res.status(400).json({
           error: `Sección '${section.name}' tiene ${available} pregunta(s) disponible(s) (active + validated), pero se solicitaron ${entry.question_count}`,
@@ -282,6 +351,7 @@ router.post("/sessions", requireAuth, requireRole("professional"), async (req, r
               options_snapshot: JSON.stringify(q.options),
               correct_answer_snapshot: q.correct_answer,
               response_type: q.response_type,
+              difficulty_snapshot: validDifficulty(q.difficulty),
             })
             .returning("*");
           sessionQuestionsData.push(sq);
@@ -385,11 +455,26 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
         })
         .returning("*");
 
+      // Locks en orden de section_id para que dos pedidos con varias
+      // actividades nunca se bloqueen mutuamente.
+      const lockIds = [...new Set(resolvedSections.map((r) => r.section.id))].sort((a, b) => a - b);
+      for (const sectionId of lockIds) {
+        await lockPatientSection(trx, patient.id, sectionId);
+      }
+
       const sessionSectionsData = [];
       for (let i = 0; i < resolvedSections.length; i++) {
         const { section, questionCount } = resolvedSections[i];
 
-        const selection = await selectQuestionsForSection(trx, patient.id, section.id, questionCount, Math.random, domainSlugs);
+        // Mecanismo adaptativo: el nivel se decide SIEMPRE en el servidor a
+        // partir del historial persistido; cualquier nivel/dificultad que
+        // envíe el cliente se ignora (sólo se leen sections y mood).
+        const history = await loadAdaptiveHistory(trx, patient.id, section.id);
+        const decision = computeAdaptiveLevel(history);
+
+        const selection = await selectQuestionsForSection(
+          trx, patient.id, section.id, questionCount, Math.random, domainSlugs, decision.level
+        );
         if (selection.error) {
           throw new Error(
             `Insufficient eligible questions for section ${section.id}: ` +
@@ -403,6 +488,9 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
             section_id: section.id,
             requested_count: questionCount,
             display_order: i + 1,
+            adaptive_level: decision.level,
+            adaptive_decision: JSON.stringify({ ...decision, selection: selection.selection }),
+            adaptive_version: ADAPTIVE_VERSION,
           })
           .returning("*");
 
@@ -419,6 +507,7 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
               options_snapshot: JSON.stringify(q.options),
               correct_answer_snapshot: q.correct_answer,
               response_type: q.response_type,
+              difficulty_snapshot: validDifficulty(q.difficulty),
             })
             .returning("*");
           sessionQuestionsData.push(sq);
@@ -516,6 +605,28 @@ async function attachSectionsToSessions(payload) {
   return payload.map((p) => ({ ...p, sections: bySessionId.get(p.id) || [] }));
 }
 
+// Sólo para el profesional: adjunta `adaptive` (nivel de dificultad con el
+// que se armó la sesión y la traza de la decisión). Sesiones históricas,
+// anteriores al mecanismo adaptativo, quedan con adaptive = null.
+async function attachAdaptiveToSessions(payload) {
+  if (payload.length === 0) return payload;
+  const rows = await db("session_sections as ss")
+    .whereIn("ss.session_id", payload.map((p) => p.id))
+    .orderBy("ss.session_id")
+    .orderBy("ss.display_order")
+    .select("ss.session_id", "ss.adaptive_level", "ss.adaptive_decision", "ss.adaptive_version");
+  const bySessionId = new Map();
+  for (const r of rows) {
+    if (bySessionId.has(r.session_id) || !isValidLevel(r.adaptive_level)) continue;
+    bySessionId.set(r.session_id, {
+      level: r.adaptive_level,
+      version: r.adaptive_version,
+      decision: r.adaptive_decision ?? null,
+    });
+  }
+  return payload.map((p) => ({ ...p, adaptive: bySessionId.get(p.id) || null }));
+}
+
 router.get(
   "/patients/:patientId/sessions",
   requireAuth,
@@ -534,7 +645,7 @@ router.get(
         return res.status(404).json({ error: "Paciente no encontrado" });
       }
 
-      const payload = await fetchPatientSessionsCore(patientId);
+      const payload = await attachAdaptiveToSessions(await fetchPatientSessionsCore(patientId));
       return res.json(payload);
     } catch (err) {
       next(err);

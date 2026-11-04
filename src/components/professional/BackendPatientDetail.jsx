@@ -7,6 +7,7 @@ import { PatientAccessPanel } from "./PatientAccessPanel.jsx";
 import { MedicalDisclaimerBanner } from "../common/MedicalDisclaimer.jsx";
 import { cx } from "../../lib/cx.js";
 import { formatLatency, formatShortDate } from "../../lib/format.js";
+import { formatAdaptiveSummary } from "../../lib/adaptiveFormat.js";
 
 const STATUS_LABEL = {
   completed: "Completada",
@@ -38,6 +39,34 @@ const MOOD_LABELS = {
   cansancio: "Cansancio",
   tristeza: "Tristeza",
 };
+
+// Ajuste de dificultad de la sesión (mecanismo adaptativo v1). Sesiones
+// anteriores al mecanismo no tienen nivel y no muestran el bloque.
+function AdaptiveDecisionDetails({ adaptive }) {
+  const summary = formatAdaptiveSummary(adaptive);
+  if (!summary) return null;
+  return (
+    <div className="analysis-block" data-testid="adaptive-decision">
+      <p className="eyebrow">Ajuste de dificultad</p>
+      <dl className="invite-details">
+        <dt>Nivel utilizado</dt><dd>{summary.level}</dd>
+        <dt>Cambio</dt><dd>{summary.change}</dd>
+        <dt>Motivo</dt><dd>{summary.reason}</dd>
+        <dt>Evidencia utilizada</dt><dd>{summary.evidence}</dd>
+        {summary.mix && (
+          <>
+            <dt>Preguntas por dificultad</dt>
+            <dd>
+              {summary.mix}
+              {summary.usedFallback && summary.target ? ` (objetivo: ${summary.target}; no había suficientes preguntas disponibles y se completó con dificultades cercanas)` : ""}
+            </dd>
+          </>
+        )}
+      </dl>
+      <p className="ai-hint">Regla operativa de la aplicación basada en la precisión de sesiones anteriores de esta actividad. No constituye una evaluación clínica.</p>
+    </div>
+  );
+}
 
 function EvolutionChartBackend({ completedSessions }) {
   const barsRef = useRef(null);
@@ -328,6 +357,7 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
               ) : (
                 <p className="ai-hint">Seleccioná una sesión del historial para ver su detalle.</p>
               )}
+              {highlightSession && <AdaptiveDecisionDetails adaptive={highlightSession.adaptive} />}
             </div>
 
             <AnalysisAsistidoPanel session={highlightSession} />

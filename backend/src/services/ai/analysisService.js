@@ -183,10 +183,21 @@ export async function loadSessionAnalysisInput(dbOrTrx, sessionId) {
         section_slugs: p.section_slugs,
         cognitive_domain_slugs: p.cognitive_domain_slugs,
         duration_seconds: p.duration_seconds,
+        // Sólo lo usa comparisonBuilder; contextBuilder no lo transfiere.
+        adaptive_level: p.adaptive_level ?? null,
         ...(daysBefore !== undefined ? { days_before: daysBefore } : {}),
       };
     });
   }
+
+  // Nivel de dificultad adaptativo de la sesión actual (NULL si es anterior
+  // al mecanismo adaptativo o la creó el endpoint profesional).
+  const levelRow = await dbOrTrx("session_sections")
+    .where({ session_id: sessionId })
+    .whereNotNull("adaptive_level")
+    .orderBy("display_order")
+    .first("adaptive_level");
+  const currentAdaptiveLevel = levelRow?.adaptive_level ?? null;
 
   // v2.4 (BUG-11): comparison_metrics determinístico. El backend compara contra
   // la previa comparable más reciente (misma section_slug). Si no hay previa
@@ -197,6 +208,7 @@ export async function loadSessionAnalysisInput(dbOrTrx, sessionId) {
       currentGlobal: globalRow,
       comparableSessions: previousSessions,
       sectionSlug: sections[0].slug,
+      currentAdaptiveLevel,
     });
   }
 

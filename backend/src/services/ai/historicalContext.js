@@ -116,7 +116,7 @@ export async function loadPreviousSessions(dbOrTrx, params) {
   const sectionRows = await dbOrTrx("session_sections as ss")
     .join("sections as sec", "sec.id", "ss.section_id")
     .whereIn("ss.session_id", sessionIds)
-    .select("ss.session_id as session_id", "sec.slug as slug");
+    .select("ss.session_id as session_id", "sec.slug as slug", "ss.adaptive_level as adaptive_level");
 
   const domainRows = await dbOrTrx("session_questions as sq")
     .join("session_sections as ss", "ss.id", "sq.session_section_id")
@@ -127,9 +127,15 @@ export async function loadPreviousSessions(dbOrTrx, params) {
 
   const sectionsBySessionId = new Map();
   const domainsBySessionId = new Map();
+  // Nivel de dificultad adaptativo (migración 018). NULL en sesiones
+  // anteriores al mecanismo; las sesiones del paciente tienen una actividad.
+  const levelBySessionId = new Map();
   for (const r of sectionRows) {
     if (!sectionsBySessionId.has(r.session_id)) sectionsBySessionId.set(r.session_id, new Set());
     sectionsBySessionId.get(r.session_id).add(r.slug);
+    if (Number.isInteger(r.adaptive_level) && !levelBySessionId.has(r.session_id)) {
+      levelBySessionId.set(r.session_id, r.adaptive_level);
+    }
   }
   for (const r of domainRows) {
     if (!domainsBySessionId.has(r.session_id)) domainsBySessionId.set(r.session_id, new Set());
@@ -164,6 +170,7 @@ export async function loadPreviousSessions(dbOrTrx, params) {
       },
       section_slugs: [...(sectionsBySessionId.get(r.id) || [])].sort(),
       cognitive_domain_slugs: [...(domainsBySessionId.get(r.id) || [])].sort(),
+      adaptive_level: levelBySessionId.get(r.id) ?? null,
     };
   });
 }
