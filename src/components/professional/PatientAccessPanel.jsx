@@ -1,19 +1,28 @@
 import { AlertTriangle, CheckCircle2, KeyRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { fetchPatientAccess, savePatientAccess } from "../../services/patientsApi.js";
+import { fetchPatientAccess, revokePatientSessions, savePatientAccess } from "../../services/patientsApi.js";
 
-// F1 — Permiso de acceso sin contraseña por paciente.
+// F1 + F2/F3 — Permiso de acceso sin contraseña por paciente.
 //
-// El flujo de enlaces por correo todavía no existe (llega en F2). El permiso
-// se puede guardar por adelantado, pero se presenta como "Próximamente" y se
-// aclara que el paciente sigue entrando con su contraseña, para que el
-// profesional no asuma que ya hay un método de ingreso nuevo disponible. El
-// backend informa la disponibilidad real en `passwordless_login_available`.
+// El backend informa si el flujo de enlaces está disponible en este
+// despliegue (`passwordless_login_available`), si el paciente tiene
+// contraseña (`has_password`) y cuántas sesiones abiertas con enlace tiene
+// (`active_sessions`). Las reglas se validan en el backend; esta pantalla
+// sólo las anticipa para informar al profesional:
+// - D5: no se puede desactivar el enlace si es el único método de acceso.
+// - E2: desactivar el enlace cierra las sesiones abiertas; se avisa ANTES y
+//   se pide confirmación explícita.
 
-const DESCRIPTION =
+const DESCRIPTION_AVAILABLE =
+  "El paciente puede pedir, en la pantalla de ingreso, un enlace que llega a su correo. El enlace vence en 30 minutos y sirve una sola vez; la sesión queda abierta en ese dispositivo hasta 30 días.";
+const DESCRIPTION_PENDING =
   "Cuando esta opción esté disponible, el paciente podrá ingresar mediante un enlace seguro enviado a su correo electrónico.";
 const NOT_YET_AVAILABLE =
   "Todavía no está disponible: por ahora el paciente sigue ingresando con su contraseña. Podés dejar el permiso configurado de antemano.";
+
+function sessionsLabel(n) {
+  return n === 1 ? "1 sesión abierta" : `${n} sesiones abiertas`;
+}
 
 export function PatientAccessPanel({ patientId }) {
   const [loading, setLoading] = useState(true);
@@ -22,6 +31,8 @@ export function PatientAccessPanel({ patientId }) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
   const [saveError, setSaveError] = useState("");
+  // E2: confirmación pendiente antes de desactivar ({ activeSessions }).
+  const [pendingDisable, setPendingDisable] = useState(null);
 
   const load = useCallback(async () => {
     if (!patientId) return;
@@ -29,6 +40,7 @@ export function PatientAccessPanel({ patientId }) {
     setLoadError("");
     setStatus("");
     setSaveError("");
+    setPendingDisable(null);
     try {
       setAccess(await fetchPatientAccess(patientId));
     } catch (err) {
@@ -43,27 +55,69 @@ export function PatientAccessPanel({ patientId }) {
     load();
   }, [load]);
 
-  async function handleToggle(event) {
-    const next = event.target.checked;
+  async function save(next, { confirmRevokeSessions = false } = {}) {
     setSaving(true);
     setStatus("");
     setSaveError("");
     try {
-      const updated = await savePatientAccess(patientId, next);
+      const updated = await savePatientAccess(patientId, next, { confirmRevokeSessions });
       setAccess(updated);
-      setStatus(updated.allow_passwordless ? "Permiso activado y guardado." : "Permiso desactivado y guardado.");
+      setPendingDisable(null);
+      if (updated.allow_passwordless) {
+        setStatus("Permiso activado y guardado.");
+      } else if (updated.revoked_sessions > 0) {
+        const n = updated.revoked_sessions;
+        setStatus(`Permiso desactivado y guardado. Se cerraron ${n === 1 ? "1 sesión" : `${n} sesiones`}.`);
+      } else {
+        setStatus("Permiso desactivado y guardado.");
+      }
     } catch (err) {
-      setSaveError(
-        `No se pudo guardar el cambio. ${err?.message || "Intentá nuevamente."}`.trim()
-      );
+      const code = err?.data?.status;
+      if (code === "confirmation_required") {
+        setPendingDisable({ activeSessions: err.data.active_sessions || 1 });
+      } else if (code === "last_access_method") {
+        setSaveError("No se puede desactivar: es el único método de acceso de este paciente.");
+      } else {
+        setSaveError(`No se pudo guardar el cambio. ${err?.message || "Intentá nuevamente."}`.trim());
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleToggle(event) {
+    const next = event.target.checked;
+    if (!next && access?.active_sessions > 0) {
+      // E2: informar antes de revocar.
+      setStatus("");
+      setSaveError("");
+      setPendingDisable({ activeSessions: access.active_sessions });
+      return;
+    }
+    save(next);
+  }
+
+  async function handleRevokeSessions() {
+    setSaving(true);
+    setStatus("");
+    setSaveError("");
+    try {
+      const updated = await revokePatientSessions(patientId);
+      setAccess(updated);
+      setStatus("Se cerraron las sesiones abiertas con enlace.");
+    } catch (err) {
+      setSaveError(`No se pudieron cerrar las sesiones. ${err?.message || "Intentá nuevamente."}`.trim());
     } finally {
       setSaving(false);
     }
   }
 
   const available = access?.passwordless_login_available === true;
+  const onlyMethod = access?.allow_passwordless === true && access?.has_password === false;
+  const activeSessions = access?.active_sessions || 0;
   const checkboxId = `patient-access-passwordless-${patientId}`;
   const descriptionId = `${checkboxId}-desc`;
+  const onlyMethodId = `${checkboxId}-only`;
 
   return (
     <section className="training-config-inline" aria-label="Acceso del paciente">
@@ -95,8 +149,8 @@ export function PatientAccessPanel({ patientId }) {
               className="access-toggle__input"
               checked={access.allow_passwordless}
               onChange={handleToggle}
-              disabled={saving}
-              aria-describedby={descriptionId}
+              disabled={saving || onlyMethod || Boolean(pendingDisable)}
+              aria-describedby={onlyMethod ? `${descriptionId} ${onlyMethodId}` : descriptionId}
             />
             <div className="access-toggle__text">
               <label htmlFor={checkboxId} className="access-toggle__label">
@@ -104,11 +158,44 @@ export function PatientAccessPanel({ patientId }) {
                 {!available && <span className="access-toggle__badge">Próximamente</span>}
               </label>
               <p id={descriptionId} className="training-hint">
-                {DESCRIPTION}
+                {available ? DESCRIPTION_AVAILABLE : DESCRIPTION_PENDING}
                 {!available && <> {NOT_YET_AVAILABLE}</>}
               </p>
+              {onlyMethod && (
+                <p id={onlyMethodId} className="training-hint">
+                  Es el único método de acceso de este paciente (no tiene contraseña), por eso no se puede desactivar.
+                </p>
+              )}
             </div>
           </div>
+
+          {pendingDisable && (
+            <div className="access-confirm" role="alertdialog" aria-labelledby={`${checkboxId}-confirm`}>
+              <p id={`${checkboxId}-confirm`}>
+                <strong>El paciente tiene {sessionsLabel(pendingDisable.activeSessions)} con enlace.</strong>{" "}
+                Si desactivás el acceso sin contraseña, esas sesiones se van a cerrar y el paciente tendrá que ingresar con su contraseña.
+              </p>
+              <div className="access-confirm__actions">
+                <button type="button" className="danger" onClick={() => save(false, { confirmRevokeSessions: true })} disabled={saving}>
+                  Desactivar y cerrar sesiones
+                </button>
+                <button type="button" onClick={() => setPendingDisable(null)} disabled={saving}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeSessions > 0 && !pendingDisable && (
+            <div className="access-sessions">
+              <p className="training-hint">Sesiones abiertas con enlace: {activeSessions}.</p>
+              <div>
+                <button type="button" onClick={handleRevokeSessions} disabled={saving}>
+                  Cerrar sesiones abiertas
+                </button>
+              </div>
+            </div>
+          )}
 
           <div aria-live="polite">
             {saving && <p className="ai-hint">Guardando…</p>}

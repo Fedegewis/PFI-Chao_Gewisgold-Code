@@ -9,7 +9,9 @@ export const SCREEN_NAMES = {
   patient: "patient",
   activity: "activity",
   professional: "professional",
-  invite: "invite"
+  invite: "invite",
+  // F2: destino del enlace de acceso por correo (#/enlace/<token>).
+  loginLink: "enlace"
 };
 
 export const MOTIVATION_MESSAGES = [

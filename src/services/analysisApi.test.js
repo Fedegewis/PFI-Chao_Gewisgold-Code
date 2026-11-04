@@ -3,7 +3,7 @@ import { getAnalysis, generateAnalysis } from "./analysisApi.js";
 import * as authService from "./authService.js";
 
 beforeEach(() => {
-  vi.spyOn(authService, "getToken").mockReturnValue("fake-jwt-token");
+  vi.spyOn(authService, "authHeaders").mockReturnValue({ Authorization: "Bearer fake-jwt-token" });
 });
 
 afterEach(() => {
@@ -69,7 +69,7 @@ describe("analysisApi", () => {
   });
 
   test("sin token lanza 401 sin llamar a fetch", async () => {
-    vi.spyOn(authService, "getToken").mockReturnValue(null);
+    vi.spyOn(authService, "authHeaders").mockReturnValue(null);
     const fetchStub = vi.fn();
     vi.stubGlobal("fetch", fetchStub);
     await expect(getAnalysis(1)).rejects.toMatchObject({ status: 401 });

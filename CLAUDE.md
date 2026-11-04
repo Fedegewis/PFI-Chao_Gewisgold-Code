@@ -494,6 +494,24 @@ Flujo:
 
 Requiere URL pública (Etapa 5C completada).
 
+### Acceso sin contraseña de pacientes (F0–F3)
+
+Rama `feature/patient-passwordless-auth` (F2 + F3). Detalle, seguridad y
+despliegue en `backend/docs/patient-passwordless-auth.md`.
+
+- F0: proxy same-origin `/api` (vercel.json / proxy de Vite).
+- F1: `users.allow_passwordless` por paciente (profesional dueño).
+- F2: enlace de un solo uso por correo (Resend), 30 min, token en el fragmento
+  `#/enlace/<token>`, canje por POST con botón explícito. Sólo hashes en DB.
+- F3: sesión persistente revocable en cookie HttpOnly/SameSite=Strict
+  (`__Host-` + Secure en producción), 30 días absolutos, rotación diaria,
+  CSRF por header `X-CSRF-Token`. Nada de credenciales en localStorage.
+- D5: no se desactiva el último método de acceso. E2: desactivar el enlace
+  revoca sesiones y anula enlaces, con confirmación previa del profesional.
+- Kill switch: `PATIENT_PASSWORDLESS_ENABLED`. Los JWT (contraseña, Google)
+  no dependen de este flujo.
+- Migraciones 019–021 aditivas. Migrar Neon ANTES de mergear.
+
 ### ETAPA 7 — Integración IA/Ollama
 
 Incluye: contrato AI Input/Output v1, auditoría del panel profesional, guardrails, definir qué información histórica recibe Llama, resolver conceptos UI pendientes (riesgo, status, etc.). Pipeline ML (baseline, dataset, QLoRA, evaluación). Node.js → Ollama → Llama → validación → PostgreSQL.

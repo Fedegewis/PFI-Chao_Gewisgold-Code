@@ -10,7 +10,7 @@ import { createPatientSession, fetchMySessionsApi } from "../services/patientSes
 import { fetchPatientAvailableSections } from "../services/trainingConfigApi.js";
 import { deriveCompletedTodayFromSessions, latestCompletedAt } from "../services/patientProgress.js";
 import { activities, getActivityById } from "../data/activities.js";
-import { buildHash, readHashState } from "../services/navigationService.js";
+import { buildHash, clearCapturedLoginLinkToken, readHashState, takeLoginLinkTokenFromUrl } from "../services/navigationService.js";
 import {
   DEMO_PROFILES,
   buildInitialPatients,
@@ -37,9 +37,13 @@ import {
 import { LOGIN_ERROR_MESSAGE } from "../constants/content.js";
 import {
   clearAuth,
+  getPatientCookieSession,
   getSavedUser,
   getToken,
+  hasPatientSessionHint,
   loginWithPassword,
+  logoutPatientSession,
+  restorePatientSession,
   loginWithGoogle,
   persistAuthSession,
   registerProfessional,
@@ -68,13 +72,23 @@ export function useAppController() {
     const hash = readHashState();
     const savedUser = getSavedUser();
     const hasToken = Boolean(getToken());
+    // F2: token del enlace de acceso (ya quitado de la URL; sólo en memoria).
+    const loginLinkToken = hash.screen === SCREEN_NAMES.loginLink ? takeLoginLinkTokenFromUrl() : null;
+    // F3: sesión de paciente por cookie HttpOnly. El frontend no puede leer la
+    // cookie; la marca indica que hay que restaurarla con el backend antes de
+    // decidir qué pantalla mostrar. Mientras tanto no se cargan datos demo.
+    const restoringPatientSession =
+      !hasToken &&
+      hash.screen !== SCREEN_NAMES.loginLink &&
+      hash.screen !== SCREEN_NAMES.invite &&
+      hasPatientSessionHint();
     const isAuthenticatedProfessional = hasToken && savedUser?.role === "professional";
     const isAuthenticatedPatient = hasToken && savedUser?.role === "patient";
     // Autenticados: los datos vienen del backend, no de localStorage.
     // Paciente autenticado: sembramos el propio user como único paciente en la lista.
     // Modo demo/legacy: se conservan los pacientes hardcodeados existentes.
     let patients;
-    if (isAuthenticatedProfessional) {
+    if (isAuthenticatedProfessional || restoringPatientSession) {
       patients = [];
     } else if (isAuthenticatedPatient) {
       // H-S2: el patient se reconstruye desde savedUser (fuente de verdad =
@@ -90,7 +104,7 @@ export function useAppController() {
     } else {
       patients = loadAppPatients();
     }
-    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional, isAuthenticatedPatient };
+    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional, isAuthenticatedPatient, loginLinkToken, restoringPatientSession };
   });
   const [role, setRole] = useState(() => {
     if (init.hasToken && init.savedUser?.role === "professional") return "professional";
@@ -99,12 +113,15 @@ export function useAppController() {
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     if (init.hasToken && init.savedUser) return true;
+    if (init.restoringPatientSession || init.hash.screen === SCREEN_NAMES.loginLink) return false;
     return Boolean(init.session?.role);
   });
   const [authUser, setAuthUser] = useState(() => init.savedUser);
   const [screen, setScreen] = useState(() => {
     const { session, hash } = init;
     if (hash.screen === SCREEN_NAMES.invite) return SCREEN_NAMES.invite;
+    if (hash.screen === SCREEN_NAMES.loginLink) return SCREEN_NAMES.loginLink;
+    if (init.restoringPatientSession) return SCREEN_NAMES.login;
     if (!session?.role) return SCREEN_NAMES.login;
     if (hash.screen === SCREEN_NAMES.professional && session.role !== SCREEN_NAMES.professional) {
       return SCREEN_NAMES.patient;
@@ -115,6 +132,11 @@ export function useAppController() {
     return session.role === SCREEN_NAMES.professional ? SCREEN_NAMES.professional : SCREEN_NAMES.patient;
   });
   const [inviteToken, setInviteToken] = useState(() => init.hash.inviteToken);
+  const [loginLinkToken, setLoginLinkToken] = useState(() => init.loginLinkToken);
+  const [restoringSession, setRestoringSession] = useState(() => init.restoringPatientSession);
+  const restoringSessionRef = useRef(init.restoringPatientSession);
+  // Modo inicial del login (p. ej. "Pedir un enlace nuevo" desde un enlace vencido).
+  const [loginStartMode, setLoginStartMode] = useState(null);
   const [professionalId, setProfessionalId] = useState(() => {
     if (init.savedUser?.role === "professional") return init.savedUser.id;
     return init.session?.professionalId || DEFAULT_PROFESSIONAL_ID;
@@ -374,10 +396,11 @@ export function useAppController() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (screen === SCREEN_NAMES.invite) return;
+    if (screen === SCREEN_NAMES.invite || screen === SCREEN_NAMES.loginLink) return;
+    if (restoringSession) return;
     const nextHash = buildHash(isAuthenticated ? screen : SCREEN_NAMES.login, selectedActivity.id);
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
-  }, [isAuthenticated, screen, selectedActivity.id]);
+  }, [isAuthenticated, screen, selectedActivity.id, restoringSession]);
 
   // Guard de role: un profesional autenticado nunca debe permanecer en pantallas
   // del rol paciente aunque la pantalla haya sido forzada vía state. El router
@@ -399,6 +422,14 @@ export function useAppController() {
         setScreen(SCREEN_NAMES.invite);
         return;
       }
+      if (hashState.screen === SCREEN_NAMES.loginLink) {
+        // Un enlace abierto en esta misma pestaña: capturarlo y quitarlo de la URL.
+        setLoginLinkToken(takeLoginLinkTokenFromUrl());
+        setScreen(SCREEN_NAMES.loginLink);
+        return;
+      }
+      // Durante la restauración de la sesión por cookie no se navega.
+      if (restoringSessionRef.current) return;
       if (!isAuthenticated) {
         setScreen(SCREEN_NAMES.login);
         return;
@@ -428,6 +459,76 @@ export function useAppController() {
     syncFromHash();
     return () => window.removeEventListener("hashchange", syncFromHash);
   }, [isAuthenticated, role]);
+
+  // Estado común de "paciente autenticado" por enlace (F2/F3).
+  function enterPatientSession(user) {
+    const base = patientFromBackendUser(user);
+    const persistedMood = loadPatientMood(user.id);
+    const hydrated = persistedMood
+      ? { ...base, mood: persistedMood.mood ?? null, moodSelectedAt: persistedMood.moodSelectedAt ?? null }
+      : base;
+    const patientObj = refreshDailyPatientState(hydrated);
+    setPatients([patientObj]);
+    setSelectedPatientId(patientObj.id);
+    setAuthUser(user);
+    setRole("patient");
+    setIsAuthenticated(true);
+    setLoginError("");
+    setScreen(SCREEN_NAMES.patient);
+  }
+
+  // F3: restaurar la sesión por cookie al recargar la página.
+  useEffect(() => {
+    if (!init.restoringPatientSession) return undefined;
+    let cancelled = false;
+    restorePatientSession()
+      .then((user) => {
+        if (cancelled) return;
+        if (user) {
+          // Una actividad en curso no se puede reanudar tras recargar: se vuelve al inicio.
+          window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
+          enterPatientSession(user);
+        } else {
+          setScreen(SCREEN_NAMES.login);
+          setLoginError("Tu sesión terminó. Volvé a ingresar.");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setScreen(SCREEN_NAMES.login);
+        setLoginError("No se pudo conectar con el servidor para recuperar tu sesión. Intentá nuevamente en unos minutos.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        restoringSessionRef.current = false;
+        setRestoringSession(false);
+      });
+    return () => { cancelled = true; };
+    // Sólo al montar: la restauración se decide una vez con el estado inicial.
+  }, []);
+
+  // F2: el enlace se canjeó y el backend fijó la cookie de sesión.
+  function completeLoginLink(data) {
+    if (!data?.user || data.user.role !== "patient") return false;
+    clearCapturedLoginLinkToken();
+    setLoginLinkToken(null);
+    clearActivityDraft();
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
+    }
+    enterPatientSession(data.user);
+    return true;
+  }
+
+  function goToLoginFromLink({ passwordless = false } = {}) {
+    clearCapturedLoginLinkToken();
+    setLoginLinkToken(null);
+    setLoginStartMode(passwordless ? "passwordless" : null);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", buildHash(SCREEN_NAMES.login, selectedActivity.id));
+    }
+    setScreen(SCREEN_NAMES.login);
+  }
 
   async function login(nextRole, email, password) {
     try {
@@ -576,6 +677,8 @@ export function useAppController() {
   }
 
   function logout() {
+    // F3: sesión por enlace → revocar en el backend (borra la cookie HttpOnly).
+    if (getPatientCookieSession()) logoutPatientSession();
     setIsAuthenticated(false);
     setAuthUser(null);
     clearAuth();
@@ -706,6 +809,11 @@ export function useAppController() {
     inviteToken,
     acceptInvitationSession,
     goToLogin,
+    loginLinkToken,
+    completeLoginLink,
+    goToLoginFromLink,
+    loginStartMode,
+    restoringSession,
     activeSession,
     activityStartError,
     backendPatientSessions,

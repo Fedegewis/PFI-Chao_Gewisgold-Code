@@ -1,6 +1,14 @@
 import { Router } from "express";
 import db from "../db/connection.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import defaultEmailService from "../services/emailService.js";
+import {
+  countActiveSessions,
+  invalidatePendingLinksForUser,
+  isPasswordlessEnabled,
+  resolveFrontendUrl,
+  revokeAllSessionsForUser,
+} from "../services/patientPasswordless.js";
 
 const router = Router();
 
@@ -33,32 +41,53 @@ router.get(
   }
 );
 
-// F1 — permiso de acceso sin contraseña por paciente.
+// F1 + F2/F3 — acceso sin contraseña por paciente.
 //
-// El flujo de enlaces por correo todavía no existe (F2). Mientras tanto el
-// permiso se puede guardar, pero NO habilita ningún método de autenticación:
-// `passwordless_login_available=false` le indica al frontend que lo presente
-// como "Próximamente". F2 cambiará esta constante cuando el flujo funcione.
-export const PASSWORDLESS_LOGIN_AVAILABLE = false;
+// `passwordless_login_available` informa si el flujo de enlaces funciona en
+// este despliegue (kill switch + Resend + FRONTEND_URL). El permiso se puede
+// guardar aunque no esté disponible.
+//
+// Reglas aplicadas en backend (no sólo en la UI):
+// - D5: no se puede desactivar el último método de acceso del paciente. Hoy
+//   los métodos son contraseña (password_hash) y enlace (allow_passwordless);
+//   Google no aplica a pacientes. Desactivar el enlace a un paciente sin
+//   contraseña → 409 last_access_method.
+// - E2: desactivar el enlace revoca las sesiones persistentes del paciente y
+//   anula los enlaces pendientes, en la misma transacción. Si hay sesiones
+//   abiertas, el profesional debe ser informado ANTES: la primera llamada
+//   responde 409 confirmation_required con la cantidad, y sólo procede con
+//   `confirm_revoke_sessions: true`.
 
-const ACCESS_ALLOWED_KEYS = ["allow_passwordless"];
+const ACCESS_ALLOWED_KEYS = ["allow_passwordless", "confirm_revoke_sessions"];
 
-function serializeAccess(patient) {
+function isPasswordlessAvailable(req) {
+  const emailService = req.app.locals.emailService || defaultEmailService;
+  return isPasswordlessEnabled() && emailService.isConfigured() && Boolean(resolveFrontendUrl());
+}
+
+async function serializeAccess(req, patient, trx = db) {
   return {
     patient_id: patient.id,
     allow_passwordless: patient.allow_passwordless === true,
-    passwordless_login_available: PASSWORDLESS_LOGIN_AVAILABLE,
+    has_password: Boolean(patient.password_hash),
+    active_sessions: await countActiveSessions(patient.id, {}, trx),
+    passwordless_login_available: isPasswordlessAvailable(req),
   };
 }
 
 // Ownership igual que training-config: cualquier fallo → 404 uniforme
 // (no revela si el paciente existe y pertenece a otro profesional).
-async function loadOwnedPatient(professionalId, patientIdParam) {
+function parsePatientId(patientIdParam) {
   const patientId = Number(patientIdParam);
-  if (!Number.isInteger(patientId) || patientId < 1) return null;
-  return db("users")
-    .where({ id: patientId, role: "patient", professional_id: professionalId })
-    .first();
+  return Number.isInteger(patientId) && patientId >= 1 ? patientId : null;
+}
+
+async function loadOwnedPatient(professionalId, patientIdParam, trx = db, { lock = false } = {}) {
+  const patientId = parsePatientId(patientIdParam);
+  if (!patientId) return null;
+  const query = trx("users").where({ id: patientId, role: "patient", professional_id: professionalId });
+  if (lock) query.forUpdate();
+  return query.first();
 }
 
 router.get(
@@ -71,7 +100,7 @@ router.get(
       if (!patient) {
         return res.status(404).json({ error: "Paciente no encontrado" });
       }
-      res.json(serializeAccess(patient));
+      res.json(await serializeAccess(req, patient));
     } catch (err) {
       next(err);
     }
@@ -84,12 +113,10 @@ router.patch(
   requireRole("professional"),
   async (req, res, next) => {
     try {
-      const patient = await loadOwnedPatient(req.user.id, req.params.id);
-      if (!patient) {
+      const body = req.body;
+      if (!parsePatientId(req.params.id)) {
         return res.status(404).json({ error: "Paciente no encontrado" });
       }
-
-      const body = req.body;
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return res.status(400).json({ error: "El cuerpo debe ser un objeto JSON" });
       }
@@ -100,13 +127,74 @@ router.patch(
       if (typeof body.allow_passwordless !== "boolean") {
         return res.status(400).json({ error: "allow_passwordless debe ser true o false" });
       }
+      if (body.confirm_revoke_sessions !== undefined && typeof body.confirm_revoke_sessions !== "boolean") {
+        return res.status(400).json({ error: "confirm_revoke_sessions debe ser true o false" });
+      }
 
-      const [updated] = await db("users")
-        .where({ id: patient.id })
-        .update({ allow_passwordless: body.allow_passwordless, updated_at: db.fn.now() })
-        .returning(["id", "allow_passwordless"]);
+      const outcome = await db.transaction(async (trx) => {
+        const patient = await loadOwnedPatient(req.user.id, req.params.id, trx, { lock: true });
+        if (!patient) return { status: 404, body: { error: "Paciente no encontrado" } };
 
-      res.json(serializeAccess(updated));
+        let revokedSessions = 0;
+        if (body.allow_passwordless === false && patient.allow_passwordless === true) {
+          // D5
+          if (!patient.password_hash) {
+            return {
+              status: 409,
+              body: {
+                error: "No se puede desactivar: es el único método de acceso del paciente.",
+                status: "last_access_method",
+              },
+            };
+          }
+          // E2: informar antes de revocar.
+          const active = await countActiveSessions(patient.id, {}, trx);
+          if (active > 0 && body.confirm_revoke_sessions !== true) {
+            return {
+              status: 409,
+              body: {
+                error: "El paciente tiene sesiones abiertas con enlace. Al desactivar el acceso se cerrarán.",
+                status: "confirmation_required",
+                active_sessions: active,
+              },
+            };
+          }
+          revokedSessions = await revokeAllSessionsForUser(patient.id, "passwordless_disabled", trx);
+          await invalidatePendingLinksForUser(patient.id, trx);
+        }
+
+        const [updated] = await trx("users")
+          .where({ id: patient.id })
+          .update({ allow_passwordless: body.allow_passwordless, updated_at: trx.fn.now() })
+          .returning(["id", "allow_passwordless", "password_hash"]);
+
+        return {
+          status: 200,
+          body: { ...(await serializeAccess(req, updated, trx)), revoked_sessions: revokedSessions },
+        };
+      });
+
+      res.status(outcome.status).json(outcome.body);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Revoca todas las sesiones persistentes del paciente (p. ej. dispositivo
+// perdido) sin cambiar el permiso. El paciente puede volver a pedir un enlace.
+router.post(
+  "/patients/:id/access/revoke-sessions",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const patient = await loadOwnedPatient(req.user.id, req.params.id);
+      if (!patient) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+      const revoked = await revokeAllSessionsForUser(patient.id, "professional_revoked");
+      res.json({ ...(await serializeAccess(req, patient)), revoked_sessions: revoked });
     } catch (err) {
       next(err);
     }

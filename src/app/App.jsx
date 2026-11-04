@@ -6,6 +6,7 @@ import { GlobalHeader } from "../components/common/GlobalHeader.jsx";
 import { useAppController } from "../hooks/useAppController.js";
 import { ActivityScreen } from "../screens/ActivityScreen.jsx";
 import { InviteAcceptScreen } from "../screens/InviteAcceptScreen.jsx";
+import { LoginLinkScreen } from "../screens/LoginLinkScreen.jsx";
 import { LoginScreen } from "../screens/LoginScreen.jsx";
 import { PatientScreen } from "../screens/PatientScreen.jsx";
 import { ProfessionalScreen } from "../screens/ProfessionalScreen.jsx";
@@ -44,11 +45,17 @@ export function App() {
     patientAvailableSections,
     patientAvailableSectionsError,
     isBackendPatient,
+    loginLinkToken,
+    completeLoginLink,
+    goToLoginFromLink,
+    loginStartMode,
+    restoringSession,
   } = useAppController();
 
   useEffect(() => {
     const titles = {
       [SCREEN_NAMES.login]: "Login — MenteActiva",
+      [SCREEN_NAMES.loginLink]: "Ingresar con enlace — MenteActiva",
       [SCREEN_NAMES.patient]: "Actividades — MenteActiva",
       [SCREEN_NAMES.professional]: "Panel Profesional — MenteActiva",
     };
@@ -71,7 +78,21 @@ export function App() {
                 onGoToLogin={goToLogin}
               />
             )}
-            {screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} onGoogleLogin={googleLogin} />}
+            {screen === SCREEN_NAMES.loginLink && (
+              <LoginLinkScreen
+                token={loginLinkToken}
+                onSuccess={completeLoginLink}
+                onGoToLogin={goToLoginFromLink}
+              />
+            )}
+            {restoringSession && (
+              <section className="login-layout" aria-label="Recuperando sesión">
+                <div className="panel login-panel" role="status" aria-live="polite">
+                  <h2>Recuperando tu sesión…</h2>
+                </div>
+              </section>
+            )}
+            {!restoringSession && screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} onGoogleLogin={googleLogin} initialMode={loginStartMode} />}
             {screen === SCREEN_NAMES.patient && isAuthenticated && role === "patient" && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} activityStartError={activityStartError} availableSections={patientAvailableSections} availableSectionsError={patientAvailableSectionsError} isBackendPatient={isBackendPatient} />}
             {screen === SCREEN_NAMES.activity && isAuthenticated && role === "patient" && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} activeSession={activeSession} />}
             {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (

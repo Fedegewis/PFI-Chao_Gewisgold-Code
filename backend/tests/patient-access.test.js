@@ -77,7 +77,7 @@ describe("Patient passwordless access permission (F1)", () => {
   });
 
   describe("GET /api/patients/:id/access", () => {
-    it("el profesional dueño consulta el permiso (default false, flujo no disponible)", async () => {
+    it("el profesional dueño consulta el permiso (default false, flujo no disponible sin flag)", async () => {
       const res = await request(app)
         .get(`/api/patients/${patientA.id}/access`)
         .set("Authorization", profAAuth)
@@ -85,6 +85,9 @@ describe("Patient passwordless access permission (F1)", () => {
       assert.deepEqual(res.body, {
         patient_id: patientA.id,
         allow_passwordless: false,
+        // F2/F3: el endpoint también informa métodos y sesiones abiertas.
+        has_password: true,
+        active_sessions: 0,
         passwordless_login_available: false,
       });
     });

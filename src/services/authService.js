@@ -23,6 +23,81 @@ export function setToken(token) {
 export function clearAuth() {
   localStorage.removeItem("ma_auth_token");
   localStorage.removeItem("ma_auth_user");
+  clearPatientCookieSession();
+}
+
+// ---------------------------------------------------------------------------
+// F2/F3 — sesión de paciente por enlace (cookie HttpOnly).
+//
+// El token de sesión vive SOLO en la cookie HttpOnly: JavaScript no puede
+// leerlo. Lo único que el frontend conserva es, en memoria:
+//   - el usuario (para pintar la pantalla), y
+//   - el token anti-CSRF (se manda en X-CSRF-Token en POST/PATCH/DELETE).
+// En localStorage sólo queda una marca booleana sin valor de credencial
+// ("hay que intentar restaurar la sesión al recargar"). No se guardan
+// tokens, enlaces ni datos del usuario.
+// ---------------------------------------------------------------------------
+
+const PATIENT_SESSION_HINT_KEY = "ma_patient_session_hint";
+let patientCookieSession = null; // { user, csrfToken }
+
+function safeStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage bloqueado: la sesión sigue válida en memoria */
+  }
+}
+
+function safeStorageRemove(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* noop */
+  }
+}
+
+export function hasPatientSessionHint() {
+  try {
+    return localStorage.getItem(PATIENT_SESSION_HINT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function getPatientCookieSession() {
+  return patientCookieSession;
+}
+
+function setPatientCookieSession(data) {
+  patientCookieSession = { user: data.user, csrfToken: data.csrf_token };
+  safeStorageSet(PATIENT_SESSION_HINT_KEY, "1");
+}
+
+export function clearPatientCookieSession() {
+  patientCookieSession = null;
+  safeStorageRemove(PATIENT_SESSION_HINT_KEY);
+}
+
+// Headers de autenticación para los clientes de API. JWT si existe (login
+// con contraseña, profesionales, Google); si no, la sesión por cookie sólo
+// necesita el header anti-CSRF. null = no hay sesión.
+export function authHeaders() {
+  const token = readStoredToken();
+  if (token) return { Authorization: `Bearer ${token}` };
+  if (patientCookieSession) return { "X-CSRF-Token": patientCookieSession.csrfToken };
+  return null;
+}
+
+// Las cookies de sesión sólo viajan si la API está en el mismo origen que la
+// app (proxy /api de F0: vercel.json en producción, proxy de Vite en local).
+export function isSameOriginApi() {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(API_URL, window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 export function getSavedUser() {
@@ -143,5 +218,82 @@ export async function fetchCurrentUser() {
   } catch {
     clearAuth();
     return null;
+  }
+}
+
+export async function fetchPasswordlessConfig() {
+  if (!isSameOriginApi()) return { enabled: false };
+  try {
+    const data = await apiRequest("/auth/passwordless/config", { method: "GET" });
+    return { enabled: data.enabled === true };
+  } catch {
+    return { enabled: false };
+  }
+}
+
+export async function requestPatientLoginLink(email) {
+  return apiRequest("/auth/patient-link/request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+// El token del enlace viaja en el BODY de un POST (nunca en la URL del
+// request): no queda en logs de proxies ni del servidor.
+export async function consumePatientLoginLink(token) {
+  const res = await fetch(`${API_URL}/auth/patient-link/consume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const data = await readJsonSafely(res);
+  if (!res.ok || !data) {
+    const err = buildResponseError(res, data);
+    err.code = data?.status || null;
+    throw err;
+  }
+  if (!data.user || data.user.role !== "patient" || !data.csrf_token) {
+    throw new Error("Respuesta inesperada del servidor");
+  }
+  // Nunca se mezclan los dos mecanismos: una sesión por enlace reemplaza
+  // cualquier JWT viejo guardado en este navegador.
+  localStorage.removeItem("ma_auth_token");
+  localStorage.removeItem("ma_auth_user");
+  setPatientCookieSession(data);
+  return data;
+}
+
+// Restaura la sesión por cookie al recargar. Devuelve el usuario o null.
+// Un error de red NO borra la marca (se puede reintentar); un 401 sí.
+export async function restorePatientSession() {
+  const res = await fetch(`${API_URL}/auth/patient-session`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await readJsonSafely(res);
+  if (res.status === 401) {
+    clearPatientCookieSession();
+    return null;
+  }
+  if (!res.ok || !data?.user || data.user.role !== "patient" || !data.csrf_token) {
+    throw buildResponseError(res, data);
+  }
+  setPatientCookieSession(data);
+  return data.user;
+}
+
+export async function logoutPatientSession() {
+  const session = patientCookieSession;
+  clearPatientCookieSession();
+  try {
+    await fetch(`${API_URL}/auth/patient-session/logout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session ? { "X-CSRF-Token": session.csrfToken } : {}),
+      },
+    });
+  } catch {
+    /* sin red: la cookie se revoca igual al vencer; el estado local ya se limpió */
   }
 }

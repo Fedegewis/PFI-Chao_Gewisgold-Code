@@ -1,10 +1,12 @@
-import { getToken } from "./authService.js";
+import { authHeaders } from "./authService.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
 
 async function authRequest(path, options = {}) {
-  const token = getToken();
-  if (!token) {
+  // JWT (Authorization) o, para pacientes con sesión por enlace, sólo el
+  // header anti-CSRF: la cookie HttpOnly la adjunta el navegador (same-origin).
+  const auth = authHeaders();
+  if (!auth) {
     const err = new Error("No hay sesión activa");
     err.status = 401;
     throw err;
@@ -13,7 +15,7 @@ async function authRequest(path, options = {}) {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      ...auth,
       ...options.headers,
     },
   });
