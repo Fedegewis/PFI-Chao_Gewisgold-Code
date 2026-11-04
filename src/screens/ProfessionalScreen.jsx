@@ -34,6 +34,7 @@ export function ProfessionalScreen({
   updatePatient,
   isBackendProfessional,
   deletePatientForProfessional,
+  deleteSessionForProfessional,
   backendPatientSessions
 }) {
   const patientSessions = useMemo(
@@ -75,6 +76,7 @@ export function ProfessionalScreen({
             selectedPatient={selectedPatient}
             sessionsState={backendPatientSessions}
             onDeletePatient={handleDeletePatient}
+            onDeleteSession={isBackendProfessional ? deleteSessionForProfessional : null}
           />
         ) : (
           <PatientDetail
