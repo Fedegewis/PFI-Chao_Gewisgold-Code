@@ -46,6 +46,11 @@ export async function savePatientAccess(patientId, allowPasswordless) {
   });
 }
 
+// Eliminación física de una sesión no completada (sólo el profesional dueño).
+export async function deleteSessionApi(sessionId) {
+  return apiRequest(`/sessions/${sessionId}`, { method: "DELETE" });
+}
+
 export async function fetchPatientSessionsApi(patientId, { signal } = {}) {
   return apiRequest(`/patients/${patientId}/sessions`, { method: "GET", signal });
 }

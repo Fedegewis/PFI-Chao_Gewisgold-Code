@@ -15,6 +15,7 @@ export function App() {
     activities,
     completeActivity,
     deletePatientForProfessional,
+    deleteSessionForProfessional,
     isAuthenticated,
     isBackendProfessional,
     googleLogin,
@@ -83,6 +84,7 @@ export function App() {
                 updatePatient={updatePatient}
                 isBackendProfessional={isBackendProfessional}
                 deletePatientForProfessional={deletePatientForProfessional}
+                deleteSessionForProfessional={deleteSessionForProfessional}
                 backendPatientSessions={backendPatientSessions}
               />
             )}

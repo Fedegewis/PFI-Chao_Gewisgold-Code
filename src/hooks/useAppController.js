@@ -19,7 +19,7 @@ import {
   patientFromBackendUser,
   refreshDailyPatientState
 } from "../services/patientService.js";
-import { deletePatientApi, fetchPatients, fetchPatientSessionsApi } from "../services/patientsApi.js";
+import { deletePatientApi, deleteSessionApi, fetchPatients, fetchPatientSessionsApi } from "../services/patientsApi.js";
 import { buildCompletedActivityState, buildInitialSessions } from "../services/sessionService.js";
 import {
   clearActivityDraft,
@@ -538,6 +538,14 @@ export function useAppController() {
     });
   }
 
+  // Elimina una sesión no completada y refresca el historial del paciente
+  // seleccionado (tabla, gráfico y métricas se derivan de esa lista). Si el
+  // DELETE falla, el error se propaga al componente y no se refresca.
+  async function deleteSessionForProfessional(sessionId) {
+    await deleteSessionApi(sessionId);
+    await fetchSelectedPatientSessions(selectedPatientId, { showLoading: false });
+  }
+
   function acceptInvitationSession({ user, token }) {
     if (!user || user.role !== "patient" || !token) {
       clearAuth();
@@ -672,6 +680,7 @@ export function useAppController() {
     activities,
     authUser,
     deletePatientForProfessional,
+    deleteSessionForProfessional,
     isBackendProfessional,
     isAuthenticated,
     loginError,

@@ -1,5 +1,5 @@
 import { AlertTriangle, BarChart3, CalendarDays, CheckCircle2, Clock3, Target, Timer, Trash2, TrendingUp, User } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MetricCard } from "../common/MetricCard.jsx";
 import { AnalysisAsistidoPanel } from "./AnalysisAsistidoPanel.jsx";
 import { TrainingConfigPanel } from "./TrainingConfigPanel.jsx";
@@ -28,6 +28,19 @@ function pctFromRate(rate) {
   return `${Math.round(Number(rate) * 100)}%`;
 }
 
+// Estados que el profesional puede eliminar (espejo de
+// DELETABLE_SESSION_STATUSES en el backend, que es quien valida). Las
+// sesiones completadas nunca se eliminan.
+const DELETABLE_STATUSES = new Set(["created", "in_progress", "abandoned"]);
+
+function isSessionDeletable(session) {
+  return Boolean(session) && DELETABLE_STATUSES.has(session.status);
+}
+
+function sessionDate(session) {
+  return session.completed_at || session.abandoned_at || session.started_at || session.created_at;
+}
+
 // Mapeo slug → label legible para el profesional. Los slugs coinciden con el
 // CHECK constraint de sessions.patient_reported_mood (migración 014) y con
 // MOOD_OPTIONS del frontend. Si la sesión no tiene mood (null) el detalle
@@ -40,11 +53,20 @@ const MOOD_LABELS = {
   tristeza: "Tristeza",
 };
 
-// Ajuste de dificultad de la sesión (mecanismo adaptativo v1). Sesiones
-// anteriores al mecanismo no tienen nivel y no muestran el bloque.
+// Ajuste de dificultad de la sesión (mecanismo adaptativo v1). Se muestra en
+// TODAS las sesiones: las anteriores al mecanismo (o sin nivel registrado) no
+// tienen datos de adaptación y lo dicen explícitamente; no se infiere ni se
+// inventa un nivel.
 function AdaptiveDecisionDetails({ adaptive }) {
   const summary = formatAdaptiveSummary(adaptive);
-  if (!summary) return null;
+  if (!summary) {
+    return (
+      <div className="analysis-block" data-testid="adaptive-decision-unavailable">
+        <p className="eyebrow">Ajuste de dificultad</p>
+        <p className="ai-hint">Adaptación no disponible para esta sesión.</p>
+      </div>
+    );
+  }
   return (
     <div className="analysis-block" data-testid="adaptive-decision">
       <p className="eyebrow">Ajuste de dificultad</p>
@@ -64,6 +86,77 @@ function AdaptiveDecisionDetails({ adaptive }) {
         )}
       </dl>
       <p className="ai-hint">Regla operativa de la aplicación basada en la precisión de sesiones anteriores de esta actividad. No constituye una evaluación clínica.</p>
+    </div>
+  );
+}
+
+// Diálogo de confirmación para eliminar una sesión. Foco inicial en
+// "Cancelar" (opción segura), Escape cierra, Tab queda dentro del diálogo.
+function DeleteSessionDialog({ session, deleting, error, onCancel, onConfirm }) {
+  const dialogRef = useRef(null);
+  const cancelRef = useRef(null);
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+
+  function handleKeyDown(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!deleting) onCancel();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusables = Array.from(dialogRef.current?.querySelectorAll("button:not([disabled])") || []);
+    if (focusables.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  const label = STATUS_LABEL[session.status] || session.status;
+  return (
+    <div className="ai-modal-backdrop" onClick={() => { if (!deleting) onCancel(); }}>
+      <div
+        ref={dialogRef}
+        className="ai-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-session-title"
+        aria-describedby="delete-session-description"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="ai-modal-header">
+          <div>
+            <p className="eyebrow">Acción irreversible</p>
+            <h3 id="delete-session-title">Eliminar sesión del {formatShortDate(sessionDate(session))}</h3>
+          </div>
+        </div>
+        <div className="ai-modal-body">
+          <p id="delete-session-description">
+            Se eliminará definitivamente esta sesión ({label.toLowerCase()}) junto con sus preguntas
+            asignadas y las respuestas registradas. Esta acción no se puede deshacer. Las sesiones
+            completadas no se ven afectadas.
+          </p>
+          {error && (<p className="form-feedback form-feedback-error" role="alert">{error}</p>)}
+          <div className="modal-actions">
+            <button type="button" ref={cancelRef} onClick={onCancel} disabled={deleting}>Cancelar</button>
+            <button type="button" className="danger" onClick={onConfirm} disabled={deleting} aria-busy={deleting}>
+              {deleting ? "Eliminando..." : "Sí, eliminar sesión"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -162,7 +255,7 @@ function SessionHistoryTable({ sessions, selectedId, onSelect }) {
   );
 }
 
-export function BackendPatientDetail({ selectedPatient, sessionsState, onDeletePatient }) {
+export function BackendPatientDetail({ selectedPatient, sessionsState, onDeletePatient, onDeleteSession }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -199,6 +292,56 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
     [listForCurrent, highlightId]
   );
   const highlightSummary = highlightSession?.summary || null;
+
+  // Eliminación de sesión. `deletingSessionRef` evita el doble envío aun si
+  // dos clics llegan antes de que React re-renderice el botón deshabilitado.
+  const [sessionToDelete, setSessionToDelete] = useState(null);
+  const [deletingSession, setDeletingSession] = useState(false);
+  const [sessionDeleteError, setSessionDeleteError] = useState("");
+  const [sessionFeedback, setSessionFeedback] = useState("");
+  const deletingSessionRef = useRef(false);
+  const deleteTriggerRef = useRef(null);
+  const feedbackRef = useRef(null);
+
+  // Al cambiar de paciente se descartan selección, diálogo y avisos.
+  useEffect(() => {
+    setSessionFeedback("");
+    setSessionToDelete(null);
+    setSelectedSessionId(null);
+  }, [selectedPatient.id]);
+
+  const closeDeleteDialog = useCallback(() => {
+    setSessionToDelete(null);
+    setSessionDeleteError("");
+    deleteTriggerRef.current?.focus();
+  }, []);
+
+  async function handleConfirmDeleteSession() {
+    if (!sessionToDelete || !onDeleteSession || deletingSessionRef.current) return;
+    deletingSessionRef.current = true;
+    setDeletingSession(true);
+    setSessionDeleteError("");
+    const deletedId = sessionToDelete.id;
+    try {
+      await onDeleteSession(deletedId);
+      setSelectedSessionId((current) => (current === deletedId ? null : current));
+      setSessionToDelete(null);
+      setSessionFeedback("La sesión se eliminó correctamente.");
+      // El botón que abrió el diálogo ya no existe: el foco va al aviso.
+      setTimeout(() => feedbackRef.current?.focus(), 0);
+    } catch (err) {
+      setSessionDeleteError(
+        err?.status === 409
+          ? "La sesión cambió de estado y ya no se puede eliminar. Actualizá el historial."
+          : err?.status === 404
+            ? "La sesión ya no existe. Actualizá el historial."
+            : err?.message || "No se pudo eliminar la sesión."
+      );
+    } finally {
+      deletingSessionRef.current = false;
+      setDeletingSession(false);
+    }
+  }
 
   const totalCompleted = completedSessions.length;
   const precisionValue = lastCompleted ? pctFromRate(lastCompleted.summary.accuracy) : "—";
@@ -268,6 +411,16 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
         </div>
       )}
 
+      {sessionToDelete && (
+        <DeleteSessionDialog
+          session={sessionToDelete}
+          deleting={deletingSession}
+          error={sessionDeleteError}
+          onCancel={closeDeleteDialog}
+          onConfirm={handleConfirmDeleteSession}
+        />
+      )}
+
       <div className="metric-grid">
         <MetricCard icon={User} label="Usuario" value={selectedPatient.name.split(" ")[0]} detail={selectedPatient.age ? `${selectedPatient.age} años` : "—"} />
         <MetricCard icon={Target} label="Precisión (última)" value={precisionValue} detail={lastCompleted ? formatShortDate(lastCompleted.completed_at) : "Sin datos"} />
@@ -288,6 +441,16 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
           </div>
         </div>
       )}
+
+      <p
+        ref={feedbackRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className={sessionFeedback ? "form-feedback form-feedback-success" : "sr-only"}
+      >
+        {sessionFeedback}
+      </p>
 
       {!isLoadingForCurrent && !errorForCurrent && (
         <div className="detail-columns">
@@ -358,6 +521,20 @@ export function BackendPatientDetail({ selectedPatient, sessionsState, onDeleteP
                 <p className="ai-hint">Seleccioná una sesión del historial para ver su detalle.</p>
               )}
               {highlightSession && <AdaptiveDecisionDetails adaptive={highlightSession.adaptive} />}
+              {onDeleteSession && isSessionDeletable(highlightSession) && (
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="danger"
+                    ref={deleteTriggerRef}
+                    onClick={() => { setSessionFeedback(""); setSessionDeleteError(""); setSessionToDelete(highlightSession); }}
+                    disabled={deletingSession}
+                    aria-label={`Eliminar sesión del ${formatShortDate(sessionDate(highlightSession))} (${STATUS_LABEL[highlightSession.status] || highlightSession.status})`}
+                  >
+                    <Trash2 size={18} aria-hidden="true" /> Eliminar sesión
+                  </button>
+                </div>
+              )}
             </div>
 
             <AnalysisAsistidoPanel session={highlightSession} />

@@ -55,8 +55,28 @@ describe("BackendPatientDetail — ajuste de dificultad", () => {
     expect(block.getByText(/No constituye una evaluación clínica/)).toBeTruthy();
   });
 
-  test("sesión histórica sin nivel: no muestra el bloque", () => {
+  test("sesión histórica sin nivel: muestra el bloque con «Adaptación no disponible»", () => {
     renderWith(session(null));
     expect(screen.queryByTestId("adaptive-decision")).toBeNull();
+    const block = within(screen.getByTestId("adaptive-decision-unavailable"));
+    expect(block.getByText("Ajuste de dificultad")).toBeTruthy();
+    expect(block.getByText("Adaptación no disponible para esta sesión.")).toBeTruthy();
+    // No se inventa un nivel para sesiones históricas.
+    expect(screen.queryByText(/Nivel [123] \(/)).toBeNull();
+  });
+
+  test("registro incompleto (nivel fuera de rango o ausente): no inventa nivel", () => {
+    renderWith(session({ level: null, version: "1", decision: null }));
+    expect(screen.getByTestId("adaptive-decision-unavailable")).toBeTruthy();
+    cleanup();
+    renderWith(session({ level: 7, version: "1", decision: {} }));
+    expect(screen.getByTestId("adaptive-decision-unavailable")).toBeTruthy();
+  });
+
+  test("nivel válido sin traza de decisión: muestra el nivel sin afirmar evidencia", () => {
+    renderWith(session({ level: 2, version: "1", decision: null }));
+    const block = within(screen.getByTestId("adaptive-decision"));
+    expect(block.getByText("Nivel 2 (intermedio)")).toBeTruthy();
+    expect(screen.queryByText("Sin sesiones completadas previas en este nivel.")).toBeNull();
   });
 });
