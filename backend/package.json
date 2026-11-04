@@ -13,7 +13,9 @@
     "test:prepare": "node scripts/prepare-test-db.js",
     "db:reset": "knex migrate:rollback --all --knexfile src/db/knexfile.js && knex migrate:latest --knexfile src/db/knexfile.js && knex seed:run --knexfile src/db/knexfile.js",
     "test:coverage": "c8 node scripts/run-tests.js",
-    "simulate:adaptive": "node scripts/simulate-adaptive.js"
+    "simulate:adaptive": "node scripts/simulate-adaptive.js",
+    "analyses:review": "node scripts/regenerate-analyses.js",
+    "eval:prompts": "node scripts/eval/eval-prompts.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

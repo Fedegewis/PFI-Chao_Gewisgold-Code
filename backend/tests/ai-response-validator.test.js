@@ -261,15 +261,18 @@ describe("responseValidator v3 — límites", () => {
 });
 
 describe("responseValidator v3 — términos clínicos prohibidos", () => {
+  // Desde la auditoría 2026-11-04 cada familia informa su propia reason:
+  // los términos clínicos siguen siendo forbidden_clinical_term y las
+  // calificaciones subjetivas pasan a evaluative_judgment.
   const forbidden = [
-    "Se observa déficit de atención en la sesión.",
-    "El paciente presenta deterioro cognitivo evidente.",
-    "Alto nivel de precisión durante la actividad.",
-    "Excelente desempeño en la sesión trabajada.",
-    "Mala memoria durante el ejercicio planteado.",
-    "Nivel adecuado de respuesta durante la actividad.",
+    ["Se observa déficit de atención en la sesión.", "forbidden_clinical_term"],
+    ["El paciente presenta deterioro cognitivo evidente.", "forbidden_clinical_term"],
+    ["Alto nivel de precisión durante la actividad.", "evaluative_judgment"],
+    ["Excelente desempeño en la sesión trabajada.", "evaluative_judgment"],
+    ["Mala memoria durante el ejercicio planteado.", "evaluative_judgment"],
+    ["Nivel adecuado de respuesta durante la actividad.", "evaluative_judgment"],
   ];
-  for (const s of forbidden) {
+  for (const [s, reason] of forbidden) {
     it(`rechaza summary con término clínico/evaluativo: "${s.slice(0, 40)}…"`, () => {
       const p = { schema_version: "3", summary: s };
       try {
@@ -277,7 +280,7 @@ describe("responseValidator v3 — términos clínicos prohibidos", () => {
         assert.fail("debió lanzar");
       } catch (err) {
         assert.equal(err.code, CODES.SCHEMA_INVALID);
-        assert.equal(err.info?.reason, "forbidden_clinical_term");
+        assert.equal(err.info?.reason, reason);
       }
     });
   }
@@ -345,7 +348,7 @@ describe("responseValidator v3.4 — atribución al profesional / paciente", () 
     "El profesional observó que el paciente retuvo la lista.",
     "El profesional afirmó que la sesión fue adecuada.",
     "La profesional concluyó que la actividad fue útil.",
-    "El paciente mostró una buena capacidad para la actividad.",
+    "El paciente mostró una buena disposición para la actividad.",
   ];
   for (const s of forbidden) {
     it(`rechaza summary con atribución al profesional/paciente: "${s.slice(0, 40)}…"`, () => {

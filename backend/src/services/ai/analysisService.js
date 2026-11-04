@@ -30,6 +30,7 @@ import {
   ANALYSIS_SCHEMA_VERSION,
 } from "./responseValidator.js";
 import { AnalysisValidationError, AnalysisValidationCodes } from "./validationErrors.js";
+import { GENERATION_VALIDATION_OPTIONS, RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
 import { toPersistedErrorCode } from "./errorMapping.js";
 import * as defaultRepo from "./analysisRepository.js";
 import { withAnalysisLock as defaultWithAnalysisLock } from "./analysisLock.js";
@@ -370,7 +371,7 @@ async function runGenerationCritical({
     throw new TypeError("context_schema_version inesperado");
   }
 
-  // 4) Observaciones determinísticas (v3.4) + Prompt builder.
+  // 4) Observaciones determinísticas (v3.4) + Prompt builder (v3.5).
   //    Las observations se calculan ANTES del prompt para alimentarlo y
   //    luego se persisten junto al análisis para que el frontend las
   //    muestre tal cual (sin depender de que el modelo las parafrase bien).
@@ -429,7 +430,11 @@ async function runGenerationCritical({
     }
 
     try {
-      validated = parseAndValidateSessionAnalysis(ollamaResponse.text, context);
+      validated = parseAndValidateSessionAnalysis(ollamaResponse.text, context, {
+        observations: deterministic.observations,
+        followUp: deterministic.follow_up,
+        ...GENERATION_VALIDATION_OPTIONS,
+      });
       lastValidationError = null;
       break; // éxito
     } catch (err) {
@@ -442,13 +447,8 @@ async function runGenerationCritical({
       //   SCHEMA_INVALID path=summary + max_length_exceeded
       //   SCHEMA_INVALID + reason=forbidden_clinical_term
       //   SCHEMA_INVALID + reason=numeric_metric_in_text
-      const SEMANTIC_RETRIABLE = new Set([
-        "forbidden_clinical_term",
-        "numeric_metric_in_text",
-        // v3.4: atribución de afirmaciones al profesional / calificaciones
-        // evaluativas sobre el paciente ("el profesional observó", etc.).
-        "unauthorized_observation_about_actor",
-      ]);
+      // Compartido con el otro flujo de generación (contentSafety.js).
+      const SEMANTIC_RETRIABLE = RETRIABLE_SEMANTIC_REASONS;
       const retriable =
         (err.code === AnalysisValidationCodes.SCHEMA_INVALID
           && err.path === "summary"
@@ -463,7 +463,9 @@ async function runGenerationCritical({
       await repo.markGeneratingAsFailed(dbHandle, {
         id: generatingRow.id,
         errorCode: persistedCode,
-        errorMessage: err.message,
+        // La reason semántica queda registrada al inicio del mensaje interno
+        // (nunca se expone por la API: ver serializeAnalysisRow).
+        errorMessage: formatValidationFailure(err),
         latencyMs: lastOllamaLatencyMs,
       });
       throw err;

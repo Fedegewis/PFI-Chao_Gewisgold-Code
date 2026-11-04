@@ -15,7 +15,7 @@
 //
 // Reutiliza:
 //   - contextBuilder → buildSessionAnalysisContext
-//   - promptBuilder → buildSessionAnalysisPrompt v3.4
+//   - promptBuilder → buildSessionAnalysisPrompt v3.5
 //   - observationsBuilder → observaciones determinísticas
 //   - responseValidator → parseAndValidateSessionAnalysis
 //   - analysisService.loadSessionAnalysisInput → carga desde DB
@@ -36,6 +36,7 @@ import {
   ANALYSIS_SCHEMA_VERSION,
 } from "./responseValidator.js";
 import { AnalysisValidationError, AnalysisValidationCodes } from "./validationErrors.js";
+import { GENERATION_VALIDATION_OPTIONS, RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
 import { toPersistedErrorCode } from "./errorMapping.js";
 
 // ------------------------------------------------------------------
@@ -64,6 +65,12 @@ export const DEFAULTS = Object.freeze({
   // primero termine. Subir sólo si la instalación tiene GPU dedicada y
   // se validó experimentalmente.
   GLOBAL_CONCURRENCY: 1,
+  // Auditoría 2026-11-04: si es false (default), la cola NO toma sesiones
+  // que ya tienen un análisis ok de una versión anterior del prompt/schema/
+  // modelo. Evita que un cambio de PROMPT_VERSION regenere automáticamente
+  // todo el historial al desplegar. La regeneración de análisis históricos
+  // es explícita y controlada (scripts/regenerate-analyses.js).
+  REGENERATE_OUTDATED: false,
 });
 
 // Clasificación de códigos persistidos en session_analyses.error_code.
@@ -129,6 +136,7 @@ function readConfig() {
       process.env.WORKER_GLOBAL_CONCURRENCY,
       DEFAULTS.GLOBAL_CONCURRENCY,
     ),
+    REGENERATE_OUTDATED: process.env.WORKER_REGENERATE_OUTDATED_ANALYSES === "true",
   };
 }
 
@@ -176,11 +184,11 @@ const GLOBAL_CLAIM_LOCK_KEY2 = crypto
 
 async function findNextPendingSessionId(
   dbOrTrx,
-  { model, schemaVersion, promptVersion, maxGenerationAttempts, maxTransientAttempts, cooldownMs }
+  { model, schemaVersion, promptVersion, maxGenerationAttempts, maxTransientAttempts, cooldownMs, regenerateOutdated = false }
 ) {
   const transientCodes = [...TRANSIENT_ERROR_CODES];
   const generationCodes = [...GENERATION_ERROR_CODES];
-  const row = await dbOrTrx("sessions as s")
+  const query = dbOrTrx("sessions as s")
     .where("s.status", "completed")
     .whereNotExists((qb) =>
       qb.from("session_analyses as sa_ok")
@@ -221,8 +229,17 @@ async function findNextPendingSessionId(
       [model, schemaVersion, promptVersion]
     )
     .orderBy("s.completed_at", "asc")
-    .select("s.id as session_id", "s.completed_at")
-    .first();
+    .select("s.id as session_id", "s.completed_at");
+  if (!regenerateOutdated) {
+    // Sólo sesiones sin NINGÚN análisis ok (de cualquier versión).
+    query.whereNotExists((qb) =>
+      qb.from("session_analyses as sa_any")
+        .select(1)
+        .whereRaw("sa_any.session_id = s.id")
+        .andWhere("sa_any.status", "ok")
+    );
+  }
+  const row = await query.first();
   return row || null;
 }
 
@@ -317,6 +334,7 @@ export async function claimNextSession(deps = {}) {
       maxGenerationAttempts: cfg.MAX_GENERATION_ATTEMPTS,
       maxTransientAttempts: cfg.MAX_TRANSIENT_ATTEMPTS,
       cooldownMs: cfg.RETRY_COOLDOWN_MS,
+      regenerateOutdated: cfg.REGENERATE_OUTDATED === true,
     });
     if (!candidate) return null;
 
@@ -471,16 +489,16 @@ export async function submitResult(params, deps = {}) {
   // Fase 2 (sin tx): validar JSON del modelo.
   let validated;
   try {
-    validated = parseAndValidateSessionAnalysis(rawText, ctxPkg.context);
+    validated = parseAndValidateSessionAnalysis(rawText, ctxPkg.context, {
+      observations: ctxPkg.deterministic.observations,
+      followUp: ctxPkg.deterministic.follow_up,
+      ...GENERATION_VALIDATION_OPTIONS,
+    });
   } catch (err) {
     if (!(err instanceof AnalysisValidationError)) throw err;
     const persistedCode = toPersistedErrorCode("analysis", err.code);
-    const SEMANTIC_RETRIABLE = new Set([
-      "max_length_exceeded",
-      "forbidden_clinical_term",
-      "numeric_metric_in_text",
-      "unauthorized_observation_about_actor",
-    ]);
+    // Compartido con el otro flujo de generación (contentSafety.js).
+    const SEMANTIC_RETRIABLE = RETRIABLE_SEMANTIC_REASONS;
     const retriable =
       err.code === AnalysisValidationCodes.SCHEMA_INVALID &&
       ((err.path === "summary" && err.info?.reason === "max_length_exceeded") ||
@@ -494,7 +512,7 @@ export async function submitResult(params, deps = {}) {
       .update({
         status: "failed",
         error_code: persistedCode,
-        error_message: (err.message || "").slice(0, 500),
+        error_message: formatValidationFailure(err).slice(0, 500),
         latency_ms: latency,
         analysis: null,
         lease_expires_at: null,

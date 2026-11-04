@@ -17,6 +17,7 @@ import db from "../src/db/connection.js";
 import { authHeaderFor } from "./helpers.js";
 import { analysisRouteDeps } from "../src/routes/analysis.js";
 import { OllamaClientError, OllamaErrorCodes } from "../src/services/ai/errors.js";
+import { PROMPT_BUILDER_VERSION } from "../src/services/ai/promptBuilder.js";
 
 // -----------------------------------------------------------------
 // Fixture helpers
@@ -208,7 +209,7 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
       assert.equal(res.body.analysis.model, "llama3.2:3b");
       assert.equal(res.body.analysis.latency_ms, 6500);
       assert.equal(res.body.analysis.schema_version, "3");
-      assert.equal(res.body.analysis.prompt_version, "3.4");
+      assert.equal(res.body.analysis.prompt_version, PROMPT_BUILDER_VERSION);
       assert.equal(res.body.analysis.content.schema_version, "3");
       assert.equal(res.body.analysis.content.summary.length > 0, true);
       // no raw/prompt/context/error_message expuestos:
@@ -399,6 +400,51 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
       // El error_message interno NUNCA se expone.
       assert.equal(r.body.error_message, undefined);
       assert.ok(!JSON.stringify(r.body).includes("detalle interno"));
+    });
+
+    it("GET omite el texto IA persistido que no cumple las reglas vigentes, sin tocar la DB", async () => {
+      const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      const stored = {
+        schema_version: "3",
+        summary: "La sesión se completó en su totalidad. No se detectaron patologías ni condiciones clínicas en esta sesión aislada.",
+        aspects_to_review: ["Revisar la capacidad del paciente para procesar información y tomar decisiones."],
+        activities: [{ slug: "atencion_visual", name: "Objetos de la casa", cognitive_domain_slugs: ["atencion"] }],
+        evidence: [{ scope: "global", metric: "accuracy", value: 1 }],
+        observations: ["La sesión fue completada en su totalidad."],
+        follow_up: ["Se requieren nuevas sesiones comparables para observar la evolución del desempeño."],
+      };
+      const [row] = await db("session_analyses").insert({
+        session_id: ses.id, status: "ok", model: "llama3.2:3b",
+        schema_version: "3", prompt_version: "3.4", analysis: stored,
+      }).returning("*");
+
+      const r = await request(app).get(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
+      assert.equal(r.status, 200);
+      assert.equal(r.body.status, "ok");
+      const a = r.body.analysis;
+      assert.equal(a.ai_text_withheld, true);
+      assert.ok(a.ai_text_withheld_reasons.includes("clinical_rule_out"));
+      assert.equal(a.content.summary, undefined);
+      assert.equal(a.content.aspects_to_review, undefined);
+      // Los bloques determinísticos se conservan.
+      assert.deepEqual(a.content.observations, stored.observations);
+      assert.deepEqual(a.content.activities, stored.activities);
+      assert.ok(!JSON.stringify(r.body).includes("patolog"));
+
+      // El registro original no se modifica.
+      const persisted = await db("session_analyses").where({ id: row.id }).first();
+      assert.equal(persisted.analysis.summary, stored.summary);
+      assert.deepEqual(persisted.analysis.aspects_to_review, stored.aspects_to_review);
+    });
+
+    it("GET devuelve intacto un análisis conforme (ai_text_withheld=false)", async () => {
+      const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      analysisRouteDeps.generate = async () => ({ text: fakeValidResponseText(), raw: {}, latencyMs: 100, model: "llama3.2:3b" });
+      await request(app).post(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
+      const r = await request(app).get(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
+      assert.equal(r.body.analysis.ai_text_withheld, false);
+      assert.equal(r.body.analysis.ai_text_withheld_reasons, undefined);
+      assert.ok(r.body.analysis.content.summary.length > 0);
     });
 
     it("POST con AnalysisValidationError expone validation_code tipado", async () => {

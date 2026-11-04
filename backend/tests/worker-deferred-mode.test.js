@@ -36,6 +36,7 @@ const {
   resetAutoAnalysisTrigger,
 } = await import("../src/routes/sessions.js");
 const { authHeaderFor } = await import("./helpers.js");
+const { PROMPT_BUILDER_VERSION } = await import("../src/services/ai/promptBuilder.js");
 
 const stamp = Date.now();
 let prof, patient, sectionRow;
@@ -206,7 +207,7 @@ describe("W-3 — AI_PROVIDER=deferred", () => {
         status: "ok",
         model: getAiProvider().getConfig().model,
         schema_version: "3",
-        prompt_version: "3.4",
+        prompt_version: PROMPT_BUILDER_VERSION,
         analysis: {
           schema_version: "3",
           summary: "cached",
@@ -303,7 +304,7 @@ describe("W-3 — AI_PROVIDER=deferred", () => {
         status: "ok",
         model: getAiProvider().getConfig().model,
         schema_version: "3",
-        prompt_version: "3.4",
+        prompt_version: PROMPT_BUILDER_VERSION,
         analysis: {
           schema_version: "3",
           summary: "cached-ok",
@@ -351,7 +352,7 @@ describe("W-3 — AI_PROVIDER=deferred", () => {
       analysisRouteDeps.generate = async () => ({
         text: JSON.stringify({
           schema_version: "3",
-          summary: "ok local",
+          summary: "La sesión de entrenamiento fue completada en su totalidad.",
           aspects_to_review: [],
         }),
         raw: {},

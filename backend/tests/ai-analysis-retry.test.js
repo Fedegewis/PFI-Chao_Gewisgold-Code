@@ -331,4 +331,91 @@ describe("Contrato v3 — reintento controlado", () => {
     );
     assert.equal(calls, 2);
   });
+  // ---- Fase 2 (prompt 3.5) -------------------------------------------------
+
+  it("3.5: aspects_to_review del modelo se descarta (no se persiste ni se valida)", async () => {
+    const stub = async () => ({
+      text: JSON.stringify({
+        schema_version: "3",
+        summary: "La sesión de Agenda de turnos fue completada en su totalidad.",
+        // Aunque contenga una afirmación no permitida, el campo no se usa.
+        aspects_to_review: ["Se recomienda derivar a un especialista."],
+      }),
+      raw: {}, latencyMs: 10, model: MODEL,
+    });
+    const r = await generateSessionAnalysis({ sessionId: sessionRow.id, force: false }, deps(stub));
+    assert.equal(r.source, "generated");
+    assert.deepEqual(r.analysis.analysis.aspects_to_review, []);
+    const row = await db("session_analyses").where("session_id", sessionRow.id).first();
+    assert.deepEqual(row.analysis.aspects_to_review, []);
+    // Los aspectos de seguimiento siguen siendo los follow_up determinísticos.
+    assert.ok(Array.isArray(row.analysis.follow_up));
+  });
+
+  it("3.5: recomendación clínica 2 veces → failed, 2 llamadas, reason registrada sin texto del modelo", async () => {
+    let calls = 0;
+    const stub = async () => {
+      calls++;
+      return {
+        text: JSON.stringify({
+          schema_version: "3",
+          summary: "La sesión fue completada; se recomienda consultar a un especialista.",
+        }),
+        raw: {}, latencyMs: 10, model: MODEL,
+      };
+    };
+    await assert.rejects(
+      generateSessionAnalysis({ sessionId: sessionRow.id, force: false }, deps(stub)),
+      (err) => err.code === "SCHEMA_INVALID" && err.info?.reason === "clinical_recommendation"
+    );
+    assert.equal(calls, 2, "máximo 2 llamadas: no hay bucle");
+    const rows = await db("session_analyses").where("session_id", sessionRow.id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, "failed");
+    assert.equal(rows[0].analysis, null, "un análisis rechazado no se persiste como contenido");
+    assert.match(rows[0].error_message, /^\[clinical_recommendation\]/);
+  });
+
+  it("3.5: contradicción con los datos 2 veces → failed contradicts_recorded_data", async () => {
+    // La sesión tiene 2 correctas y 2 incorrectas: "más correctas" contradice.
+    let calls = 0;
+    const stub = async () => {
+      calls++;
+      return {
+        text: JSON.stringify({
+          schema_version: "3",
+          summary: "La sesión fue completada y se registraron más respuestas correctas que incorrectas.",
+        }),
+        raw: {}, latencyMs: 10, model: MODEL,
+      };
+    };
+    await assert.rejects(
+      generateSessionAnalysis({ sessionId: sessionRow.id, force: false }, deps(stub)),
+      (err) => err.code === "SCHEMA_INVALID" && err.info?.reason === "contradicts_recorded_data"
+    );
+    assert.equal(calls, 2);
+  });
+
+  it("3.5: regeneración rechazada conserva el análisis ok anterior", async () => {
+    const okStub = async () => ({ text: validV3(), raw: {}, latencyMs: 10, model: MODEL });
+    const first = await generateSessionAnalysis({ sessionId: sessionRow.id, force: false }, deps(okStub));
+    assert.equal(first.source, "generated");
+
+    let calls = 0;
+    const badStub = async () => {
+      calls++;
+      return {
+        text: JSON.stringify({ schema_version: "3", summary: "No se detectaron patologías en la sesión." }),
+        raw: {}, latencyMs: 10, model: MODEL,
+      };
+    };
+    await assert.rejects(
+      generateSessionAnalysis({ sessionId: sessionRow.id, force: true }, deps(badStub)),
+      (err) => err.info?.reason === "clinical_rule_out"
+    );
+    assert.equal(calls, 2);
+    const rows = await db("session_analyses").where("session_id", sessionRow.id).orderBy("id");
+    assert.deepEqual(rows.map((r) => r.status), ["ok", "failed"]);
+    assert.equal(rows[0].id, first.analysis.id);
+  });
 });

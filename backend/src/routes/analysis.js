@@ -21,6 +21,7 @@ import * as analysisRepo from "../services/ai/analysisRepository.js";
 import { buildSessionAnalysisContext } from "../services/ai/contextBuilder.js";
 import { buildEvidenceFromContext } from "../services/ai/evidenceBuilder.js";
 import { buildObservations } from "../services/ai/observationsBuilder.js";
+import { withholdNonCompliantText } from "../services/ai/contentSafety.js";
 
 // 7J.2 — Umbral tras el cual una fila 'generating' se considera huérfana
 // (probablemente por crash de Node antes de terminar). GET la reporta como
@@ -67,7 +68,15 @@ async function loadOwnedCompletedSession(sessionId, professionalId) {
 }
 
 // Serialización externa: nunca expone error_message ni prompt/context/raw.
+//
+// Protección al leer (auditoría 2026-11-04): el texto redactado por el
+// modelo (summary, aspects_to_review y campos equivalentes de contratos
+// anteriores) se vuelve a evaluar con las reglas VIGENTES de
+// contentSafety.js. Si no las cumple, se omite de la respuesta y se informa
+// `ai_text_withheld`. El registro en la base NO se modifica: es reversible
+// y conserva los textos originales como evidencia.
 function serializeAnalysisRow(row) {
+  const { content, withheld, reasons } = withholdNonCompliantText(row.analysis);
   return {
     id: row.id,
     session_id: row.session_id,
@@ -76,7 +85,9 @@ function serializeAnalysisRow(row) {
     prompt_version: row.prompt_version,
     latency_ms: row.latency_ms,
     created_at: row.created_at,
-    content: row.analysis,
+    content,
+    ai_text_withheld: withheld,
+    ...(withheld ? { ai_text_withheld_reasons: reasons } : {}),
   };
 }
 
