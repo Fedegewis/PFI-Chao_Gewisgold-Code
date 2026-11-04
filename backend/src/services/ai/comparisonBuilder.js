@@ -42,9 +42,12 @@ function pickMostRecentComparable(comparableSessions) {
  *   { accuracy, completion_rate, mean_latency_ms }
  * @param {Array} input.comparableSessions  Previas ya filtradas por sección.
  * @param {string} input.sectionSlug  Section_slug de la sesión actual (identificador narrativo).
+ * @param {number|null} [input.currentAdaptiveLevel]  Nivel de dificultad
+ *   adaptativo de la sesión actual (migración 018). El de la referencia sale
+ *   de `reference.adaptive_level`.
  * @returns {object|null}  comparison_metrics o null si no hay comparables.
  */
-export function buildComparisonMetrics({ currentGlobal, comparableSessions, sectionSlug }) {
+export function buildComparisonMetrics({ currentGlobal, comparableSessions, sectionSlug, currentAdaptiveLevel = null }) {
   const reference = pickMostRecentComparable(comparableSessions);
   if (!reference) return null;
   if (!currentGlobal || typeof currentGlobal !== "object") return null;
@@ -109,7 +112,28 @@ export function buildComparisonMetrics({ currentGlobal, comparableSessions, sect
     accuracy: Object.freeze(buildMetric(curAcc, prvAcc, "accuracy")),
     completion_rate: Object.freeze(buildMetric(curCmp, prvCmp, "completion")),
     mean_latency_ms: Object.freeze(buildMetric(curLat, prvLat, "latency")),
+    ...buildDifficultyLevelField(currentAdaptiveLevel, reference.adaptive_level),
   });
+}
+
+function levelOrNull(v) {
+  return Number.isInteger(v) && v >= 1 && v <= 3 ? v : null;
+}
+
+// P1 (mecanismo adaptativo): la precisión de dos sesiones armadas con
+// distinto nivel de dificultad no es directamente comparable. Se informa el
+// nivel de ambas para que el panel y observationsBuilder lo aclaren.
+//   same = true   → mismo nivel
+//   same = false  → niveles distintos
+//   same = null   → alguna de las dos es anterior al mecanismo (sin nivel)
+// Si ninguna tiene nivel (todo histórico), el campo se omite y la salida es
+// idéntica a la previa al mecanismo adaptativo.
+function buildDifficultyLevelField(currentRaw, previousRaw) {
+  const current = levelOrNull(currentRaw);
+  const previous = levelOrNull(previousRaw);
+  if (current === null && previous === null) return {};
+  const same = current !== null && previous !== null ? current === previous : null;
+  return { difficulty_level: Object.freeze({ current, previous, same }) };
 }
 
 export const COMPARISON_THRESHOLDS = THRESHOLDS;

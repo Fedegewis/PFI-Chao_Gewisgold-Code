@@ -301,11 +301,32 @@ function fmtMsDelta(deltaMs) {
   return `${sign}${(n / 1000).toFixed(2).replace(".", ",")} s`;
 }
 
+// P1 (mecanismo adaptativo): describe el nivel de dificultad de ambas
+// sesiones. Devuelve null cuando la comparación es anterior al mecanismo.
+function formatDifficultyLevelRow(level) {
+  if (!level || typeof level !== "object") return null;
+  const fmt = (v) => (Number.isInteger(v) ? `nivel ${v}` : "sin nivel registrado");
+  let note;
+  if (level.same === true) note = "Ambas sesiones tienen el mismo nivel de dificultad.";
+  else if (level.same === false) note = "Las sesiones tienen distinto nivel de dificultad: la variación de precisión no es directamente comparable.";
+  else note = "Una de las sesiones no tiene nivel de dificultad registrado: la variación de precisión no es directamente comparable.";
+  return {
+    metric: "difficulty_level",
+    label: "Nivel de dificultad",
+    text: `Actual ${fmt(level.current)}, anterior ${fmt(level.previous)}. ${note}`,
+  };
+}
+
 export function formatComparisonMetrics(cm) {
   if (!cm || typeof cm !== "object") return [];
   const rows = [];
+  const levelRow = formatDifficultyLevelRow(cm.difficulty_level);
+  if (levelRow) rows.push(levelRow);
+  const levelsComparable = !cm.difficulty_level || cm.difficulty_level.same === true;
   if (cm.accuracy && cm.accuracy.direction) {
-    const dirLabel = DIRECTION_LABELS[cm.accuracy.direction] || cm.accuracy.direction;
+    const dirLabel = levelsComparable
+      ? DIRECTION_LABELS[cm.accuracy.direction] || cm.accuracy.direction
+      : "no directamente comparable";
     rows.push({
       metric: "accuracy",
       label: "Precisión",

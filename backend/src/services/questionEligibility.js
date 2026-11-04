@@ -49,7 +49,7 @@ export async function countEligibleQuestions(dbOrTrx, sectionId, domainSlugs) {
 export async function listEligibleQuestions(dbOrTrx, sectionId, domainSlugs) {
   const query = dbOrTrx.queryBuilder();
   baseEligibleQuery(query, sectionId, domainSlugs);
-  const cols = ["q.id", "q.prompt", "q.stimulus", "q.response_type", "q.options", "q.correct_answer"];
+  const cols = ["q.id", "q.prompt", "q.stimulus", "q.response_type", "q.options", "q.correct_answer", "q.difficulty"];
   if (hasDomainFilter(domainSlugs)) {
     query.distinct(cols);
   } else {

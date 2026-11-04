@@ -76,7 +76,27 @@ export function buildObservations(context) {
   const cm = context.comparison_metrics;
   if (cm) {
     const acc = cm.accuracy;
-    if (acc && acc.direction === "subió") {
+    // P1 (mecanismo adaptativo): si las sesiones no comparten nivel de
+    // dificultad, la diferencia de precisión no se describe como subida ni
+    // bajada. same=null → una de las dos es anterior al mecanismo.
+    const level = cm.difficulty_level;
+    const levelsDiffer = level && level.same === false;
+    const levelUnknown = level && level.same === null;
+    if (acc && acc.direction !== "sin_datos" && levelsDiffer) {
+      observations.push(
+        "La sesión anterior comparable se realizó con un nivel de dificultad distinto, por lo que la diferencia de precisión no es directamente comparable."
+      );
+      follow_up.push(
+        "Considerar la diferencia de nivel de dificultad al revisar la evolución de la precisión entre sesiones."
+      );
+    } else if (acc && acc.direction !== "sin_datos" && levelUnknown) {
+      observations.push(
+        "Una de las sesiones comparadas no tiene un nivel de dificultad registrado, por lo que la diferencia de precisión no es directamente comparable."
+      );
+      follow_up.push(
+        "Considerar que las sesiones comparadas pueden diferir en la dificultad de sus preguntas."
+      );
+    } else if (acc && acc.direction === "subió") {
       observations.push(
         "La precisión fue superior a la de una sesión anterior comparable de la misma actividad."
       );
