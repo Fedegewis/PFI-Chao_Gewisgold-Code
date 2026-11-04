@@ -1,6 +1,7 @@
 import { AlertTriangle, Info, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
+  MEDICAL_DISCLAIMER_COMPACT,
   MEDICAL_DISCLAIMER_FULL_TEXT,
   MEDICAL_DISCLAIMER_LINK_LABEL,
   MEDICAL_DISCLAIMER_NOTE,
@@ -106,10 +107,10 @@ function useDisclaimerModal() {
 
 // Banner compacto (Capa B). Para pantallas principales (PatientScreen,
 // BackendPatientDetail). Incluye enlace "Ver aviso legal completo" que abre el modal.
-export function MedicalDisclaimerBanner({ className = "" }) {
+export function MedicalDisclaimerBanner({ className = "", compact = false }) {
   const { open, openModal, close, triggerRef } = useDisclaimerModal();
   const titleId = useId();
-  const classes = ["medical-disclaimer", "medical-disclaimer--banner", className]
+  const classes = ["medical-disclaimer", "medical-disclaimer--banner", compact && "medical-disclaimer--compact", className]
     .filter(Boolean)
     .join(" ");
   return (
@@ -117,7 +118,7 @@ export function MedicalDisclaimerBanner({ className = "" }) {
       <aside className={classes} role="note" aria-label="Aviso legal y limitaciones de uso">
         <AlertTriangle size={18} aria-hidden="true" />
         <p className="medical-disclaimer-text">
-          {MEDICAL_DISCLAIMER_SHORT}{" "}
+          {compact ? MEDICAL_DISCLAIMER_COMPACT : MEDICAL_DISCLAIMER_SHORT}{" "}
           <button
             type="button"
             ref={triggerRef}

@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowLeft, Bot, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { heuristicDifficulty } from "../ai.js";
 import { COMPLETION_MESSAGES } from "../constants/appConfig.js";
 import { ACTIVITY_DRAFT_MESSAGE } from "../constants/content.js";
@@ -47,6 +47,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
   const usingBackend = Boolean(backendPool);
   const pool = usingBackend ? backendPool : activity.questions;
   const sessionLength = usingBackend ? backendPool.length : Math.min(patient.maxQuestions, pool.length);
+  const nextHintId = useId();
   const [initialState] = useState(() => {
     if (usingBackend) {
       return { sequence: [0], answers: [], level: 0 };
@@ -343,6 +344,7 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
                   onClick={goNext}
                   className="primary"
                   disabled={selected === undefined || submitting || starting || completing}
+                  aria-describedby={selected === undefined ? nextHintId : undefined}
                 >
                   {completing
                     ? "Finalizando..."
@@ -353,6 +355,11 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
                         : (isLast ? "Finalizar sesión" : "Siguiente")}
                 </button>
               </div>
+              {/* Ayuda visible sólo en mobile (CSS); en escritorio queda oculta
+                  pero sigue describiendo el botón deshabilitado. */}
+              {selected === undefined && (
+                <p id={nextHintId} className="next-hint">Elegí una opción para continuar.</p>
+              )}
             </>
           )}
         </div>

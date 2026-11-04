@@ -106,6 +106,7 @@ textarea { min-height: 150px; resize: vertical; }
 .mood-chip:hover .mood-face { transform: scale(1.02); }
 .mood-chip--selected { border-color: #3f7d68; background: #e4ecdf; box-shadow: 0 6px 18px rgba(63, 125, 104, 0.18); }
 .mood-chip--selected .mood-face { background: #3f7d68; color: white; transform: scale(1.02); }
+.mood-clear { display: inline-flex; margin-top: 10px; }
 @media (prefers-reduced-motion: reduce) { .mood-chip, .mood-face, .mood-chip--selected { animation: none !important; transition: none !important; } .mood-chip:hover, .mood-chip:hover .mood-face, .mood-chip--selected .mood-face { transform: none; } }
 
 .week-summary { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 18px; margin: 8px 0 14px; padding: 14px; border-radius: 12px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.7)); }
@@ -510,4 +511,176 @@ textarea { min-height: 150px; resize: vertical; }
   .activity-prompt .session-card { margin-top: 12px; padding: 10px 12px; gap: 2px; }
   .activity-prompt .session-card p { display: none; }
   .activity-prompt .session-card span:last-child { display: none; }
+}
+
+/* ==========================================================================
+   MA-MOBILE — Accesibilidad y UX mobile para adultos mayores (≤ 760 px).
+   Rama feature/mobile-accessibility-ux. Trazabilidad con la auditoría mobile
+   (pasos 1–11). Todo lo visual vive dentro de la media query; fuera de ella
+   sólo hay reglas que no se renderizan en escritorio (.next-hint).
+   ========================================================================== */
+/* Ayuda junto a "Siguiente" deshabilitado: oculta en escritorio, pero sigue
+   disponible como descripción accesible (aria-describedby). */
+.next-hint { display: none; }
+
+@media (max-width: 760px) {
+  /* Paso 1 — Encabezado compacto (marca arriba, navegación en una fila). */
+  .app-inner { padding: 12px; gap: 12px; }
+  .topbar { gap: 8px; padding: 10px 12px; }
+  .brand { gap: 10px; min-height: 44px; }
+  .brand span { width: 40px; height: 40px; }
+  .brand span svg { width: 24px; height: 24px; }
+  .brand strong { font-size: 1.125rem; }
+  /* El mínimo en em hace que, con texto agrandado, los botones pasen a menos
+     columnas en lugar de desbordar. */
+  nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.1em), 1fr)); gap: 8px; }
+  nav button { flex-direction: column; gap: 2px; min-height: 48px; padding: 4px 6px; font-size: 0.9375rem; line-height: 1.2; }
+
+  /* Paso 6 — Foco más visible (10:1 sobre los fondos claros). */
+  :focus-visible { outline-color: #30442a; }
+
+  /* Paso 2 — Pantalla del paciente: actividades lo antes posible.
+     Orden visual: saludo, aviso compacto, ánimo, actividades, progreso. */
+  .patient-layout { gap: 12px; }
+  .patient-main { display: flex; flex-direction: column; gap: 10px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .patient-main > * { margin-top: 0; margin-bottom: 0; }
+  .patient-main > .garden-welcome { order: -1; }
+  .patient-main > .garden-strip { order: 2; }
+  .garden-welcome { padding: 0 2px; border: 0; background: transparent; box-shadow: none; color: #1e411c; font-size: 1.25rem; font-weight: 800; line-height: 1.3; }
+
+  /* Paso 4 — Aviso médico compacto antes de las actividades. */
+  .medical-disclaimer--compact { padding: 8px 12px; gap: 8px; border-left-width: 3px; }
+  .medical-disclaimer--compact .medical-disclaimer-text { font-size: 0.875rem; line-height: 1.45; color: #30442a; }
+  .medical-disclaimer-trigger, .medical-disclaimer-link { color: #3f5639; }
+
+  /* Paso 3 — Estado de ánimo compacto (pastillas de 48 px, sin scroll). */
+  .patient-mood-mobile { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; column-gap: 8px; row-gap: 6px; padding: 10px 12px; }
+  .patient-mood-mobile h3 { margin: 0; font-size: 1.0625rem; line-height: 1.3; }
+  .patient-mood-mobile .mood-grid { order: 2; display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin: 2px 0 0; padding: 0; overflow: visible; }
+  .patient-mood-mobile .mood-chip { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 48px; padding: 4px 10px 4px 4px; border-color: #7d8f77; border-radius: 999px; }
+  .patient-mood-mobile .mood-chip strong { font-size: 0.9375rem; font-weight: 800; letter-spacing: 0; }
+  .patient-mood-mobile .mood-face { width: 30px; height: 30px; flex-shrink: 0; }
+  .patient-mood-mobile .mood-face svg { width: 26px; height: 26px; }
+  .patient-mood-mobile .mood-chip--selected { border-width: 3px; border-color: #3f7d68; padding: 3px 9px 3px 3px; background: #e4ecdf; }
+  .patient-mood-mobile .mood-clear { order: 1; margin-top: 0; font-size: 0.9375rem; }
+
+  /* Títulos de la lista de actividades. */
+  .section-head { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+  .section-head .eyebrow { display: none; }
+  .section-head h2 { font-size: 1.5rem; line-height: 1.15; }
+  .streak-pill { padding: 4px 10px; font-size: 0.9375rem; white-space: normal; }
+  .patient-main .ai-hint, .patient-main .error-box { font-size: 1rem; }
+
+  /* Paso 5 — Tarjetas de actividades: jerarquía tipográfica legible. */
+  .activity-grid { gap: 12px; }
+  /* flex-wrap + base en em: con texto agrandado el contenido baja debajo del
+     ícono en lugar de desbordar la tarjeta. */
+  .activity-card { flex-wrap: wrap; min-height: 0; padding: 14px 16px; gap: 12px; }
+  .activity-copy { flex: 1 1 10em; }
+  .activity-card h3, .activity-card p, .question-text, .answer-button { overflow-wrap: break-word; hyphens: auto; }
+  .activity-card .activity-icon { width: 44px; height: 44px; }
+  .activity-status { margin-bottom: 6px; padding: 3px 10px; font-size: 0.875rem; font-weight: 800; letter-spacing: 0.02em; text-transform: none; }
+  .activity-card h3 { font-size: 1.375rem; line-height: 1.2; }
+  .activity-card p { font-size: 1.0625rem; line-height: 1.45; }
+  .done-badge, .start-button { margin-top: 10px; padding: 8px 14px; font-size: 1rem; }
+
+  /* Paso 10 — Progreso del día compacto: una fila de indicadores. Las
+     etiquetas Completada/Hoy/Pendiente quedan para lectores de pantalla;
+     el estado visual se distingue por la forma del ícono, no por color. */
+  .garden-strip { gap: 8px; padding: 12px 14px; }
+  .garden-strip .eyebrow { display: none; }
+  .garden-strip h1 { font-size: 1.125rem; line-height: 1.25; }
+  .plant-row { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; }
+  .plant-pot { min-height: 40px; padding: 4px 0; place-items: center; justify-items: center; }
+  .plant-pot svg { width: 22px; height: 22px; }
+  .plant-pot span { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+  /* Aside del paciente (métricas y progreso semanal) y footer. */
+  .medical-disclaimer-note { font-size: 0.9375rem; }
+  /* Anillos y resumen semanal escalan con el tamaño de texto (rem/em). */
+  .performance-ring { width: 8.75rem; height: 8.75rem; }
+  .week-summary { display: flex; flex-wrap: wrap; justify-content: center; }
+  .week-meta { flex: 1 1 7.5em; }
+  .performance-panel { grid-template-columns: minmax(0, 1fr); }
+  .performance-head { flex-wrap: wrap; }
+  .patient-aside h3 { overflow-wrap: break-word; hyphens: auto; }
+  .week-active { font-size: 1rem; }
+  .week-dot-slot small, .week-ring-center span { font-size: 0.875rem; }
+  .link-button { min-height: 44px; }
+  .medical-disclaimer-text .link-button { min-height: 0; }
+  .medical-disclaimer-link { font-size: 1rem; }
+  .footer-meta p, .footer-legal p, .footer-brand small { font-size: 0.9375rem; }
+  .footer-label { font-size: 0.875rem; }
+  .footer-brand > div { min-width: 0; }
+  .footer-brand strong, .footer-brand small, .footer-legal p { overflow-wrap: anywhere; }
+
+  /* Paso 6 — Contraste de bordes de controles (≥ 3:1 contra blanco). */
+  input, textarea { border-color: #7d8f77; }
+  .answer-button { border-color: #7d8f77; }
+  .login-divider { color: #52624d; }
+
+  /* Pasos 7/8 — Pantalla de actividad: cabecera compacta, sin progreso
+     repetido, opciones más arriba y selección claramente visible. */
+  .activity-panel { padding: 12px; }
+  .back-link { margin-bottom: 8px; }
+  .activity-layout { gap: 14px; }
+  .activity-prompt { padding: 12px 14px; }
+  .activity-prompt > p:first-child { margin: 0; font-size: 1rem; }
+  .activity-prompt h1 { margin-top: 2px; }
+  .activity-prompt .session-progress { margin-top: 10px; }
+  .activity-prompt .chip-row { margin-top: 10px; }
+  .activity-prompt .chip-row .status-chip:nth-child(n + 2) { display: none; }
+  .activity-prompt .status-chip { background: rgba(23, 33, 20, 0.38); font-size: 0.9375rem; }
+  /* "Respondidas X/Y" y "Pregunta N" duplican "Pregunta N de M": quedan
+     visualmente ocultos pero disponibles para lectores de pantalla. */
+  .activity-prompt .session-card, .question-header h2 { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .question-header > span { display: none; }
+  .question-text { margin: 4px 0 14px; font-size: 1.3125rem; line-height: 1.45; }
+  .stimulus-instruction { color: #3f5639; font-size: 1.0625rem; }
+  .answer-grid { gap: 12px; }
+  .answer-button { min-height: 64px; padding: 12px; gap: 12px; font-size: 1.1875rem; font-weight: 700; line-height: 1.35; }
+  .answer-button span { width: 40px; height: 40px; font-weight: 800; }
+  .answer-selected, .answer-good, .answer-review { border-width: 3px; padding: 11px; }
+  .answer-selected { border-color: #3f7d68; background: #e4ecdf; }
+  .answer-selected span { background: #3f7d68; color: white; }
+  .answer-good { border-color: #617a58; }
+  .answer-review { border-color: #a0715a; }
+  .activity-actions { margin-top: 14px; }
+  .activity-actions .primary { min-height: 56px; font-size: 1.125rem; }
+  .next-hint { display: block; margin: 8px 0 0; color: #3f5639; font-size: 1rem; font-weight: 700; text-align: center; }
+  .feedback-box { font-size: 1.0625rem; }
+
+  /* Paso 9 — Login sin desborde en 320 px y con el formulario más arriba. */
+  .login-layout { gap: 12px; padding-top: 0; }
+  .login-copy { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 4px 2px; }
+  .login-copy .eyebrow:empty { display: none; }
+  .login-copy h1 { font-size: clamp(2rem, 10vw, 2.5rem); line-height: 1.05; overflow-wrap: anywhere; }
+  .login-copy > p { font-size: 1.0625rem; line-height: 1.45; }
+  .motivation-banner { padding: 10px 14px; font-size: 1rem; line-height: 1.4; }
+  .login-panel { gap: 16px; padding: 16px; }
+  .login-tabs { grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5em), 1fr)); gap: 8px; }
+  .login-title svg { width: 28px; height: 28px; flex-shrink: 0; }
+  .login-title h2 { font-size: 1.625rem; line-height: 1.2; }
+  .login-panel label { font-size: 1.0625rem; font-weight: 700; color: #30442a; }
+  .login-panel input { font-size: 1.125rem; }
+  .login-panel .primary { font-size: 1.125rem; }
+  .login-panel .error-box { font-size: 1rem; }
+}
+
+/* Teléfonos muy angostos (≤ 360 px): la navegación entra en una sola fila. */
+@media (max-width: 360px) {
+  nav { grid-template-columns: repeat(auto-fit, minmax(min(100%, 5.4em), 1fr)); gap: 6px; }
+  nav button { padding: 4px 2px; font-size: 0.875rem; }
+  .login-tabs button { gap: 6px; padding: 8px 6px; }
+}
+
+/* Paso 11 — Táctil: evitar estados hover "pegados" tras un toque. */
+@media (max-width: 760px) and (hover: none) {
+  .activity-card:hover { transform: none; border-color: rgba(97, 122, 88, 0.34); }
+  .activity-recommended:hover { border-color: #617a58; }
+  .activity-completed:hover { border-color: #9dc88b; }
+  .mood-chip:hover, .mood-chip:hover .mood-face { transform: none; }
+  .mood-chip:hover { border-color: #d5decf; }
+  .patient-mood-mobile .mood-chip:hover { border-color: #7d8f77; }
+  .mood-chip--selected:hover, .patient-mood-mobile .mood-chip--selected:hover { border-color: #3f7d68; }
 }

@@ -7,6 +7,7 @@ import { PerformancePanel } from "../components/patient/PerformancePanel.jsx";
 import { ProgressPanel } from "../components/patient/ProgressPanel.jsx";
 import { MedicalDisclaimerBanner } from "../components/common/MedicalDisclaimer.jsx";
 import { ACTIVITY_TO_SECTION_SLUG } from "../constants/appConfig.js";
+import { useIsMobileLayout } from "../hooks/useMediaQuery.js";
 
 function computeStreak(weeklyProgress) {
   const today = new Date().getDay();
@@ -45,12 +46,19 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
   const streak = computeStreak(patient.weeklyProgress);
   const { startable: visibleActivities, hiddenCount } = filterStartableActivities(activities, availableSections);
   const noneAvailable = availableSections && visibleActivities.length === 0;
+  // Mobile: el estado de ánimo se muestra ANTES de las actividades (se envía
+  // como patient_reported_mood al iniciar la sesión). Se renderiza una sola
+  // instancia de MoodPanel: en escritorio sigue en el aside, sin cambios.
+  const isMobile = useIsMobileLayout();
+  const firstName = patient.name.split(" ")[0];
+  const moodPanel = <MoodPanel patient={patient} onUpdatePatient={onUpdatePatient} className={isMobile ? "patient-mood-mobile" : undefined} />;
 
   return (
     <div className="patient-layout">
       <section className="panel patient-main" aria-label="Actividades del paciente">
-        <MedicalDisclaimerBanner />
-        <div className="garden-welcome"><span>Hola, {patient.name.split(" ")[0]}. {motivationMessage}</span></div>
+        <MedicalDisclaimerBanner compact={isMobile} />
+        <div className="garden-welcome"><span>{isMobile ? `Hola, ${firstName}.` : <>Hola, {firstName}. {motivationMessage}</>}</span></div>
+        {isMobile && moodPanel}
         <GardenStrip activities={visibleActivities} completedIds={patient.completed} />
         <div className="section-head"><div><p className="eyebrow">Tu entrenamiento de hoy</p><h2>Actividades disponibles</h2></div><span className="streak-pill">Continuidad: {streak} {streak === 1 ? "día" : "días"}</span></div>
         {activityStartError && (
@@ -81,7 +89,7 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
           availableSectionsError={availableSectionsError}
           isBackendPatient={isBackendPatient}
         />
-        <MoodPanel patient={patient} onUpdatePatient={onUpdatePatient} />
+        {!isMobile && moodPanel}
         <ProgressPanel patient={patient} completedCount={completedCount} />
       </aside>
     </div>

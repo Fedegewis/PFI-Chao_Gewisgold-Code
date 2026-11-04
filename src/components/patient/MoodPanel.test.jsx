@@ -82,6 +82,20 @@ describe("MoodPanel — H-S2", () => {
     expect(screen.getByRole("button", { name: /Prefiero no indicar/i })).toBeDisabled();
   });
 
+  test("cada instancia usa un id propio para el encabezado (useId, sin IDs duplicados)", () => {
+    render(
+      <>
+        <MoodPanel patient={basePatient()} onUpdatePatient={() => {}} />
+        <MoodPanel patient={basePatient({ id: "p2" })} onUpdatePatient={() => {}} className="patient-mood-mobile" />
+      </>
+    );
+    const groups = screen.getAllByRole("group", { name: "¿Cómo te sentís hoy?" });
+    expect(groups).toHaveLength(2);
+    const ids = groups.map((g) => g.getAttribute("aria-labelledby"));
+    expect(new Set(ids).size).toBe(2);
+    expect(document.querySelector(".patient-mood-mobile")).not.toBeNull();
+  });
+
   test("mood seleccionado hoy sí aparece como seleccionado", () => {
     const patient = basePatient({
       mood: "alegria",
