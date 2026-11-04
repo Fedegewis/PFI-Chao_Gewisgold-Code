@@ -562,7 +562,9 @@ textarea { min-height: 150px; resize: vertical; }
   .patient-mood-mobile .mood-face { width: 30px; height: 30px; flex-shrink: 0; }
   .patient-mood-mobile .mood-face svg { width: 26px; height: 26px; }
   .patient-mood-mobile .mood-chip--selected { border-width: 3px; border-color: #3f7d68; padding: 3px 9px 3px 3px; background: #e4ecdf; }
-  .patient-mood-mobile .mood-clear { order: 1; margin-top: 0; font-size: 0.9375rem; }
+  /* "Prefiero no indicar" se muestra DESPUÉS de las opciones, igual que en
+     el DOM: el orden visual coincide con el orden de foco (WCAG 2.4.3). */
+  .patient-mood-mobile .mood-clear { order: 3; margin-top: 0; font-size: 0.9375rem; }
 
   /* Títulos de la lista de actividades. */
   .section-head { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
@@ -601,8 +603,17 @@ textarea { min-height: 150px; resize: vertical; }
   .performance-ring { width: 8.75rem; height: 8.75rem; }
   .week-summary { display: flex; flex-wrap: wrap; justify-content: center; }
   .week-meta { flex: 1 1 7.5em; }
+  /* El anillo semanal escala con el texto: 8.25rem = 132 px con texto normal
+     (igual que antes); al 200 % crece junto con "Semana" en lugar de
+     desbordarse. max-width evita que supere el ancho disponible. */
+  .week-ring { max-width: 100%; }
+  .week-ring svg { display: block; width: 8.25rem; max-width: 100%; height: auto; }
   .performance-panel { grid-template-columns: minmax(0, 1fr); }
   .performance-head { flex-wrap: wrap; }
+  /* Al 200 % "rendimiento" no entra en 320 px: el bloque de texto puede
+     achicarse para que el título corte palabra (hyphens/break-word del aside)
+     en lugar de desbordar la página. */
+  .performance-head > div { min-width: 0; }
   .patient-aside h3 { overflow-wrap: break-word; hyphens: auto; }
   .week-active { font-size: 1rem; }
   .week-dot-slot small, .week-ring-center span { font-size: 0.875rem; }

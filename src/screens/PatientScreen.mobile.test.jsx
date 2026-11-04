@@ -1,10 +1,17 @@
 // Mobile (≤ 760 px): el estado de ánimo se muestra antes de las actividades,
 // con una sola instancia de MoodPanel (sin estados ni IDs duplicados), y el
 // aviso médico usa la variante compacta. En escritorio nada cambia.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { MEDICAL_DISCLAIMER_COMPACT, MEDICAL_DISCLAIMER_SHORT } from "../constants/legal.js";
+import {
+  MEDICAL_DISCLAIMER_COMPACT,
+  MEDICAL_DISCLAIMER_FULL_TEXT,
+  MEDICAL_DISCLAIMER_SHORT,
+  MEDICAL_DISCLAIMER_TITLE,
+} from "../constants/legal.js";
 import { activities } from "../data/activities.js";
 import { MOBILE_LAYOUT_QUERY } from "../hooks/useMediaQuery.js";
 import { createPatient } from "../services/patientService.js";
@@ -77,6 +84,49 @@ describe("PatientScreen — layout mobile", () => {
     renderScreen();
     const aside = screen.getByRole("complementary", { name: "Panel del paciente" });
     expect(within(aside).getByRole("group", { name: "¿Cómo te sentís hoy?" })).toBeInTheDocument();
+  });
+
+  test("mobile: el aviso legal completo se abre desde el aviso compacto", async () => {
+    mockMatchMedia(true);
+    const user = userEvent.setup();
+    renderScreen();
+    await user.click(screen.getByRole("button", { name: "Ver aviso legal completo" }));
+    const dialog = screen.getByRole("dialog", { name: MEDICAL_DISCLAIMER_TITLE });
+    expect(within(dialog).getByText(MEDICAL_DISCLAIMER_FULL_TEXT)).toBeInTheDocument();
+  });
+
+  test("mobile: con teclado, 'Prefiero no indicar' recibe el foco DESPUÉS de las opciones", async () => {
+    mockMatchMedia(true);
+    const user = userEvent.setup();
+    const patient = { ...PATIENT, mood: "bien", moodSelectedAt: new Date().toISOString() };
+    renderScreen({ patient });
+    const group = screen.getByRole("group", { name: "¿Cómo te sentís hoy?" });
+    const chips = within(group).getAllByRole("button");
+    const clear = screen.getByRole("button", { name: /Prefiero no indicar/ });
+    expect(clear).toBeEnabled();
+    chips[0].focus();
+    for (let i = 1; i < chips.length; i += 1) {
+      await user.tab();
+      expect(chips[i]).toHaveFocus();
+    }
+    await user.tab();
+    expect(clear).toHaveFocus();
+    // Sin tabIndex positivos en el panel.
+    const panel = group.closest(".patient-mood-mobile");
+    const positive = [...panel.querySelectorAll("[tabindex]")].filter((el) => Number(el.getAttribute("tabindex")) > 0);
+    expect(positive).toHaveLength(0);
+  });
+
+  test("CSS mobile: 'Prefiero no indicar' se ubica visualmente después de las opciones (mismo orden que el DOM)", () => {
+    // jsdom no aplica CSS: se verifica la regla en la hoja de estilos para que
+    // el orden visual no vuelva a adelantarse al orden de foco.
+    const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+    const orderOf = (selector) => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = css.match(new RegExp(`${escaped}\\s*\\{[^}]*\\border:\\s*(-?\\d+)`));
+      return match ? Number(match[1]) : 0;
+    };
+    expect(orderOf(".patient-mood-mobile .mood-clear")).toBeGreaterThan(orderOf(".patient-mood-mobile .mood-grid"));
   });
 
   test("mobile: elegir un estado de ánimo usa el mismo onUpdatePatient (estado único)", async () => {
