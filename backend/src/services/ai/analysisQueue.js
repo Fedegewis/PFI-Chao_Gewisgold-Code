@@ -180,7 +180,20 @@ const GLOBAL_CLAIM_LOCK_KEY2 = crypto
 // ------------------------------------------------------------------
 // Query de pendientes (FIFO). Devuelve el id de la primera sesión
 // candidata, o null. No toma el lock; eso lo hace claimNextSession.
+//
+// Pedido explícito de regeneración (migración 022): si
+// sessions.analysis_regeneration_requested_at no es NULL, los análisis ok
+// ANTERIORES al pedido no excluyen a la sesión, y los topes de intentos
+// fallidos se cuentan desde el pedido. Para las sesiones sin pedido (NULL)
+// todas las condiciones son idénticas a las de antes.
 // ------------------------------------------------------------------
+
+const REQUESTED_AT = "s.analysis_regeneration_requested_at";
+// Un ok "atiende" a la sesión si no hay pedido o si es posterior al pedido.
+const OK_SATISFIES = (alias) => `(${REQUESTED_AT} IS NULL OR ${alias}.created_at >= ${REQUESTED_AT})`;
+// Los fallos cuentan para los topes sólo desde el último pedido.
+const FAILED_SINCE_REQUEST = (alias) =>
+  `${alias}.created_at >= COALESCE(${REQUESTED_AT}, '-infinity'::timestamptz)`;
 
 async function findNextPendingSessionId(
   dbOrTrx,
@@ -198,6 +211,7 @@ async function findNextPendingSessionId(
         .andWhere("sa_ok.model", model)
         .andWhere("sa_ok.schema_version", schemaVersion)
         .andWhere("sa_ok.prompt_version", promptVersion)
+        .andWhereRaw(OK_SATISFIES("sa_ok"))
     )
     .whereNotExists((qb) =>
       qb.from("session_analyses as sa_g")
@@ -210,14 +224,16 @@ async function findNextPendingSessionId(
     .whereRaw(
       "(SELECT COUNT(*) FROM session_analyses sa_f " +
       "WHERE sa_f.session_id = s.id AND sa_f.model = ? AND sa_f.schema_version = ? AND sa_f.prompt_version = ? " +
-      `AND sa_f.status = 'failed' AND sa_f.error_code IN (${generationCodes.map(() => "?").join(",")})) < ?`,
+      `AND sa_f.status = 'failed' AND ${FAILED_SINCE_REQUEST("sa_f")} ` +
+      `AND sa_f.error_code IN (${generationCodes.map(() => "?").join(",")})) < ?`,
       [model, schemaVersion, promptVersion, ...generationCodes, maxGenerationAttempts]
     )
     // Reintentos transitorios: cap defensivo mucho más alto.
     .whereRaw(
       "(SELECT COUNT(*) FROM session_analyses sa_f " +
       "WHERE sa_f.session_id = s.id AND sa_f.model = ? AND sa_f.schema_version = ? AND sa_f.prompt_version = ? " +
-      `AND sa_f.status = 'failed' AND sa_f.error_code IN (${transientCodes.map(() => "?").join(",")})) < ?`,
+      `AND sa_f.status = 'failed' AND ${FAILED_SINCE_REQUEST("sa_f")} ` +
+      `AND sa_f.error_code IN (${transientCodes.map(() => "?").join(",")})) < ?`,
       [model, schemaVersion, promptVersion, ...transientCodes, maxTransientAttempts]
     )
     // Cooldown post-fallo (indistinto de categoría).
@@ -228,15 +244,20 @@ async function findNextPendingSessionId(
       `AND sa_c.created_at > NOW() - INTERVAL '${Number(cooldownMs)} milliseconds')`,
       [model, schemaVersion, promptVersion]
     )
-    .orderBy("s.completed_at", "asc")
+    // FIFO: una sesión con pedido de regeneración se ordena por el momento
+    // del pedido (no por su completed_at original), para no adelantarse a
+    // sesiones recién completadas que todavía no tienen análisis.
+    .orderByRaw(`COALESCE(${REQUESTED_AT}, s.completed_at) ASC, s.id ASC`)
     .select("s.id as session_id", "s.completed_at");
   if (!regenerateOutdated) {
-    // Sólo sesiones sin NINGÚN análisis ok (de cualquier versión).
+    // Sólo sesiones sin NINGÚN análisis ok (de cualquier versión), salvo que
+    // el profesional haya pedido regenerar después de ese ok.
     query.whereNotExists((qb) =>
       qb.from("session_analyses as sa_any")
         .select(1)
         .whereRaw("sa_any.session_id = s.id")
         .andWhere("sa_any.status", "ok")
+        .andWhereRaw(OK_SATISFIES("sa_any"))
     );
   }
   const row = await query.first();
@@ -258,6 +279,66 @@ async function reapExpiredLeases(dbOrTrx) {
       lease_expires_at: null,
       claim_token: null,
     });
+}
+
+// ------------------------------------------------------------------
+// Pedido explícito de regeneración (modo deferred).
+//
+// getRegenerationState: estado del último pedido de una sesión.
+//   - none:    no hay pedido, o ya lo atendió un análisis ok posterior.
+//   - pending: el pedido espera al worker (o el worker lo está procesando).
+//   - failed:  se agotaron los intentos desde el pedido; el profesional
+//              puede volver a pedirlo.
+// Usa los mismos topes que la cola (MAX_GENERATION_ATTEMPTS y
+// MAX_TRANSIENT_ATTEMPTS) contados desde el pedido.
+//
+// requestRegeneration: registra el pedido. Idempotente mientras haya uno
+// pendiente (no reinicia el cupo de intentos ni la posición en la cola);
+// si no había pedido, ya fue atendido o falló, registra uno nuevo.
+// ------------------------------------------------------------------
+
+export async function getRegenerationState(dbOrTrx, sessionId, deps = {}) {
+  const cfg = { ...readConfig(), ...(deps.configOverrides || {}) };
+  const row = await dbOrTrx("sessions")
+    .where({ id: sessionId })
+    .first("analysis_regeneration_requested_at as requested_at");
+  const requestedAt = row?.requested_at || null;
+  if (!requestedAt) return { state: "none", requested_at: null };
+
+  const okAfter = await dbOrTrx("session_analyses")
+    .where({ session_id: sessionId, status: "ok" })
+    .andWhere("created_at", ">=", requestedAt)
+    .first("id");
+  if (okAfter) return { state: "none", requested_at: requestedAt };
+
+  const counts = await dbOrTrx("session_analyses")
+    .where({
+      session_id: sessionId,
+      status: "failed",
+      model: cfg.MODEL,
+      schema_version: ANALYSIS_SCHEMA_VERSION,
+      prompt_version: PROMPT_BUILDER_VERSION,
+    })
+    .andWhere("created_at", ">=", requestedAt)
+    .select(
+      dbOrTrx.raw("COUNT(*) FILTER (WHERE error_code = ANY(?)) AS generation", [[...GENERATION_ERROR_CODES]]),
+      dbOrTrx.raw("COUNT(*) FILTER (WHERE error_code = ANY(?)) AS transient", [[...TRANSIENT_ERROR_CODES]]),
+    )
+    .first();
+  const exhausted =
+    Number(counts?.generation || 0) >= cfg.MAX_GENERATION_ATTEMPTS ||
+    Number(counts?.transient || 0) >= cfg.MAX_TRANSIENT_ATTEMPTS;
+  return { state: exhausted ? "failed" : "pending", requested_at: requestedAt };
+}
+
+export async function requestRegeneration(dbOrTrx, sessionId, deps = {}) {
+  const current = await getRegenerationState(dbOrTrx, sessionId, deps);
+  if (current.state === "pending") return { created: false, ...current };
+  const [row] = await dbOrTrx("sessions")
+    .where({ id: sessionId, status: "completed" })
+    .update({ analysis_regeneration_requested_at: dbOrTrx.fn.now() })
+    .returning(["analysis_regeneration_requested_at as requested_at"]);
+  return { created: Boolean(row), state: row ? "pending" : current.state, requested_at: row?.requested_at ?? null };
 }
 
 // ------------------------------------------------------------------

@@ -191,6 +191,38 @@ describe("AnalysisAsistidoPanel", () => {
     });
   });
 
+  test("deferred: Regenerar conserva la versión anterior, avisa que quedó en cola y deshabilita el botón", async () => {
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({ source: "stored", analysis: SAMPLE_ANALYSIS });
+    vi.spyOn(analysisApi, "generateAnalysis").mockResolvedValue({ status: "deferred_pending" });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    const button = await screen.findByRole("button", { name: /Regenerar análisis/i });
+    await userEvent.click(button);
+    expect(await screen.findByTestId("regen-pending-hint")).toHaveTextContent(/se muestra la versión anterior/i);
+    expect(screen.getByText(SAMPLE_ANALYSIS.content.summary)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Regenerar análisis/i })).toBeDisabled();
+  });
+
+  test("deferred: el GET con regeneration_pending muestra el aviso de pedido en cola", async () => {
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({
+      status: "ok", source: "stored", regenerating: false, regeneration_pending: true, regeneration_failed: false,
+      analysis: SAMPLE_ANALYSIS,
+    });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    expect(await screen.findByTestId("regen-pending-hint")).toBeInTheDocument();
+    expect(screen.getByText(SAMPLE_ANALYSIS.content.summary)).toBeInTheDocument();
+  });
+
+  test("deferred: el GET con regeneration_failed muestra que se conserva la última versión", async () => {
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({
+      status: "ok", source: "stored", regenerating: false, regeneration_pending: false, regeneration_failed: true,
+      analysis: SAMPLE_ANALYSIS,
+    });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    expect(await screen.findByTestId("regen-failed-banner")).toBeInTheDocument();
+    expect(screen.queryByTestId("regen-pending-hint")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Regenerar análisis/i })).toBeEnabled();
+  });
+
   test("cambio de sesión recarga el análisis correspondiente", async () => {
     const getSpy = vi.spyOn(analysisApi, "getAnalysis").mockImplementation((id) => {
       if (id === 4333) {
