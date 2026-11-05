@@ -5,6 +5,7 @@
 import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
+import { addAnsweredQuestion } from "./helpers.js";
 
 const VALID_TOKEN = "w".repeat(48);
 process.env.WORKER_TOKEN = VALID_TOKEN;
@@ -53,14 +54,7 @@ async function makeCompletedSession(patient, professional, completedAt) {
   const [ss] = await db("session_sections")
     .insert({ session_id: session.id, section_id: sectionRow.id, requested_count: 1, display_order: 1 })
     .returning("*");
-  const [q] = await db("questions")
-    .where({ section_id: sectionRow.id, is_active: true })
-    .orderBy("id").limit(1).select("*");
-  await db("session_questions").insert({
-    session_section_id: ss.id, question_id: q.id, display_order: 1,
-    prompt_snapshot: q.prompt, options_snapshot: JSON.stringify(q.options),
-    correct_answer_snapshot: q.correct_answer ?? 0, response_type: q.response_type,
-  });
+  await addAnsweredQuestion(db, { sessionSectionId: ss.id, sectionId: sectionRow.id });
   await db("session_results").insert({
     session_id: session.id, section_id: sectionRow.id,
     total_questions: 1, answered_questions: 1, correct_count: 1,
@@ -233,6 +227,33 @@ describe("Worker queue (claim/result/failed)", () => {
     });
     const claim = await claimNextSession();
     assert.equal(claim, null, "una sesión con ok existente no se reclama");
+  });
+
+  // 3.6 (ajuste): sin ningún tipo de pregunta con respuestas puntuadas la
+  // sesión no se envía al worker: se persiste un ok determinístico.
+  it("Datos insuficientes: no emite claim y persiste un ok determinístico sin texto", async () => {
+    const s = await makeCompletedSession(patientA, profA, new Date());
+    const sqIds = db("session_questions as sq").select("sq.id")
+      .join("session_sections as ss", "ss.id", "sq.session_section_id").where("ss.session_id", s.id);
+    await db("answers").whereIn("session_question_id", sqIds).del();
+
+    const claim = await claimNextSession();
+    assert.equal(claim, null);
+    const rows = await db("session_analyses").where({ session_id: s.id });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, "ok");
+    assert.equal(rows[0].prompt_version, CURRENT_PROMPT);
+    assert.equal(rows[0].claim_token, null);
+    assert.equal(rows[0].latency_ms, null);
+    const a = rows[0].analysis;
+    assert.equal(a.synthesis_source, "deterministic");
+    assert.equal(a.synthesis_skipped_reason, "insufficient_data");
+    assert.equal(a.summary, "");
+    assert.deepEqual(a.aspects_to_review, []);
+    assert.ok(Array.isArray(a.observations) && a.observations.length > 0);
+    assert.ok(Array.isArray(a.evidence));
+    // Ya tiene un ok: no se vuelve a reclamar.
+    assert.equal(await claimNextSession(), null);
   });
 
   async function insertOkFor(sessionId, { model, promptVersion }) {
@@ -755,6 +776,11 @@ describe("Worker queue (claim/result/failed)", () => {
     assert.equal(res.body.prompt_version, CURRENT_PROMPT);
     assert.ok(res.body.lease_expires_at);
     // 3.6: el backend indica los parámetros de inferencia al worker.
-    assert.deepEqual(res.body.generation_options, { temperature: 0.2, num_predict: 900 });
+    const { format, ...options } = res.body.generation_options;
+    assert.deepEqual(options, { temperature: 0.2, num_predict: 900 });
+    // 3.6 (ajuste): JSON Schema de la salida para Ollama (structured outputs).
+    assert.equal(format.type, "object");
+    assert.equal(format.additionalProperties, false);
+    assert.equal(format.properties.paragraphs.minItems, format.properties.paragraphs.maxItems);
   });
 });

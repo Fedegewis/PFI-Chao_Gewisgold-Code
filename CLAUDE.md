@@ -558,6 +558,23 @@ profundidad sin perder seguridad. Detalle, evaluación y ejemplos completos en
   3 párrafos, 3.2 aspectos, cobertura de tipos/tiempos/información previa del
   100%. Latencia ~59 s (3.5: ~11 s). La profundidad proviene sobre todo de los
   hechos determinísticos: el 3B los redacta casi literalmente.
+- **Ajuste final 3.6** (misma versión, detalle en la sección 5 del doc):
+  - Las observaciones automáticas ya NO se envían al modelo (antes se
+    copiaban literalmente); sólo hechos en prosa (las fichas etiquetadas se
+    probaron y se descartaron: el 3B interpretaba).
+  - Hechos de balance general y de comparación con la sesión anterior
+    (comparable o "no directamente comparable" si cambia el nivel).
+  - 1 a 3 párrafos según los datos.
+  - Salida estructurada: JSON Schema en `format` de Ollama, enviado al worker
+    en `generation_options.format` (in-process y worker). El validador
+    posterior se mantiene completo.
+  - Sin ningún tipo de pregunta con respuestas puntuadas no se llama a Ollama:
+    se persiste un ok con `synthesis_source: "deterministic"` y texto vacío;
+    el panel muestra «Síntesis no generada», sin rótulo de IA.
+  - Medido (mismo setup, mismo validador): 3.6 inicial 25/30 aceptadas
+    (4 rechazos de formato, 1 de contenido); ajustada 27/27 + 3
+    determinísticas, 0 observaciones copiadas, 4.15 aspectos válidos,
+    ~59 s por intento, total estimado con reintentos 572 s vs 756 s.
 
 **v3.5 (2026-11-04, rama `fix/ai-content-safety`)**: seguridad y calidad del
 análisis tras la auditoría de los 8 análisis persistidos en producción

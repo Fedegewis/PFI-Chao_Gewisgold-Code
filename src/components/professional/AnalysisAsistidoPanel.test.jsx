@@ -835,6 +835,36 @@ describe("AnalysisAsistidoPanel", () => {
     expect(screen.queryByTestId("ai-text-withheld")).not.toBeInTheDocument();
   });
 
+  test("síntesis no generada por datos insuficientes: aviso sin marca de IA y bloques determinísticos", async () => {
+    const DETERMINISTIC_ONLY = {
+      id: 14, session_id: 4333, model: "llama3.2:3b",
+      schema_version: "3", prompt_version: "3.6", latency_ms: null,
+      created_at: "2026-11-05T15:21:00.000Z",
+      ai_text_withheld: false,
+      content: {
+        schema_version: "3",
+        summary: "",
+        aspects_to_review: [],
+        synthesis_source: "deterministic",
+        synthesis_skipped_reason: "insufficient_data",
+        activities: DETERMINISTIC_CONTEXT.activities,
+        evidence: DETERMINISTIC_CONTEXT.evidence,
+        comparison_metrics: null,
+        observations: DETERMINISTIC_CONTEXT.observations,
+        follow_up: DETERMINISTIC_CONTEXT.follow_up,
+      },
+    };
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({ source: "stored", analysis: DETERMINISTIC_ONLY });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    const notice = await screen.findByTestId("ai-synthesis-not-generated");
+    expect(notice).toHaveTextContent("No se generó una síntesis redactada para esta sesión");
+    expect(notice).not.toHaveTextContent(/IA/);
+    expect(screen.queryByTestId("block-sintesis-ia")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Síntesis del asistente IA/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ai-text-withheld")).not.toBeInTheDocument();
+    expect(screen.getByTestId("block-observaciones")).toBeInTheDocument();
+  });
+
   test("contrato legacy retenido: muestra el aviso en el cuerpo del informe", async () => {
     vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({
       source: "stored",

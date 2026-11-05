@@ -244,3 +244,97 @@ dice "informó sentirse bien". No cambia el resto del prompt.)
   vuelve a la ficha básica: más estricta, así que podría ocultar texto válido.
 - No se regeneró ningún análisis real. Los análisis existentes (3.4/3.5)
   siguen con su lógica de lectura.
+
+## 5. Ajuste final de 3.6 (calidad, formato y rendimiento)
+
+Mismo `PROMPT_VERSION` "3.6" y mismo schema de salida "3". Cambios sobre la
+primera versión de 3.6 (congelada para comparar en
+`scripts/eval/legacyPromptV36a.js` + `legacySessionFactsV36a.js`).
+
+### 5.1 Diseño
+
+- **Las observaciones automáticas ya no se envían al modelo.** El panel ya
+  las muestra como bloque determinístico; en 3.6 inicial el 100% de las
+  síntesis aceptadas repetía al menos una de forma literal (28% de las
+  oraciones). Ahora el prompt sólo recibe los hechos de `sessionFacts`.
+  Las observaciones quedan como respaldo si faltan los hechos.
+- **Hechos en prosa, no tarjetas.** Se probó pasar los datos como fichas
+  etiquetadas ("Resultado: …"). El 3B empezó a interpretar ("sugiere una
+  buena capacidad"), así que se volvió a oraciones completas y neutras.
+- **Hechos nuevos:** balance general de la sesión, preguntas sin responder,
+  y la comparación con la sesión anterior, que dice explícitamente si es
+  comparable (mismo nivel) o no. Con niveles distintos sólo se dice que la
+  diferencia "no es directamente comparable" (corrige el caso C04). La
+  dirección de la precisión y del tiempo sale de `comparison_metrics`
+  (corrige C02).
+- **Temas de seguimiento:** redacción singular cuando el tipo tuvo una sola
+  pregunta, ánimo en presente ("informado al comenzar cada sesión"), sin un
+  tema genérico de historial, y relleno con tipos todo-correcto hasta tres.
+- **Extensión proporcional:** 1 a 3 párrafos según los datos (contexto,
+  resultados, sesiones anteriores). Sin historial no se pide un párrafo de
+  historial.
+- **Salida estructurada (JSON Schema).** Ollama recibe en `format` un schema
+  con `paragraphs` de cantidad fija (minItems = maxItems), largo 20-1000
+  por párrafo y `aspects_to_review` de 0 a min(5, temas), sin campos extra.
+  Un `maxLength` más chico (700) cortaba oraciones a la mitad. El worker lo
+  recibe en `generation_options.format` (un objeto de hasta 8 KB; si no,
+  usa `"json"`). **El validador posterior se mantiene completo**: el schema
+  sólo restringe la forma.
+- **Datos insuficientes:** si ningún tipo de pregunta tuvo respuestas
+  puntuadas, no se llama a Ollama. Se persiste un `ok` con
+  `synthesis_source: "deterministic"`, `summary: ""`, `aspects_to_review: []`
+  y `synthesis_skipped_reason: "insufficient_data"`. El panel muestra
+  «Síntesis no generada» sin ícono ni rótulo de IA; los bloques
+  determinísticos siguen visibles. En lectura, un contenido así se devuelve
+  siempre sin texto (aunque se hubiera alterado la fila).
+- **Validador (ajustes, sin quitar protecciones):**
+  - falso positivo de C02 en oraciones con dos grupos ("en las de X …
+    mientras que en las de Y …");
+  - aspectos que comparan con sesiones anteriores sin base comparable
+    (`non_comparable_sessions`) o que no nombran ningún dato de la sesión
+    (`generic_aspect`);
+  - "impacto/efecto de X en las preguntas de Y" pasa a
+    `speculative_interpretation`;
+  - `duplicate_aspect` ahora tiene en cuenta el tipo de pregunta y si el
+    aspecto habla del tiempo: dos temas parecidos sobre tipos distintos no
+    son duplicados (11 descartes falsos en la evaluación).
+
+### 5.2 Evaluación
+
+llama3.2:3b local en CPU (Ollama 0.40.13), temperature 0.2, num_predict 900,
+seeds 1-3, 10 casos sintéticos × 3. Mismo validador vigente para las dos
+variantes. `npm run eval:prompts` (por defecto `3.6-pre` vs `3.6`).
+
+| Métrica | 3.6 inicial (`format: "json"`) | 3.6 ajustada (JSON Schema) |
+|---|---|---|
+| Aceptadas por intento | 25/30 (83%) | 27/27 (100%) + 3 determinísticas (C08, sin llamar al modelo) |
+| Rechazos de formato | 4 (3 `malformed_summary`, 1 `SCHEMA_INVALID`) | 0 |
+| Rechazos de contenido | 1 (`therapeutic_or_improvement_claim`) | 0 |
+| Caracteres (media, mín-máx) | 1034 (784-1299) | 983 (724-1204) |
+| Párrafos (media) | 3 | 2.56 |
+| Aceptadas con alguna observación copiada literal | 100% | 0% |
+| Aspectos válidos por análisis (media) | 3.44 | 4.15 |
+| Análisis con ≥ 3 aspectos válidos | 76% | 100% |
+| Aspectos descartados | 27 (8 sesiones no comparables, 5 mejora, 4 ánimo, …) | 2 (especulativos) |
+| Latencia por intento (media / máx) | 64 s / 82.5 s | 59.2 s / 84 s |
+| Tokens generados (media / máx) | 395 / 532 | 376 / 459 |
+| Tokens de prompt | ~908 | ~912 |
+| Casos con resultado tomando las 3 seeds como reintentos sucesivos | 9/10 (C08 falla los 3) | 10/10 |
+| Tiempo total estimado con reintentos | 755.9 s (75.6 s por caso) | 572.2 s (57.2 s por caso) |
+
+La comparación de tiempo es sobre esta muestra y esta máquina. La latencia
+por intento es parecida; la ganancia total viene de no reintentar y de no
+llamar al modelo cuando no hay datos.
+
+### 5.3 Límites
+
+- El texto sigue siendo, en gran parte, una reformulación de los hechos del
+  prompt (todas las aceptadas contienen oraciones literales de esos datos).
+  Es seguro, pero poco narrativo: la profundidad la aportan los hechos
+  determinísticos, no el modelo.
+- Las sesiones antiguas cuyas preguntas no tienen `subdimension` no tienen
+  tipos y, al regenerarse, quedan como «Síntesis no generada».
+- Muestra chica, un solo modelo, casos sintéticos. La aceptación no mide
+  utilidad clínica.
+- El worker debe desplegarse con el backend o antes (`num_predict` 900 y
+  `format`). Un worker viejo ignora el schema y usa `"json"`.

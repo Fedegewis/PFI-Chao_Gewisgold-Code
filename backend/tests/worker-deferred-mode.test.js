@@ -10,6 +10,7 @@
 import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
+import { addAnsweredQuestion } from "./helpers.js";
 
 const WORKER_TOKEN_VALUE = "d".repeat(48);
 process.env.WORKER_TOKEN = WORKER_TOKEN_VALUE;
@@ -57,14 +58,7 @@ async function makeCompletedSession() {
   const [ss] = await db("session_sections")
     .insert({ session_id: session.id, section_id: sectionRow.id, requested_count: 1, display_order: 1 })
     .returning("*");
-  const [q] = await db("questions")
-    .where({ section_id: sectionRow.id, is_active: true })
-    .orderBy("id").limit(1).select("*");
-  await db("session_questions").insert({
-    session_section_id: ss.id, question_id: q.id, display_order: 1,
-    prompt_snapshot: q.prompt, options_snapshot: JSON.stringify(q.options),
-    correct_answer_snapshot: q.correct_answer ?? 0, response_type: q.response_type,
-  });
+  await addAnsweredQuestion(db, { sessionSectionId: ss.id, sectionId: sectionRow.id });
   await db("session_results").insert({
     session_id: session.id, section_id: sectionRow.id,
     total_questions: 1, answered_questions: 1, correct_count: 1,
@@ -255,12 +249,7 @@ describe("W-3 — AI_PROVIDER=deferred", () => {
       const [ss2] = await db("session_sections")
         .insert({ session_id: otherSession.id, section_id: sectionRow.id, requested_count: 1, display_order: 1 })
         .returning("*");
-      const q = await db("questions").where({ section_id: sectionRow.id, is_active: true }).orderBy("id").first();
-      await db("session_questions").insert({
-        session_section_id: ss2.id, question_id: q.id, display_order: 1,
-        prompt_snapshot: q.prompt, options_snapshot: JSON.stringify(q.options),
-        correct_answer_snapshot: q.correct_answer ?? 0, response_type: q.response_type,
-      });
+      await addAnsweredQuestion(db, { sessionSectionId: ss2.id, sectionId: sectionRow.id });
       await db("session_results").insert({
         session_id: otherSession.id, section_id: sectionRow.id,
         total_questions: 1, answered_questions: 1, correct_count: 1,

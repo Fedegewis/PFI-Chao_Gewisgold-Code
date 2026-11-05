@@ -86,6 +86,20 @@ export const DEFAULT_GENERATION_OPTIONS = Object.freeze({ temperature: 0.2, num_
 // claves y dentro de rangos razonables; cualquier otra cosa se ignora.
 const NUM_PREDICT_MAX = 2048;
 
+// 3.6 (ajuste): el backend puede enviar en generation_options.format el JSON
+// Schema de la salida (structured outputs de Ollama). Se acepta sólo un
+// objeto JSON de tamaño acotado con type "object"; cualquier otra cosa cae
+// a "json". El backend valida la respuesta igual, con o sin schema.
+const FORMAT_SCHEMA_MAX_BYTES = 8192;
+
+export function resolveOutputFormat(override) {
+  const f = override && typeof override === "object" ? override.format : undefined;
+  if (!f || typeof f !== "object" || Array.isArray(f) || f.type !== "object") return "json";
+  let size;
+  try { size = JSON.stringify(f).length; } catch { return "json"; }
+  return size <= FORMAT_SCHEMA_MAX_BYTES ? f : "json";
+}
+
 export function resolveGenerationOptions(override) {
   const out = { ...DEFAULT_GENERATION_OPTIONS };
   if (!override || typeof override !== "object") return out;
@@ -137,7 +151,7 @@ export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, fetc
           model,
           prompt,
           stream: false,
-          format: "json",
+          format: resolveOutputFormat(generationOptions),
           options: resolveGenerationOptions(generationOptions),
           keep_alive: "30m",
         }),

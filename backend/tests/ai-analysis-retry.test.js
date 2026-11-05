@@ -11,6 +11,7 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import db from "../src/db/connection.js";
+import { addAnsweredQuestion } from "./helpers.js";
 import { generateSessionAnalysis } from "../src/services/ai/analysisService.js";
 import { OllamaClientError, OllamaErrorCodes } from "../src/services/ai/errors.js";
 
@@ -38,9 +39,10 @@ async function insertCompletedSession() {
     patient_id: patientA.id, professional_id: profA.id,
     status: "completed", started_at: new Date(), completed_at: new Date(),
   }).returning("*");
-  await db("session_sections").insert({
+  const [ss] = await db("session_sections").insert({
     session_id: s.id, section_id: sectionRow.id, requested_count: 4, display_order: 1,
-  });
+  }).returning("*");
+  await addAnsweredQuestion(db, { sessionSectionId: ss.id, sectionId: sectionRow.id });
   const metrics = {
     total_questions: 4, answered_questions: 4,
     correct_count: 2, incorrect_count: 2, unanswered_count: 0,
@@ -122,7 +124,11 @@ describe("Contrato v3 — reintento controlado", () => {
     if (sids.length > 0) {
       await db("session_analyses").whereIn("session_id", sids).del();
       const ssids = await db("session_sections").whereIn("session_id", sids).pluck("id");
-      if (ssids.length > 0) await db("session_questions").whereIn("session_section_id", ssids).del();
+      if (ssids.length > 0) {
+        const sqids = await db("session_questions").whereIn("session_section_id", ssids).pluck("id");
+        if (sqids.length > 0) await db("answers").whereIn("session_question_id", sqids).del();
+        await db("session_questions").whereIn("session_section_id", ssids).del();
+      }
       await db("session_results").whereIn("session_id", sids).del();
       await db("session_sections").whereIn("session_id", sids).del();
       await db("sessions").whereIn("id", sids).del();

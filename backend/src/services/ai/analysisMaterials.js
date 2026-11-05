@@ -32,7 +32,9 @@ export function buildAnalysisMaterials(context, input = {}) {
     adaptiveLevel: input?.adaptive_level ?? null,
     sameActivityPreviousCount: input?.same_activity_previous_count,
   });
-  const { prompt, promptVersion } = buildSessionAnalysisPrompt(context, {
+  // Las observaciones sólo se pasan como respaldo: con hechos enriquecidos
+  // el prompt NO las incluye (el 3B las copiaba textuales).
+  const { prompt, promptVersion, outputSchema } = buildSessionAnalysisPrompt(context, {
     observations: deterministic.observations,
     facts,
   });
@@ -53,5 +55,29 @@ export function buildAnalysisMaterials(context, input = {}) {
     context_facts: facts.sentences,
     facts_sheet: facts.sheet,
   };
-  return { deterministic, facts, prompt, promptVersion, validationOptions, persistExtras };
+  // Suficiencia (3.6, ajuste): sin al menos un tipo de pregunta con
+  // respuestas puntuadas, la síntesis sólo repetiría los bloques
+  // determinísticos. En ese caso no se llama al modelo y se persiste un
+  // resultado identificado como determinístico (deterministicAnalysis).
+  const sufficient = facts.sufficient === true;
+  return { deterministic, facts, prompt, promptVersion, outputSchema, sufficient, validationOptions, persistExtras };
+}
+
+export const SYNTHESIS_SKIPPED_INSUFFICIENT = "insufficient_data";
+
+/**
+ * Contenido persistible cuando no se pide síntesis al modelo. No contiene
+ * texto redactado: summary vacío, sin aspectos, y `synthesis_source:
+ * "deterministic"` para que la API y el panel nunca lo presenten como IA.
+ */
+export function deterministicAnalysis(materials, deterministicFields) {
+  return {
+    schema_version: "3",
+    summary: "",
+    aspects_to_review: [],
+    synthesis_source: "deterministic",
+    synthesis_skipped_reason: SYNTHESIS_SKIPPED_INSUFFICIENT,
+    ...deterministicFields,
+    ...materials.persistExtras,
+  };
 }

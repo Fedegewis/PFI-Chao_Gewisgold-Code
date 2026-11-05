@@ -171,6 +171,15 @@ function outcomePhrase({ outcome, unanswered, count }) {
   return unanswered ? `${base}, y alguna quedó sin responder` : base;
 }
 
+function singleVerb(outcome) {
+  switch (outcome) {
+    case "all_correct": return "fue respondida correctamente";
+    case "all_incorrect": return "fue respondida de forma incorrecta";
+    case "unanswered": return "quedó sin responder";
+    default: return "fue registrada";
+  }
+}
+
 function compareLatency(a, b) {
   if (a === null || b === null) return null;
   const d = a - b;
@@ -184,7 +193,7 @@ function compareLatency(a, b) {
  * @param {Array}  [details.questionDetails]   Filas por pregunta (ver normalizeQuestionDetails).
  * @param {number|null} [details.adaptiveLevel]
  * @param {number} [details.sameActivityPreviousCount]
- * @returns {{ blocks: object, sentences: string[], sheet: object }}
+ * @returns {{ blocks: object, sentences: string[], sheet: object, sufficient: boolean }}
  */
 export function buildSessionFacts(context, details = {}) {
   if (!context || typeof context !== "object") throw new TypeError("context obligatorio");
@@ -245,6 +254,8 @@ export function buildSessionFacts(context, details = {}) {
       slug,
       keys: QUESTION_TYPES[slug].keys,
       outcome: o.outcome,
+      count: o.count,
+      unanswered: o.unanswered,
       presentation: withStimulus ? "stimulus" : withoutStimulus ? "visible" : "mixed",
     });
   }
@@ -309,18 +320,74 @@ export function buildSessionFacts(context, details = {}) {
     );
   }
 
+  // --- Resultado general y comparación (3.6, ajuste) ------------------------
+  // Las observaciones automáticas ya NO se envían al modelo: el panel las
+  // muestra aparte y el 3B las copiaba textuales. Lo indispensable para que
+  // la síntesis tenga contexto (resultado general, preguntas sin responder y
+  // la comparación con la sesión anterior) se redacta acá, como oraciones.
+  // Se probaron fichas "Etiqueta: valor" para obligar al modelo a redactar:
+  // con datos etiquetados el 3B los interpretaba ("sugiere una buena
+  // capacidad", "avance en la capacidad cognitiva"); con oraciones se ciñe a
+  // ellas. Por eso los datos siguen llegando como oraciones.
+  const metrics = context.global?.metrics || {};
+  const generalFacts = [];
+  const gc = toNum(metrics.correct_count);
+  const gi = toNum(metrics.incorrect_count);
+  if (gc !== null && gi !== null && gc + gi > 0) {
+    generalFacts.push(gi === 0 ? "En el conjunto de la sesión, todas las respuestas fueron correctas."
+      : gc === 0 ? "En el conjunto de la sesión, ninguna respuesta fue correcta."
+        : gc > gi ? "En el conjunto de la sesión hubo más respuestas correctas que incorrectas."
+          : gc < gi ? "En el conjunto de la sesión hubo más respuestas incorrectas que correctas."
+            : "En el conjunto de la sesión hubo la misma cantidad de respuestas correctas e incorrectas.");
+  }
+  if (typeof metrics.completion_rate === "number" && metrics.completion_rate < 1 - 1e-9) {
+    generalFacts.push("Algunas preguntas quedaron sin responder.");
+  }
+
+  // Comparación con la sesión anterior: la misma regla P1 que
+  // observationsBuilder (otro nivel o nivel desconocido ⇒ no comparable),
+  // con otra redacción.
+  const comparisonFacts = [];
+  const cm = context.comparison_metrics || null;
+  if (cm) {
+    const cmLevel = cm.difficulty_level;
+    const comparable = cmLevel ? cmLevel.same === true : true;
+    const accDir = cm.accuracy?.direction;
+    const latDir = cm.mean_latency_ms?.direction;
+    if (!comparable) {
+      comparisonFacts.push(cmLevel?.same === false
+        ? "La sesión anterior con la que se compara se hizo con otro nivel de dificultad, así que la diferencia en la precisión no es directamente comparable."
+        : "Una de las dos sesiones comparadas no tiene nivel de dificultad registrado, así que la diferencia en la precisión no es directamente comparable.");
+    } else {
+      if (accDir === "subió" || accDir === "bajó" || accDir === "igual") {
+        comparisonFacts.push(`Frente a la sesión anterior comparable de esta actividad, la precisión fue ${accDir === "subió" ? "mayor" : accDir === "bajó" ? "menor" : "similar"}.`);
+      }
+      if (latDir === "subió" || latDir === "bajó") {
+        comparisonFacts.push(`Frente a esa misma sesión, el tiempo promedio de respuesta fue ${latDir === "subió" ? "mayor" : "menor"}.`);
+      }
+    }
+  } else if (prevCount !== null && prevCount > 0) {
+    comparisonFacts.push("Entre las sesiones anteriores de esta actividad no hay una con la que esta sea comparable.");
+  }
+
   // --- Temas para los puntos de seguimiento -------------------------------
   // Determinísticos: cada tema nombra un dato registrado de esta sesión. El
   // modelo redacta un punto por tema; no elige qué datos merecen atención.
+  // Ajuste 3.6: redacción correcta para una sola pregunta, estado de ánimo
+  // sin tiempo verbal comprometido, y sin tema de antecedentes (los
+  // follow_up determinísticos ya lo cubren y, con otro nivel, invitaba a una
+  // comparación que el sistema declaró no válida).
   const topics = [];
   const presentationText = (p) => (p === "stimulus"
     ? " con información previa que luego se oculta"
     : p === "visible" ? " con la información a la vista" : "");
-  const typeTopics = typeSheet.filter((t) => t.outcome !== "all_correct");
-  for (const t of typeTopics) {
-    const phrase = typePhrases[typeSheet.indexOf(t)];
-    topics.push(`las preguntas de ${QUESTION_TYPES[t.slug].label}${presentationText(t.presentation)}, donde ${phrase}`);
-  }
+  const typeTopic = (t) => {
+    const label = QUESTION_TYPES[t.slug].label;
+    const pres = presentationText(t.presentation);
+    if (t.count === 1) return `la única pregunta de ${label}${pres}, que ${singleVerb(t.outcome)}`;
+    return `las preguntas de ${label}${pres}, donde ${outcomePhrase({ outcome: t.outcome, unanswered: t.unanswered, count: t.count })}`;
+  };
+  for (const t of typeSheet.filter((x) => x.outcome !== "all_correct")) topics.push(typeTopic(t));
   if (stimulusComparison && stimulusComparison !== "similar") {
     topics.push("los resultados de las preguntas con información previa que luego se oculta frente a los de las preguntas con la información a la vista");
   }
@@ -333,25 +400,29 @@ export function buildSessionFacts(context, details = {}) {
     topics.push(`el tiempo de respuesta en las preguntas de ${QUESTION_TYPES[slowestType].label}`);
   }
   if (mood) {
-    topics.push(`el estado de ánimo que la persona informe al iniciar la próxima sesión, junto al informado en esta (${MOOD_LABELS[mood]})`);
-  }
-  if (prevCount !== null && prevCount > 0) {
-    topics.push("lo registrado en esta sesión frente a las sesiones anteriores de la misma actividad");
+    topics.push(`el estado de ánimo informado al comenzar cada sesión (en esta, ${MOOD_LABELS[mood]})`);
   }
   if (topics.length < 3) {
     for (const t of typeSheet.filter((x) => x.outcome === "all_correct")) {
       if (topics.length >= 3) break;
-      topics.push(`las preguntas de ${QUESTION_TYPES[t.slug].label}${presentationText(t.presentation)}, donde todas las respuestas fueron correctas`);
+      topics.push(typeTopic(t));
     }
   }
+
+  // Suficiencia: sin al menos un tipo de pregunta con respuestas puntuadas,
+  // el modelo sólo podría repetir lo que ya muestran los bloques
+  // determinísticos. En ese caso no se le pide síntesis (ver
+  // analysisMaterials).
+  const sufficient = typeSheet.some((t) => t.outcome !== "unanswered" && t.outcome !== "not_scored");
 
   const blocks = {
     activities,
     level: levelLabel,
     mood: mood ? MOOD_LABELS[mood] : null,
+    general: generalFacts,
     types: [...typeFacts, ...presentationFacts],
     times: timeFacts,
-    history: historyFacts,
+    history: [...historyFacts, ...comparisonFacts],
     topics: topics.slice(0, 5),
   };
 
@@ -359,9 +430,10 @@ export function buildSessionFacts(context, details = {}) {
     ...activities.filter((a) => a.description).map((a) => `${a.name}: ${a.description}.`),
     ...(levelLabel ? [`Nivel de dificultad de las preguntas: ${levelLabel}.`] : []),
     ...(mood ? [`Estado de ánimo informado por la persona al iniciar: ${MOOD_LABELS[mood]}.`] : []),
+    ...generalFacts,
     ...blocks.types,
     ...timeFacts,
-    ...historyFacts,
+    ...blocks.history,
   ];
 
   const sheet = {
@@ -375,5 +447,5 @@ export function buildSessionFacts(context, details = {}) {
     same_activity_previous: prevCount === null ? null : prevCount > 0,
   };
 
-  return { blocks, sentences, sheet };
+  return { blocks, sentences, sheet, sufficient };
 }

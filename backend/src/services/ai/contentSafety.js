@@ -202,7 +202,8 @@ export const CLAIM_FAMILIES = Object.freeze([
       re("afectando negativamente|afecta negativamente|impacto negativo"),
       // Evaluación 3.6 (aspectos): "entender el impacto del tiempo de
       // respuesta en la precisión". Atribuye una relación causal no medida.
-      re("(?:impacto|influencia|efecto)s? (?:de |del |de la |de los |de las )?(?:\\w+ ){1,6}(?:en|sobre) (?:la |el |los |las |su |sus )?(?:precision|respuestas?|resultados?|desempeno|rendimiento|tiempos?)"),
+      // Ajuste 3.6: también "... en las preguntas de X" (evaluación, C02).
+      re("(?:impacto|influencia|efecto)s? (?:de |del |de la |de los |de las )?(?:\\w+ ){1,6}(?:en|sobre) (?:la |el |los |las |su |sus )?(?:precision|respuestas?|resultados?|desempeno|rendimiento|tiempos?|preguntas?)"),
       re("(?:entender|identificar|analizar|conocer) (?:mejor )?(?:las causas|los factores|el impacto|los motivos)"),
     ],
   },
@@ -563,6 +564,7 @@ const DETAIL_CLAIMS = {
 
 const LEVEL_BY_LABEL = { intermedio: 2, intermedia: 2, "mas accesible": 1, "mas exigente": 3 };
 const CLAUSE_SPLIT = /;| mientras que | mientras | pero | aunque | en cambio |, y (?=en )|, (?=en las )/;
+const SECOND_GROUP_SPLIT = / con (?:el|la|los|las) (?:de )?(?:las |los )?(?=preguntas)| frente a | en comparacion con | respecto de (?=las preguntas)/;
 
 function typesMentioned(textNorm, types) {
   return types.filter((t) => Array.isArray(t.keys) && t.keys.some((k) => textNorm.includes(normalizeText(k))));
@@ -604,7 +606,12 @@ function findDetailContradiction(s, facts, mentionsPrevious) {
 
   // Presentación por tipo: una cláusula que nombra un solo tipo y una sola
   // forma de presentación debe coincidir con la registrada.
-  for (const clause of s.split(CLAUSE_SPLIT)) {
+  // Una cláusula que compara dos grupos ("comparar el tiempo en las preguntas
+  // de X con el de las preguntas con la información a la vista") se separa:
+  // la presentación del segundo grupo no se atribuye al tipo del primero.
+  // (Falso positivo observado en la evaluación 3.6, caso C02.)
+  const segments = s.split(CLAUSE_SPLIT).flatMap((c) => c.split(SECOND_GROUP_SPLIT));
+  for (const clause of segments) {
     const named = typesMentioned(clause, types);
     if (named.length !== 1 || !named[0].presentation || named[0].presentation === "mixed") continue;
     const st = DETAIL_CLAIMS.presStimulus.test(clause);
@@ -818,7 +825,55 @@ export function reviewAspect(aspect, ctx) {
   if (ctx.stems && findUngroundedSentence(text, ctx.stems)) return "ungrounded_statement";
   if (ctx.facts && findFactContradiction(text, ctx.facts)) return "contradicts_recorded_data";
   if ((ctx.repeated || []).some((r) => similarity(text, r) >= DUPLICATE_SIMILARITY)) return "repeats_automatic_text";
+  if (ctx.facts?.detail) {
+    const n = normalizeText(text);
+    if (comparesSessionsWithoutBasis(n, ctx.facts)) return "non_comparable_sessions";
+    if (!namesSpecificDatum(n, ctx.facts)) return "generic_aspect";
+  }
   return null;
+}
+
+// 3.6 (ajuste): un aspecto que propone comparar con sesiones anteriores sólo
+// tiene respaldo si existe una sesión anterior comparable (mismo nivel). Con
+// otro nivel o sin sesión comparable, la sugerencia invita a una comparación
+// que el propio sistema declaró no válida (evaluación 3.6, caso C04).
+const MENTIONS_OTHER_SESSIONS = /sesion(?:es)? (?:anterior|previa|pasada)\w*|(?:anteriores|previas|pasadas) sesiones/;
+function comparesSessionsWithoutBasis(n, facts) {
+  return MENTIONS_OTHER_SESSIONS.test(n) && facts.comparison?.comparable !== true;
+}
+
+// 3.6 (ajuste): cada aspecto tiene que nombrar un dato concreto de la sesión
+// (un tipo de pregunta, la presentación, los tiempos, el estado de ánimo
+// registrado o una comparación válida). "Observar las diferencias en la
+// precisión de las respuestas" no nombra ninguno y se descarta.
+function namesSpecificDatum(n, facts) {
+  const d = facts.detail;
+  if (typesMentioned(n, Array.isArray(d.types) ? d.types : []).length > 0) return true;
+  if (DETAIL_CLAIMS.presStimulus.test(n) || DETAIL_CLAIMS.presVisible.test(n)) return true;
+  if (/(?<![a-z])(?:tiempos?|demora\w*)(?![a-z])/.test(n)) return true;
+  if (d.mood && /(?<![a-z])animo(?![a-z])/.test(n)) return true;
+  if (facts.comparison?.comparable === true && MENTIONS_OTHER_SESSIONS.test(n)) return true;
+  return false;
+}
+
+// 3.6 (ajuste): dos aspectos con la misma redacción de base pero sobre
+// datos distintos no son duplicados. En la evaluación, con la forma fija
+// "Observar <tema> en las próximas sesiones", la similitud léxica descartaba
+// temas distintos ("las preguntas de X" frente a "las preguntas de Y", o "el
+// tiempo de las respuestas incorrectas" frente a "el tiempo en las preguntas
+// de X"). Con la ficha disponible, sólo es duplicado si además nombra los
+// mismos tipos de pregunta y el mismo foco (tiempo o resultado).
+const MENTIONS_TIME = /(?<![a-z])(?:tiempos?|demora\w*)(?![a-z])/;
+function isDuplicateAspect(a, b, ctx) {
+  if (similarity(a, b) < DUPLICATE_SIMILARITY) return false;
+  const types = Array.isArray(ctx?.facts?.detail?.types) ? ctx.facts.detail.types : null;
+  if (!types) return true;
+  const na = normalizeText(a);
+  const nb = normalizeText(b);
+  const ka = typesMentioned(na, types).map((t) => t.slug).sort().join(",");
+  const kb = typesMentioned(nb, types).map((t) => t.slug).sort().join(",");
+  if (ka !== kb) return false;
+  return MENTIONS_TIME.test(na) === MENTIONS_TIME.test(nb);
 }
 
 /**
@@ -831,7 +886,7 @@ export function filterAspects(aspects, ctx) {
   const dropped = [];
   for (const a of Array.isArray(aspects) ? aspects : []) {
     let reason = reviewAspect(a, ctx);
-    if (!reason && kept.some((k) => similarity(a, k) >= DUPLICATE_SIMILARITY)) reason = "duplicate_aspect";
+    if (!reason && kept.some((k) => isDuplicateAspect(a, k, ctx))) reason = "duplicate_aspect";
     if (reason) dropped.push({ text: typeof a === "string" ? a : String(a), reason });
     else kept.push(a.trim());
   }
@@ -887,8 +942,18 @@ function reviewStoredAnalysis36(content) {
   return { compliant: reasons.size === 0, reasons: [...reasons], aspects: kept };
 }
 
+/**
+ * 3.6 (ajuste): análisis persistido sin síntesis del modelo porque los datos
+ * no alcanzaban (analysisMaterials.deterministicAnalysis).
+ */
+export function isDeterministicSynthesis(content) {
+  return Boolean(content) && typeof content === "object"
+    && content.schema_version === "3" && content.synthesis_source === "deterministic";
+}
+
 export function reviewStoredAnalysis(content) {
   if (!content || typeof content !== "object") return { compliant: true, reasons: [] };
+  if (isDeterministicSynthesis(content)) return { compliant: true, reasons: [] };
   if (isContract36(content)) {
     const { compliant, reasons } = reviewStoredAnalysis36(content);
     return { compliant, reasons };
@@ -940,6 +1005,12 @@ export function reviewStoredAnalysis(content) {
  * `withheld` es true. Legacy (v1/v2): todo o nada, como antes.
  */
 export function withholdNonCompliantText(content) {
+  // 3.6 (ajuste): un resultado determinístico no tiene texto del modelo que
+  // revisar. Se fuerza summary vacío y sin aspectos: aunque la fila se
+  // hubiera alterado, nunca se muestra texto con la etiqueta de IA.
+  if (isDeterministicSynthesis(content)) {
+    return { content: { ...content, summary: "", aspects_to_review: [] }, withheld: false, reasons: [] };
+  }
   // 3.6: el summary se evalúa como en la generación y los aspectos se
   // filtran uno por uno (sólo se devuelven los que cumplen las reglas).
   if (isContract36(content)) {

@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildSessionFacts, normalizeQuestionDetails } from "../src/services/ai/sessionFacts.js";
-import { buildAnalysisMaterials } from "../src/services/ai/analysisMaterials.js";
+import { buildAnalysisMaterials, deterministicAnalysis } from "../src/services/ai/analysisMaterials.js";
 import {
   findForbiddenClaim,
   findFactContradiction,
@@ -92,7 +92,11 @@ describe("sessionFacts — hechos en palabras, sin cifras", () => {
     assert.ok(blocks.types.some((t) => t.includes("la proporción de respuestas correctas fue menor")));
     assert.ok(blocks.times.includes("Las respuestas incorrectas llevaron en promedio más tiempo que las correctas."));
     assert.ok(blocks.times.some((t) => t.includes("mayor tiempo de respuesta de la sesión se registró en una pregunta de recuerdo de la ubicación de objetos")));
-    assert.deepEqual(blocks.history, ["Hay una sesión anterior registrada de esta misma actividad."]);
+    assert.deepEqual(blocks.history, [
+      "Hay una sesión anterior registrada de esta misma actividad.",
+      "Entre las sesiones anteriores de esta actividad no hay una con la que esta sea comparable.",
+    ]);
+    assert.deepEqual(blocks.general, ["En el conjunto de la sesión hubo la misma cantidad de respuestas correctas e incorrectas."]);
     for (const s of sentences) assert.ok(!/\d/.test(s), `sin dígitos: ${s}`);
     assert.equal(sheet.stimulus_comparison, "stimulus_less_correct");
     assert.equal(sheet.latency_correct_vs_incorrect, "incorrect_slower");
@@ -115,6 +119,50 @@ describe("sessionFacts — hechos en palabras, sin cifras", () => {
       questionDetails: [q("calculo_funcional", false, "c", 3000), q("calculo_funcional", false, "i", 3100)],
     });
     assert.equal(sheet.latency_correct_vs_incorrect, "similar");
+  });
+
+  it("temas: redacción de una sola pregunta, ánimo sin tiempo verbal y sin tema de antecedentes", () => {
+    const { blocks } = buildSessionFacts(makeContext(), {
+      questionDetails: [q("memoria_de_ubicacion", true, "i", 4500), q("asociacion_objeto_lugar", false, "c", 2300)],
+      adaptiveLevel: 2, sameActivityPreviousCount: 3,
+    });
+    assert.ok(blocks.topics.includes("la única pregunta de recuerdo de la ubicación de objetos con información previa que luego se oculta, que fue respondida de forma incorrecta"));
+    assert.ok(blocks.topics.includes("el estado de ánimo informado al comenzar cada sesión (en esta, cansancio)"));
+    for (const t of blocks.topics) {
+      assert.ok(!t.includes("donde todas las respuestas fueron correctas") || !t.startsWith("la única"), t);
+      assert.ok(!/sesiones anteriores|pr[oó]xima sesi[oó]n/.test(t), t);
+    }
+  });
+
+  it("comparación con la sesión anterior: dirección sólo si es comparable", () => {
+    const cmp = (same) => ({
+      accuracy: { current: 0.5, previous: 0.75, direction: "bajó" },
+      mean_latency_ms: { current: 3000, previous: 2500, direction: "subió" },
+      ...(same === undefined ? {} : { difficulty_level: { current: 2, previous: same === false ? 1 : same === null ? null : 2, same } }),
+    });
+    const facts = (same) => buildSessionFacts(makeContext({ comparison: cmp(same) }), { questionDetails: DETAILS, sameActivityPreviousCount: 1 });
+    assert.ok(facts(true).blocks.history.includes("Frente a la sesión anterior comparable de esta actividad, la precisión fue menor."));
+    assert.ok(facts(true).blocks.history.includes("Frente a esa misma sesión, el tiempo promedio de respuesta fue mayor."));
+    assert.ok(facts(undefined).blocks.history.includes("Frente a la sesión anterior comparable de esta actividad, la precisión fue menor."));
+    for (const same of [false, null]) {
+      const h = facts(same).blocks.history;
+      assert.ok(h.some((x) => x.includes("no es directamente comparable")), String(same));
+      assert.ok(!h.some((x) => x.includes("fue menor") || x.includes("fue mayor")), String(same));
+    }
+    // Las oraciones generadas no contradicen la ficha de hechos.
+    for (const same of [true, false, null, undefined]) {
+      const ctx = makeContext({ comparison: cmp(same) });
+      const f = buildSessionFacts(ctx, { questionDetails: DETAILS, sameActivityPreviousCount: 1 });
+      const sheet = buildFactSheet(ctx, f.sheet);
+      for (const line of f.blocks.history) assert.equal(findFactContradiction(line, sheet), null, `${same}: ${line}`);
+    }
+  });
+
+  it("suficiencia: hace falta al menos un tipo de pregunta con respuestas puntuadas", () => {
+    assert.equal(buildSessionFacts(makeContext(), { questionDetails: DETAILS }).sufficient, true);
+    assert.equal(buildSessionFacts(makeContext(), { questionDetails: [q(null, false, "c"), q(null, false, "i")] }).sufficient, false);
+    assert.equal(buildSessionFacts(makeContext(), { questionDetails: [q("calculo_funcional", false, "u")] }).sufficient, false);
+    assert.equal(buildSessionFacts(makeContext(), {}).sufficient, false);
   });
 
   it("normalizeQuestionDetails descarta latencias de preguntas sin responder", () => {
@@ -234,11 +282,116 @@ describe("aspectos sugeridos (3.6)", () => {
     ]);
   });
 
+  it("temas distintos con la misma redacción de base no son duplicados", () => {
+    const { kept, dropped } = filterAspects([
+      "Observar las preguntas de recuerdo de la ubicación de objetos con información previa que luego se oculta, en las próximas sesiones.",
+      "Observar las preguntas de asociación entre objetos y lugares con la información a la vista, en las próximas sesiones.",
+      "Observar el tiempo de las respuestas incorrectas, que fue en promedio mayor que el de las correctas, en las próximas sesiones.",
+      "Observar el tiempo de respuesta en las preguntas de recuerdo de la ubicación de objetos, en las próximas sesiones.",
+      "Observar el tiempo de respuesta en las preguntas de recuerdo de la ubicación de objetos en las próximas sesiones.",
+    ], ctx);
+    assert.equal(kept.length, 4);
+    assert.deepEqual(dropped.map((d) => d.reason), ["duplicate_aspect"]);
+  });
+
+  it("descarta atribuir un impacto del tiempo sobre un tipo de pregunta", () => {
+    const { dropped } = filterAspects([
+      "Revisar el impacto del tiempo de respuesta en las preguntas de recuerdo de la ubicación de objetos, en las próximas sesiones.",
+    ], ctx);
+    assert.equal(dropped[0]?.reason, "speculative_interpretation");
+  });
+
+  it("descarta un aspecto genérico que no nombra ningún dato de la sesión", () => {
+    const { kept, dropped } = filterAspects([
+      "Observar las diferencias en la precisión de las respuestas en las próximas sesiones.",
+      "Observar el tiempo de respuesta en las preguntas de recuerdo de la ubicación de objetos en las próximas sesiones.",
+    ], ctx);
+    assert.equal(kept.length, 1);
+    assert.deepEqual(dropped.map((d) => d.reason), ["generic_aspect"]);
+  });
+
+  it("descarta comparar con sesiones anteriores si no hay una comparable (o el nivel difiere)", () => {
+    const text = "Revisar las preguntas de recuerdo de la ubicación de objetos frente a las sesiones anteriores.";
+    // Sin sesiones anteriores: lo rechaza antes la verificación de hechos.
+    assert.equal(filterAspects([text], ctx).dropped[0]?.reason, "contradicts_recorded_data");
+    // Con sesiones anteriores pero ninguna comparable.
+    const noComparable = materials({ previous: 2 });
+    const ctx1 = { ...ctx, facts: buildFactSheet(noComparable.context, noComparable.facts.sheet) };
+    assert.equal(filterAspects([text], ctx1).dropped[0]?.reason, "non_comparable_sessions");
+    const otherLevel = materials({ previous: 1, comparison: {
+      accuracy: { current: 0.5, previous: 0.75, direction: "bajó" },
+      difficulty_level: { current: 2, previous: 1, same: false },
+    } });
+    const ctx2 = { ...ctx, facts: buildFactSheet(otherLevel.context, otherLevel.facts.sheet) };
+    assert.equal(filterAspects([text], ctx2).dropped[0]?.reason, "non_comparable_sessions");
+    const comparable = materials({ previous: 1, comparison: {
+      accuracy: { current: 0.5, previous: 0.75, direction: "bajó" },
+      difficulty_level: { current: 2, previous: 2, same: true },
+    } });
+    const ctx3 = { ...ctx, facts: buildFactSheet(comparable.context, comparable.facts.sheet) };
+    assert.equal(filterAspects([text], ctx3).kept.length, 1);
+  });
+
   it("descarta un aspecto que repite el seguimiento automático", () => {
     const followUp = m.deterministic.follow_up[0];
     const { kept, dropped } = filterAspects([followUp], ctx);
     assert.equal(kept.length, 0);
     assert.equal(dropped[0].reason, "repeats_automatic_text");
+  });
+});
+
+describe("verificación de presentación con dos grupos (falso positivo de la evaluación 3.6)", () => {
+  // Antes: la cláusula nombraba un tipo (con información previa) y la
+  // presentación del SEGUNDO grupo ("con la información a la vista"), y se
+  // rechazaba como si atribuyera esa presentación al tipo.
+  const m = materials();
+  const facts = buildFactSheet(m.context, m.facts.sheet);
+
+  it("acepta comparar un tipo con el grupo de preguntas a la vista", () => {
+    for (const s of [
+      "Revisar los resultados de las preguntas de recuerdo de la ubicación de objetos frente a los de las preguntas con la información a la vista.",
+      "Comparar el tiempo en las preguntas de recuerdo de la ubicación de objetos con el de las preguntas con la información a la vista.",
+    ]) assert.equal(findFactContradiction(s, facts), null, s);
+  });
+
+  it("sigue rechazando atribuir al tipo la presentación equivocada", () => {
+    const s = "En las preguntas de recuerdo de la ubicación de objetos, con la información a la vista, todas las respuestas fueron incorrectas.";
+    assert.notEqual(findFactContradiction(s, facts), null);
+  });
+});
+
+describe("síntesis determinística por datos insuficientes (3.6)", () => {
+  const sparse = [q(null, false, "c", 2500), q(null, false, "i", 3000)];
+
+  it("analysisMaterials marca la sesión como insuficiente", () => {
+    const m = materials({ details: sparse });
+    assert.equal(m.sufficient, false);
+    assert.equal(materials().sufficient, true);
+  });
+
+  it("el contenido determinístico no tiene texto del modelo y se identifica como tal", () => {
+    const m = materials({ details: sparse });
+    const content = deterministicAnalysis(m, { activities: [{ slug: "atencion_visual", name: "Objetos de la casa", cognitive_domain_slugs: [] }], evidence: [{ scope: "global" }] });
+    assert.equal(content.schema_version, "3");
+    assert.equal(content.summary, "");
+    assert.deepEqual(content.aspects_to_review, []);
+    assert.equal(content.synthesis_source, "deterministic");
+    assert.equal(content.synthesis_skipped_reason, "insufficient_data");
+    assert.deepEqual(content.observations, m.deterministic.observations);
+    assert.equal(content.ai_contract, AI_CONTRACT_V36);
+  });
+
+  it("al leer no se retiene ni se muestra texto alguno", () => {
+    const m = materials({ details: sparse });
+    const content = deterministicAnalysis(m, { activities: [], evidence: [{ scope: "global" }] });
+    assert.deepEqual(reviewStoredAnalysis(content), { compliant: true, reasons: [] });
+    const r = withholdNonCompliantText(content);
+    assert.equal(r.withheld, false);
+    assert.equal(r.content.summary, "");
+    // Aunque la fila se hubiera alterado, nunca se devuelve texto.
+    const tampered = withholdNonCompliantText({ ...content, summary: "Texto agregado.", aspects_to_review: ["Observar algo."] });
+    assert.equal(tampered.content.summary, "");
+    assert.deepEqual(tampered.content.aspects_to_review, []);
   });
 });
 

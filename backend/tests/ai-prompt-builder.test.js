@@ -1,15 +1,19 @@
 // Tests del promptBuilder — v3.6.
 //
 // Cubren: shape, versión, guía de escritura en positivo (sin eco de términos
-// clínicos), datos repartidos en bloques por párrafo (observaciones + hechos
-// de sessionFacts), temas determinísticos para los aspectos, ausencia de
-// datos técnicos (slugs, métricas, cifras, dominios) y contrato de output.
+// clínicos), datos repartidos en bloques por párrafo (hechos de
+// sessionFacts; las observaciones automáticas NO se envían), cantidad de
+// párrafos proporcional a los datos, temas determinísticos para los aspectos,
+// ausencia de datos técnicos (slugs, métricas, cifras, dominios), contrato de
+// output y JSON Schema para Ollama.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
   buildSessionAnalysisPrompt,
+  buildOutputSchema,
+  OUTPUT_PARAGRAPH_MAX_CHARS,
   PROMPT_BUILDER_VERSION,
   PROMPT_OUTPUT_SCHEMA_VERSION,
 } from "../src/services/ai/promptBuilder.js";
@@ -139,7 +143,7 @@ describe("promptBuilder v3.6 — sin eco de reglas de seguridad", () => {
 
   it("deja las explicaciones y conclusiones sobre la persona al profesional", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(prompt.includes("corresponden al profesional: dejalas fuera del informe"));
+    assert.ok(prompt.includes("corresponden al profesional: dejalos fuera del informe"));
     assert.ok(prompt.includes("Cada oración del informe cuenta un dato registrado"));
   });
 
@@ -160,14 +164,37 @@ describe("promptBuilder v3.6 — sin eco de reglas de seguridad", () => {
 });
 
 describe("promptBuilder v3.6 — datos de la sesión por párrafo", () => {
-  it("reparte las observaciones entre el párrafo de resultados y el de antecedentes", () => {
+  it("con hechos enriquecidos NO envía las observaciones automáticas (el panel ya las muestra)", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx(), { observations: OBS, facts: richFacts() });
+    for (const o of OBS) assert.ok(!prompt.includes(o), o);
     const p2 = block(prompt, "PÁRRAFO 2");
+    assert.ok(p2.includes("- En el conjunto de la sesión hubo la misma cantidad de respuestas correctas e incorrectas."));
     const p3 = block(prompt, "PÁRRAFO 3");
-    assert.ok(p2.includes("- La sesión fue completada en su totalidad."));
-    assert.ok(!p2.includes("sesiones comparables"));
-    assert.ok(p3.includes("- No existen todavía sesiones comparables para describir una tendencia."));
     assert.ok(p3.includes("- Hay varias sesiones anteriores registradas de esta misma actividad."));
+    assert.ok(p3.includes("- Entre las sesiones anteriores de esta actividad no hay una con la que esta sea comparable."));
+  });
+
+  it("la comparación con la sesión anterior llega redactada por sessionFacts", () => {
+    const comparable = makeCtx({
+      comparison_metrics: {
+        accuracy: { current: 0.5, previous: 0.75, direction: "bajó" },
+        mean_latency_ms: { current: 3000, previous: 2500, direction: "subió" },
+        difficulty_level: { current: 2, previous: 2, same: true },
+      },
+    });
+    const p3 = block(buildSessionAnalysisPrompt(comparable, { facts: richFacts(comparable) }).prompt, "PÁRRAFO 3");
+    assert.ok(p3.includes("- Frente a la sesión anterior comparable de esta actividad, la precisión fue menor."));
+    assert.ok(p3.includes("- Frente a esa misma sesión, el tiempo promedio de respuesta fue mayor."));
+
+    const otherLevel = makeCtx({
+      comparison_metrics: {
+        accuracy: { current: 0.5, previous: 0.75, direction: "bajó" },
+        difficulty_level: { current: 3, previous: 2, same: false },
+      },
+    });
+    const p3b = block(buildSessionAnalysisPrompt(otherLevel, { facts: richFacts(otherLevel) }).prompt, "PÁRRAFO 3");
+    assert.ok(p3b.includes("otro nivel de dificultad, así que la diferencia en la precisión no es directamente comparable."));
+    assert.ok(!p3b.includes("fue menor"));
   });
 
   it("párrafo 1: actividad, nivel y estado de ánimo informado", () => {
@@ -186,9 +213,30 @@ describe("promptBuilder v3.6 — datos de la sesión por párrafo", () => {
   });
 
   it("sin antecedentes no hay párrafo 3 y la plantilla pide dos párrafos", () => {
-    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
+    const facts = buildSessionFacts(makeCtx(), {
+      questionDetails: [detail("orientacion_temporal", false, true, 2100), detail("orientacion_temporal", false, false, 2500)],
+      adaptiveLevel: 2,
+      sameActivityPreviousCount: 0,
+    });
+    const { prompt, paragraphCount } = buildSessionAnalysisPrompt(makeCtx(), { facts });
     assert.ok(!prompt.includes("PÁRRAFO 3"));
+    assert.equal(paragraphCount, 2);
     assert.ok(prompt.includes('"paragraphs": ["<párrafo 1>", "<párrafo 2>"]'));
+  });
+
+  it("sin nivel ni estado de ánimo, la actividad va con los resultados en un solo párrafo", () => {
+    const ctx = makeCtx({ patient_reported_mood: null });
+    const facts = buildSessionFacts(ctx, {
+      questionDetails: [detail("orientacion_temporal", false, true, 2100), detail("orientacion_temporal", false, false, 2500)],
+      adaptiveLevel: null,
+      sameActivityPreviousCount: 0,
+    });
+    const { prompt, paragraphCount } = buildSessionAnalysisPrompt(ctx, { facts });
+    assert.equal(paragraphCount, 1);
+    assert.ok(block(prompt, "PÁRRAFO 1").includes("- La persona realizó la actividad Agenda de turnos"));
+    assert.ok(block(prompt, "PÁRRAFO 1").includes("- En las preguntas de fechas, horarios y turnos"));
+    assert.ok(!prompt.includes("PÁRRAFO 2"));
+    assert.ok(prompt.includes('"paragraphs": ["<párrafo 1>"]'));
   });
 
   it("con antecedentes la plantilla pide tres párrafos", () => {
@@ -196,9 +244,14 @@ describe("promptBuilder v3.6 — datos de la sesión por párrafo", () => {
     assert.ok(prompt.includes('"paragraphs": ["<párrafo 1>", "<párrafo 2>", "<párrafo 3>"]'));
   });
 
-  it("sin observaciones usa un hecho neutro de respaldo", () => {
+  it("sin hechos ni observaciones usa un hecho neutro de respaldo", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
-    assert.ok(block(prompt, "PÁRRAFO 2").includes("- La sesión fue registrada."));
+    assert.ok(block(prompt, "PÁRRAFO 1").includes("- La sesión fue registrada."));
+  });
+
+  it("sin hechos enriquecidos (respaldo) usa las observaciones", () => {
+    const { prompt } = buildSessionAnalysisPrompt(makeCtx(), { observations: OBS });
+    assert.ok(block(prompt, "PÁRRAFO 1").includes("- La sesión fue completada en su totalidad."));
   });
 
   it("el estado de ánimo sólo llega con los hechos enriquecidos (nunca desde el contexto crudo)", () => {
@@ -270,7 +323,7 @@ describe("promptBuilder v3.6 — NO filtra datos técnicos al modelo", () => {
 
 describe("promptBuilder v3.6 — contrato de output", () => {
   it("pide schema_version, paragraphs y aspects_to_review", () => {
-    const { prompt } = buildSessionAnalysisPrompt(makeCtx());
+    const { prompt } = buildSessionAnalysisPrompt(makeCtx(), { facts: richFacts() });
     assert.ok(prompt.includes("exactamente estos tres campos"));
     assert.ok(prompt.includes('"paragraphs"'));
     assert.ok(prompt.includes('"aspects_to_review"'));
@@ -287,6 +340,34 @@ describe("promptBuilder v3.6 — contrato de output", () => {
   it("prohíbe cifras numéricas en el texto", () => {
     const { prompt } = buildSessionAnalysisPrompt(makeCtx());
     assert.ok(prompt.includes("No escribas números ni porcentajes"));
+  });
+});
+
+describe("promptBuilder v3.6 — JSON Schema para Ollama (structured outputs)", () => {
+  it("fija la cantidad exacta de párrafos y el máximo de aspectos", () => {
+    const facts = richFacts();
+    const { outputSchema, paragraphCount, topicCount } = buildSessionAnalysisPrompt(makeCtx(), { facts });
+    assert.equal(paragraphCount, 3);
+    assert.equal(topicCount, facts.blocks.topics.length);
+    assert.equal(outputSchema.type, "object");
+    assert.equal(outputSchema.additionalProperties, false);
+    assert.deepEqual(outputSchema.required, ["schema_version", "paragraphs", "aspects_to_review"]);
+    assert.deepEqual(outputSchema.properties.schema_version.enum, ["3"]);
+    assert.equal(outputSchema.properties.paragraphs.minItems, 3);
+    assert.equal(outputSchema.properties.paragraphs.maxItems, 3);
+    assert.equal(outputSchema.properties.paragraphs.items.maxLength, OUTPUT_PARAGRAPH_MAX_CHARS);
+    assert.equal(outputSchema.properties.aspects_to_review.maxItems, topicCount);
+  });
+
+  it("los topes del schema quedan dentro de los límites del validador", () => {
+    const schema = buildOutputSchema(4, 9);
+    assert.equal(schema.properties.paragraphs.maxItems, 4);
+    assert.equal(schema.properties.aspects_to_review.maxItems, 5);
+    assert.ok(OUTPUT_PARAGRAPH_MAX_CHARS * 4 + 6 <= 4096);
+    assert.ok(schema.properties.paragraphs.items.maxLength <= 1100);
+    assert.ok(schema.properties.aspects_to_review.items.maxLength <= 240);
+    assert.equal(buildOutputSchema(0, 0).properties.paragraphs.minItems, 1);
+    assert.equal(buildOutputSchema(2, 0).properties.aspects_to_review.maxItems, 0);
   });
 });
 

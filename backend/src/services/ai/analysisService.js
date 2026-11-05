@@ -34,7 +34,7 @@ import { withAnalysisLock as defaultWithAnalysisLock } from "./analysisLock.js";
 import { loadPreviousSessions, filterComparableSessions, HISTORICAL_SESSION_LIMIT } from "./historicalContext.js";
 import { buildEvidenceFromContext } from "./evidenceBuilder.js";
 import { buildComparisonMetrics } from "./comparisonBuilder.js";
-import { buildAnalysisMaterials } from "./analysisMaterials.js";
+import { buildAnalysisMaterials, deterministicAnalysis } from "./analysisMaterials.js";
 
 // Parámetros de inferencia. num_predict: cota superior de tokens generados.
 // v3.0 — bajado a 300. El contrato v3 limita la salida del modelo a
@@ -416,6 +416,18 @@ async function runGenerationCritical({
   const materials = buildAnalysisMaterials(context, input);
   const { prompt } = materials;
 
+  // 3.6 (ajuste) — Datos insuficientes: no se llama al modelo. Se persiste un
+  // ok sin texto redactado y marcado como determinístico; el panel muestra
+  // los bloques determinísticos y un aviso, nunca una "síntesis IA".
+  if (!materials.sufficient) {
+    const row = await repo.markGeneratingAsOk(dbHandle, {
+      id: generatingRow.id,
+      analysis: deterministicAnalysis(materials, buildDeterministicFields(context)),
+      latencyMs: null,
+    });
+    return { source: "generated", analysis: row };
+  }
+
   // 5+6) Ollama + Validador — con un único reintento controlado para
   //      modos conocidos de inestabilidad de llama3.2:3b.
   //
@@ -448,7 +460,8 @@ async function runGenerationCritical({
         {
           prompt,
           model,
-          format: "json",
+          // 3.6 (ajuste): JSON Schema como gramática (structured outputs).
+          format: materials.outputSchema,
           options: AI_GENERATE_OPTIONS,
           keepAlive: AI_KEEP_ALIVE,
         },
@@ -517,22 +530,9 @@ async function runGenerationCritical({
   // modelo. El modelo sólo genera summary + aspects_to_review; TODO lo demás
   // (actividades, dominios, métricas, mood, comparaciones) lo expone el
   // backend aquí para que la UI las renderice directamente.
-  const evidence = buildEvidenceFromContext(context);
-  // Lista de actividades reales de la sesión + dominios cognitivos trabajados
-  // por cada una. Sirve al frontend para renderizar "Actividades" y "Dominios"
-  // sin depender de que el modelo los nombre.
-  const activities = context.sections.map((s) => ({
-    slug: s.slug,
-    name: s.name,
-    cognitive_domain_slugs: Array.isArray(s.cognitive_domain_slugs)
-      ? [...s.cognitive_domain_slugs]
-      : [],
-  }));
   const persistable = {
     ...validated,
-    activities,
-    evidence,
-    ...(context.comparison_metrics ? { comparison_metrics: context.comparison_metrics } : {}),
+    ...buildDeterministicFields(context),
     // v3.4 — observaciones y aspectos orientativos determinísticos.
     // v3.6 — más la marca de contrato y los hechos que vio el modelo.
     ...materials.persistExtras,
@@ -545,6 +545,26 @@ async function runGenerationCritical({
     latencyMs: ollamaLatencyMs,
   });
   return { source: "generated", analysis: row };
+}
+
+/**
+ * Campos determinísticos que acompañan a todo análisis v3: actividades
+ * reales de la sesión (con sus dominios), evidence y comparison_metrics.
+ * El frontend los renderiza sin depender de que el modelo los nombre.
+ * Compartido con el worker (analysisQueue).
+ */
+export function buildDeterministicFields(context) {
+  return {
+    activities: context.sections.map((s) => ({
+      slug: s.slug,
+      name: s.name,
+      cognitive_domain_slugs: Array.isArray(s.cognitive_domain_slugs)
+        ? [...s.cognitive_domain_slugs]
+        : [],
+    })),
+    evidence: buildEvidenceFromContext(context),
+    ...(context.comparison_metrics ? { comparison_metrics: context.comparison_metrics } : {}),
+  };
 }
 
 // Re-exports útiles para la route.

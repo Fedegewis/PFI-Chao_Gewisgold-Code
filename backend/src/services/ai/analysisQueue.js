@@ -26,11 +26,10 @@
 
 import crypto from "node:crypto";
 import db from "../../db/connection.js";
-import { loadSessionAnalysisInput, AI_GENERATE_OPTIONS } from "./analysisService.js";
+import { loadSessionAnalysisInput, AI_GENERATE_OPTIONS, buildDeterministicFields } from "./analysisService.js";
 import { buildSessionAnalysisContext, CONTEXT_SCHEMA_VERSION } from "./contextBuilder.js";
 import { PROMPT_BUILDER_VERSION } from "./promptBuilder.js";
-import { buildAnalysisMaterials } from "./analysisMaterials.js";
-import { buildEvidenceFromContext } from "./evidenceBuilder.js";
+import { buildAnalysisMaterials, deterministicAnalysis } from "./analysisMaterials.js";
 import {
   parseAndValidateSessionAnalysis,
   ANALYSIS_SCHEMA_VERSION,
@@ -483,7 +482,23 @@ export async function claimNextSession(deps = {}) {
       });
       return null;
     }
-    const { prompt } = buildAnalysisMaterials(context, input);
+    const materials = buildAnalysisMaterials(context, input);
+    const { prompt } = materials;
+
+    // 3.6 (ajuste) — Datos insuficientes: no se envía al worker. Se persiste
+    // directamente un ok sin texto redactado, marcado como determinístico
+    // (mismo resultado que el flujo in-process). Cuenta como respuesta a un
+    // pedido de regeneración pendiente: es un ok posterior al pedido.
+    if (!materials.sufficient) {
+      await trx("session_analyses").insert({
+        session_id: candidate.session_id,
+        status: "ok",
+        model, schema_version: schemaVersion, prompt_version: promptVersion,
+        analysis: deterministicAnalysis(materials, buildDeterministicFields(context)),
+        attempt_count: priorAttempts,
+      });
+      return null;
+    }
 
     // Emitir claim: fila generating con lease + claim_token.
     const claimToken = crypto.randomBytes(16).toString("hex");
@@ -510,8 +525,10 @@ export async function claimNextSession(deps = {}) {
       lease_expires_at: created.lease_expires_at,
       prompt,
       // v3.6: el worker usa estos parámetros para la inferencia (el 3.6
-      // necesita más tokens que el 3.5). Workers anteriores los ignoran.
-      generation_options: { ...AI_GENERATE_OPTIONS },
+      // necesita más tokens que el 3.5). `format` es el JSON Schema de la
+      // salida (structured outputs); un worker que no lo reconoce usa
+      // format "json" y el validador sigue aplicándose igual.
+      generation_options: { ...AI_GENERATE_OPTIONS, format: materials.outputSchema },
     };
   });
 }
@@ -610,19 +627,9 @@ export async function submitResult(params, deps = {}) {
   }
 
   // Fase 3: inyectar bloques determinísticos y persistir OK.
-  const evidence = buildEvidenceFromContext(ctxPkg.context);
-  const activities = ctxPkg.context.sections.map((s) => ({
-    slug: s.slug,
-    name: s.name,
-    cognitive_domain_slugs: Array.isArray(s.cognitive_domain_slugs)
-      ? [...s.cognitive_domain_slugs]
-      : [],
-  }));
   const persistable = {
     ...validated,
-    activities,
-    evidence,
-    ...(ctxPkg.context.comparison_metrics ? { comparison_metrics: ctxPkg.context.comparison_metrics } : {}),
+    ...buildDeterministicFields(ctxPkg.context),
     ...ctxPkg.materials.persistExtras,
   };
 

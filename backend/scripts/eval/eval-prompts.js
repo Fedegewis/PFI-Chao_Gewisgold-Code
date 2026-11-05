@@ -1,4 +1,10 @@
-// Evaluación comparativa de prompts 3.4 vs 3.5 vs 3.6 contra Ollama LOCAL.
+// Evaluación comparativa de prompts contra Ollama LOCAL.
+//
+// Variantes: 3.4, 3.5, 3.6-pre (primera versión de 3.6, congelada en
+// legacyPromptV36a.js + legacySessionFactsV36a.js, con format "json") y 3.6
+// (vigente: fichas sin observaciones, párrafos proporcionales, JSON Schema
+// como format y síntesis determinística cuando los datos no alcanzan).
+// Por defecto se comparan 3.6-pre y 3.6; --only elige otras.
 //
 // - Sólo casos SINTÉTICOS definidos en este archivo (sin DB, sin pacientes
 //   reales, sin red externa: únicamente http://localhost:11434 por defecto).
@@ -20,7 +26,11 @@
 //   clínica: los textos completos quedan en --out para revisión humana.
 //
 // Uso:
-//   node scripts/eval/eval-prompts.js [--reps 3] [--model llama3.2:3b] [--out archivo.json] [--only 3.6] [--cases C01,C02]
+//   node scripts/eval/eval-prompts.js [--reps 3] [--model llama3.2:3b] [--out archivo.json] [--only 3.6-pre,3.6] [--cases C01,C02]
+//
+// Tiempo total estimado con reintentos: las repeticiones 1..N de un caso se
+// usan como intentos sucesivos (se corta en el primero aceptado, máximo 3,
+// como MAX_GENERATION_ATTEMPTS del worker); se suma su latencia.
 //
 // Variables: OLLAMA_URL (default http://localhost:11434).
 
@@ -29,10 +39,13 @@ import { writeFileSync } from "node:fs";
 import { buildSessionAnalysisPrompt as buildV36, PROMPT_BUILDER_VERSION } from "../../src/services/ai/promptBuilder.js";
 import { buildSessionAnalysisPrompt as buildV35 } from "./legacyPromptV35.js";
 import { buildSessionAnalysisPrompt as buildV34 } from "./legacyPromptV34.js";
+import { buildSessionAnalysisPrompt as buildV36a } from "./legacyPromptV36a.js";
+import { buildSessionFacts as buildFactsV36a } from "./legacySessionFactsV36a.js";
 import { buildAnalysisMaterials } from "../../src/services/ai/analysisMaterials.js";
 import { parseAndValidateSessionAnalysis } from "../../src/services/ai/responseValidator.js";
 import { AI_GENERATE_OPTIONS } from "../../src/services/ai/analysisService.js";
 import {
+  GENERATION_VALIDATION_OPTIONS,
   LEGACY_V35_VALIDATION_OPTIONS,
   normalizeText,
   splitSentences,
@@ -90,15 +103,33 @@ function metricsFrom(details) {
   };
 }
 
+// Especificación de la comparación con la sesión anterior. Los valores
+// actuales salen de las métricas y del nivel del caso (antes eran fijos: C02
+// decía precisión actual 0.5 con 1 de 4 correctas, y C04 nivel actual 2 con
+// adaptive_level 3).
 function cmp(accuracy, { latency = null, levelSame } = {}) {
+  return { accuracy, latency: latency || "igual", levelSame };
+}
+
+const ACC_STEP = 0.25;
+const LAT_STEP = 500;
+function buildComparison(spec, metrics, level) {
+  const accNow = metrics.accuracy;
+  const accPrev = spec.accuracy === "bajó" ? Math.min(1, accNow + ACC_STEP)
+    : spec.accuracy === "subió" ? Math.max(0, accNow - ACC_STEP) : accNow;
+  const latNow = Math.round(metrics.mean_latency_ms);
+  const latPrev = spec.latency === "subió" ? latNow - LAT_STEP : spec.latency === "bajó" ? latNow + LAT_STEP : latNow;
   const c = {
     section_slug: "x",
     reference: { days_before: 4, duration_seconds: 300 },
-    accuracy: { current: 0.5, previous: 0.75, delta_percentage_points: -25, direction: accuracy },
-    completion_rate: { current: 1, previous: 1, delta_percentage_points: 0, direction: "igual" },
-    mean_latency_ms: { current: 3000, previous: 2500, delta_ms: 500, direction: latency || "igual" },
+    accuracy: { current: accNow, previous: accPrev, delta_percentage_points: Math.round((accNow - accPrev) * 100), direction: spec.accuracy },
+    completion_rate: { current: metrics.completion_rate, previous: 1, delta_percentage_points: Math.round((metrics.completion_rate - 1) * 100), direction: metrics.completion_rate < 1 ? "bajó" : "igual" },
+    mean_latency_ms: { current: latNow, previous: latPrev, delta_ms: latNow - latPrev, direction: spec.latency },
   };
-  if (levelSame !== undefined) c.difficulty_level = { current: 2, previous: levelSame === false ? 1 : levelSame === null ? null : 2, same: levelSame };
+  if (spec.levelSame !== undefined) {
+    const prevLevel = spec.levelSame === true ? level : spec.levelSame === false ? (level === 1 ? 2 : level - 1) : null;
+    c.difficulty_level = { current: level, previous: prevLevel, same: spec.levelSame };
+  }
   return c;
 }
 
@@ -168,7 +199,7 @@ export function inputFor(c) {
     global: { metrics },
     sections: [section],
     cognitive_domains_touched: section.cognitive_domain_slugs,
-    ...(c.comparison ? { comparison_metrics: c.comparison } : {}),
+    ...(c.comparison ? { comparison_metrics: buildComparison(c.comparison, metrics, c.level) } : {}),
   };
   const input = {
     question_details: c.details.map((d) => ({ ...d, section_slug: section.slug })),
@@ -180,16 +211,21 @@ export function inputFor(c) {
 
 // ---- Ollama ---------------------------------------------------------------
 
-async function generate({ url, model, prompt, seed }) {
+async function generate({ url, model, prompt, seed, format = "json" }) {
   const t0 = Date.now();
   const res = await fetch(`${url}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, prompt, stream: false, format: "json", options: { ...AI_GENERATE_OPTIONS, seed }, keep_alive: "30m" }),
+    body: JSON.stringify({ model, prompt, stream: false, format, options: { ...AI_GENERATE_OPTIONS, seed }, keep_alive: "30m" }),
   });
-  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const body = await res.json();
-  return { text: body.response, latencyMs: Date.now() - t0, evalCount: body.eval_count ?? null };
+  return {
+    text: body.response,
+    latencyMs: Date.now() - t0,
+    evalCount: body.eval_count ?? null,
+    promptEvalCount: body.prompt_eval_count ?? null,
+  };
 }
 
 // ---- Métricas -------------------------------------------------------------
@@ -219,13 +255,29 @@ function coverage(text, c) {
   };
 }
 
-function analyze(text, judged, c, observations, followUp) {
+// Oración copiada literalmente: su texto normalizado (sin el punto final)
+// aparece completo dentro del prompt (datos u observaciones).
+function isVerbatim(sentence, haystackNorm) {
+  const n = normalizeText(sentence).replace(/[.!?]+$/, "").trim();
+  return n.length >= 25 && haystackNorm.includes(n);
+}
+
+// Formato (lo que la gramática o un prompt mejor pueden evitar) vs contenido
+// (afirmaciones no respaldadas o no permitidas).
+const FORMAT_REASONS = new Set([
+  "INVALID_JSON", "UNEXPECTED_FIELD", "SCHEMA_INVALID", "malformed_summary",
+  "aspects_in_paragraph", "max_length_exceeded",
+]);
+
+function analyze(text, judged, c, observations, followUp, promptNorm = "") {
   let parsed = null;
   try { parsed = JSON.parse(text); } catch { /* inválido */ }
   const summary = judged.output?.summary
     ?? (Array.isArray(parsed?.paragraphs) ? parsed.paragraphs.join("\n\n") : (typeof parsed?.summary === "string" ? parsed.summary : ""));
   const sentences = splitSentences(summary);
   const repeated = sentences.filter((s) => observations.some((o) => overlap(s, o) >= REPEAT_SIMILARITY)).length;
+  const verbatim = sentences.filter((s) => isVerbatim(s, promptNorm)).length;
+  const verbatimObs = sentences.filter((s) => isVerbatim(s, normalizeText(observations.join(" | ")))).length;
   const aspectsRaw = Array.isArray(parsed?.aspects_to_review) ? parsed.aspects_to_review : [];
   const aspectsKept = judged.output ? judged.output.aspects_to_review : [];
   const aspectsRepeatFollowUp = aspectsRaw.filter((a) => typeof a === "string" && followUp.some((f) => overlap(a, f) >= REPEAT_SIMILARITY)).length;
@@ -234,6 +286,8 @@ function analyze(text, judged, c, observations, followUp) {
     paragraphs: summary ? summary.split(/\n\s*\n/).length : 0,
     sentences: sentences.length,
     sentences_repeating_observations: repeated,
+    sentences_verbatim_from_prompt: verbatim,
+    sentences_verbatim_observation: verbatimObs,
     aspects_returned: aspectsRaw.length,
     aspects_kept: aspectsKept.length,
     aspects_repeating_follow_up: aspectsRepeatFollowUp,
@@ -260,27 +314,51 @@ const VARIANTS = {
     build: (ctx, m) => buildV35(ctx, { observations: m.deterministic.observations }),
     opts: (m) => ({ observations: m.deterministic.observations, followUp: m.deterministic.follow_up, ...LEGACY_V35_VALIDATION_OPTIONS }),
   },
+  // Primera versión de 3.6 (congelada): observaciones + oraciones de datos,
+  // format "json". Se valida con el validador VIGENTE (mismas reglas que 3.6).
+  "3.6-pre": {
+    build: (ctx, m, raw) => {
+      const facts = buildFactsV36a(ctx, raw);
+      return { ...buildV36a(ctx, { observations: m.deterministic.observations, facts }), facts };
+    },
+    opts: (m, built) => ({
+      observations: m.deterministic.observations,
+      followUp: m.deterministic.follow_up,
+      factSentences: built.facts.sentences,
+      detail: built.facts.sheet,
+      ...GENERATION_VALIDATION_OPTIONS,
+    }),
+  },
   "3.6": {
-    build: (ctx, m) => buildV36(ctx, { observations: m.deterministic.observations, facts: m.facts }),
+    build: (ctx, m) => ({ ...buildV36(ctx, { observations: m.deterministic.observations, facts: m.facts }), format: m.outputSchema }),
     opts: (m) => m.validationOptions,
+    deterministicWhen: (m) => !m.sufficient,
   },
 };
+const DEFAULT_VERSIONS = ["3.6-pre", "3.6"];
 
 function mean(xs) { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; }
 function round(x, d = 2) { return x === null ? null : Number(x.toFixed(d)); }
 
 function tally(rows) {
-  const valid = rows.filter((r) => !r.error);
+  const deterministic = rows.filter((r) => r.deterministic);
+  const valid = rows.filter((r) => !r.error && !r.deterministic);
   const ok = valid.filter((r) => r.judged.ok);
   const reasons = {};
   for (const r of valid) if (!r.judged.ok) reasons[r.judged.reason] = (reasons[r.judged.reason] || 0) + 1;
   const droppedReasons = {};
   for (const r of ok) for (const d of r.judged.dropped) droppedReasons[d.reason] = (droppedReasons[d.reason] || 0) + 1;
   const cov = (k) => round(mean(ok.map((r) => (r.metrics.coverage[k] ? 1 : 0))));
+  const rejected = valid.filter((r) => !r.judged.ok);
+  const formatRej = rejected.filter((r) => FORMAT_REASONS.has(r.judged.reason)).length;
+  const sumOk = (k) => ok.reduce((a, r) => a + r.metrics[k], 0);
   return {
     n: valid.length,
+    deterministic: deterministic.length,
     accepted: ok.length,
     rate: valid.length ? round(ok.length / valid.length) : null,
+    rejected_format: formatRej,
+    rejected_content: rejected.length - formatRej,
     rejected_reasons: reasons,
     accepted_only: {
       mean_summary_chars: round(mean(ok.map((r) => r.metrics.summary_chars)), 0),
@@ -289,6 +367,11 @@ function tally(rows) {
       share_sentences_repeating_observations: round(
         ok.reduce((a, r) => a + r.metrics.sentences_repeating_observations, 0) / Math.max(1, ok.reduce((a, r) => a + r.metrics.sentences, 0)),
       ),
+      share_sentences_verbatim_from_prompt: round(sumOk("sentences_verbatim_from_prompt") / Math.max(1, sumOk("sentences"))),
+      share_sentences_verbatim_observation: round(sumOk("sentences_verbatim_observation") / Math.max(1, sumOk("sentences"))),
+      share_with_verbatim_observation: round(mean(ok.map((r) => (r.metrics.sentences_verbatim_observation > 0 ? 1 : 0)))),
+      min_summary_chars: ok.length ? Math.min(...ok.map((r) => r.metrics.summary_chars)) : null,
+      max_summary_chars: ok.length ? Math.max(...ok.map((r) => r.metrics.summary_chars)) : null,
       mean_aspects_returned: round(mean(ok.map((r) => r.metrics.aspects_returned))),
       mean_aspects_kept: round(mean(ok.map((r) => r.metrics.aspects_kept))),
       share_with_3plus_aspects: round(mean(ok.map((r) => (r.metrics.aspects_kept >= 3 ? 1 : 0)))),
@@ -296,7 +379,40 @@ function tally(rows) {
       coverage: { mood: cov("mood"), level: cov("level"), types: cov("types"), times: cov("times"), history: cov("history"), stimulus: cov("stimulus") },
     },
     mean_latency_s: round(mean(valid.map((r) => r.latency_ms / 1000)), 1),
+    max_latency_s: valid.length ? round(Math.max(...valid.map((r) => r.latency_ms / 1000)), 1) : null,
     mean_eval_tokens: round(mean(valid.map((r) => r.eval_count).filter((x) => x !== null)), 0),
+    max_eval_tokens: valid.length ? Math.max(...valid.map((r) => r.eval_count ?? 0)) : null,
+    mean_prompt_tokens: round(mean(valid.map((r) => r.prompt_eval_count).filter((x) => x !== null && x !== undefined)), 0),
+    retries: retryEstimate(rows),
+  };
+}
+
+// Intentos sucesivos = repeticiones 1..N del mismo caso (máximo 3).
+function retryEstimate(rows) {
+  const byCase = new Map();
+  for (const r of rows) {
+    if (r.error) continue;
+    if (!byCase.has(r.case)) byCase.set(r.case, []);
+    byCase.get(r.case).push(r);
+  }
+  const perCase = [];
+  for (const [id, list] of byCase) {
+    const seq = list.sort((a, b) => a.rep - b.rep).slice(0, 3);
+    let total = 0; let attempts = 0; let accepted = false; let deterministic = false;
+    for (const r of seq) {
+      if (r.deterministic) { deterministic = true; accepted = true; break; }
+      attempts += 1; total += r.latency_ms;
+      if (r.judged.ok) { accepted = true; break; }
+    }
+    perCase.push({ case: id, attempts, total_s: round(total / 1000, 1), accepted, deterministic });
+  }
+  return {
+    cases_with_result: perCase.filter((c) => c.accepted).length,
+    cases: perCase.length,
+    mean_attempts: round(mean(perCase.filter((c) => !c.deterministic).map((c) => c.attempts))),
+    mean_total_s: round(mean(perCase.map((c) => c.total_s)), 1),
+    sum_total_s: round(perCase.reduce((a, c) => a + c.total_s, 0), 1),
+    per_case: perCase,
   };
 }
 
@@ -309,7 +425,8 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const versions = args.only || Object.keys(VARIANTS);
+  const versions = args.only || DEFAULT_VERSIONS;
+  for (const v of versions) if (!VARIANTS[v]) throw new Error(`Variante desconocida: ${v}`);
   const cases = args.cases ? CASES.filter((c) => args.cases.some((p) => c.id.startsWith(p))) : CASES;
 
   const results = [];
@@ -318,19 +435,33 @@ async function main() {
     for (const c of cases) {
       const { context, input } = inputFor(c);
       const materials = buildAnalysisMaterials(context, input);
+      const raw = {
+        questionDetails: input.question_details,
+        adaptiveLevel: input.adaptive_level,
+        sameActivityPreviousCount: input.same_activity_previous_count,
+      };
       for (const version of versions) {
         const v = VARIANTS[version];
-        const { prompt } = v.build(context, materials);
+        if (v.deterministicWhen && v.deterministicWhen(materials)) {
+          // Sin llamada a Ollama: el backend persiste un resultado determinístico.
+          results.push({ case: c.id, rep, version, deterministic: true, latency_ms: 0 });
+          console.log(`${c.id} rep${rep} v${version}: DETERMINÍSTICO (datos insuficientes, sin llamada a Ollama)`);
+          continue;
+        }
+        const built = v.build(context, materials, raw);
         let out;
         try {
-          out = await generate({ url, model: args.model, prompt, seed: rep });
+          out = await generate({ url, model: args.model, prompt: built.prompt, seed: rep, format: built.format || "json" });
         } catch (err) {
           results.push({ case: c.id, rep, version, error: err.message });
           continue;
         }
-        const judged = judge(out.text, context, v.opts(materials));
-        const metrics = analyze(out.text, judged, c, materials.deterministic.observations, materials.deterministic.follow_up);
-        const row = { case: c.id, rep, version, latency_ms: out.latencyMs, eval_count: out.evalCount, text: out.text, judged, metrics };
+        const judged = judge(out.text, context, v.opts(materials, built));
+        const metrics = analyze(out.text, judged, c, materials.deterministic.observations, materials.deterministic.follow_up, normalizeText(built.prompt));
+        const row = {
+          case: c.id, rep, version, latency_ms: out.latencyMs, eval_count: out.evalCount,
+          prompt_eval_count: out.promptEvalCount, text: out.text, judged, metrics,
+        };
         results.push(row);
         if (args.out) writeFileSync(`${args.out}.partial.json`, JSON.stringify({ partial: true, done: results.length, total, results }, null, 2));
         console.log(`${c.id} rep${rep} v${version}: ${judged.ok ? `ACEPTADO (aspectos ${metrics.aspects_kept}/${metrics.aspects_returned})` : `rechazado (${judged.reason})`} ${(out.latencyMs / 1000).toFixed(0)}s`);
@@ -341,6 +472,7 @@ async function main() {
   const summary = {
     model: args.model, reps: args.reps, cases: cases.length,
     options: { ...AI_GENERATE_OPTIONS, seed: "1..reps" },
+    format: { "3.6-pre": "json", "3.6": "JSON Schema (outputSchema)" },
     current_prompt: PROMPT_BUILDER_VERSION,
     by_version: Object.fromEntries(versions.map((v) => [v, tally(results.filter((r) => r.version === v))])),
     errors: results.filter((r) => r.error).length,

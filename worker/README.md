@@ -114,7 +114,17 @@ worker los aplica a la llamada a Ollama (`resolveGenerationOptions` en
 
 - Sin `generation_options` (backend anterior), el worker usa el default
   histórico `{ temperature: 0.2, num_predict: 300 }`.
-- El contrato 3.6 pide dos o tres párrafos y de tres a cinco aspectos:
+- `generation_options.format` (ajuste 3.6): JSON Schema de la salida. El
+  worker lo envía a Ollama como `format` (structured outputs: la gramática
+  fija la cantidad exacta de párrafos, el máximo de aspectos y el largo de
+  cada texto). `resolveOutputFormat` sólo acepta un objeto con
+  `type: "object"` de hasta 8 KB; si falta o no cumple, usa `"json"`. El
+  backend valida la respuesta igual en los dos casos: el schema garantiza la
+  forma, no el contenido.
+- Las sesiones sin datos suficientes (ningún tipo de pregunta con
+  respuestas puntuadas) no llegan al worker: el backend persiste un
+  resultado determinístico sin texto y `/claim` responde sin claim.
+- El contrato 3.6 pide de uno a tres párrafos y de tres a cinco aspectos:
   con `num_predict: 300` la salida queda truncada y el backend la rechaza
   como JSON inválido. **Actualizar el worker junto con el backend** (o antes):
   un worker viejo con un backend 3.6 produce sólo intentos fallidos.
