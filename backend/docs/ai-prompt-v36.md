@@ -338,3 +338,54 @@ llamar al modelo cuando no hay datos.
   utilidad clínica.
 - El worker debe desplegarse con el backend o antes (`num_predict` 900 y
   `format`). Un worker viejo ignora el schema y usa `"json"`.
+
+## 6. Rendimiento (Ollama local)
+
+Máquina del worker: Intel i7-1255U (2 núcleos P + 8 E, 12 hilos), 15,6 GB de
+RAM (~0,7-1,6 GB libres), Ollama 0.40.13, llama3.2:3b Q4_K_M. `ollama ps`:
+100% CPU. La GPU integrada (Iris Xe, Vulkan) aparece pero Ollama la descarta
+("dropping integrated GPU; to enable, set OLLAMA_IGPU_ENABLE=1"). No hay GPU
+dedicada en esta máquina.
+
+### 6.1 Dónde se va el tiempo (prompt 3.6, sin caché del prompt)
+
+Medido con las duraciones que devuelve Ollama, 7 casos sintéticos, seed 1:
+
+| Parte | Tiempo | Velocidad |
+|---|---|---|
+| Carga del modelo (`load_duration`) | ~8 s sólo en frío; 0 con `keep_alive` 30m | — |
+| Lectura del prompt (`prompt_eval`), ~850-1000 tokens | 13-28 s | 30-80 tokens/s |
+| Generación (`eval`), ~330-450 tokens | 38-60 s | 7,5-10 tokens/s |
+
+La generación es ~70% del tiempo y es proporcional a la extensión del
+informe. El prompt de la guía es un prefijo común: el runner reutiliza su
+caché entre pedidos, por eso el primer análisis tras cargar el modelo es el
+más lento.
+
+### 6.2 Opciones evaluadas
+
+| Opción | Resultado | Decisión |
+|---|---|---|
+| `num_thread` 8 (default de Ollama: 6) | 7/7 casos más rápidos, −12,6% (62,5 → 54,6 s), salida idéntica | Adoptada como configuración local opcional (`WORKER_OLLAMA_NUM_THREAD`, `OLLAMA_NUM_THREAD`) |
+| `num_thread` 4 | +7,6% (más lento) | Descartada |
+| `num_thread` 10 | igual que 8 | Descartada |
+| `num_batch` 1024 | lectura del prompt sin cambio (14,6 vs 15,0 s) | Descartada |
+| `num_ctx` 2048 | sin cambio de velocidad y con riesgo de truncar el prompt en sesiones largas | Descartada |
+| Espacios del JSON | ≤ 11 tokens por respuesta (~1 s) | No vale el cambio |
+| `keep_alive` | ya en 30m en backend y worker | Sin cambio |
+| Acortar el informe o quitar aspectos | bajaría el tiempo, pero pierde contenido | Fuera de alcance (pedido explícito) |
+
+No se pudieron probar sin autorización (configuración global de Ollama o
+descarga de modelos): GPU integrada por Vulkan (`OLLAMA_IGPU_ENABLE=1`),
+flash attention / caché KV cuantizada (`OLLAMA_FLASH_ATTENTION`,
+`OLLAMA_KV_CACHE_TYPE`) y un modelo más chico (llama3.2:1b), que además
+exigiría repetir la evaluación de calidad completa.
+
+### 6.3 Conclusión
+
+Con opciones por pedido no se llega a 30-40 s en esta máquina: la generación
+de ~400 tokens a ~9 tokens/s ya ocupa 35-50 s. La única mejora consistente
+y sin costo de calidad es `num_thread` 8 (~−13%). La calidad y la aceptación
+no cambian porque el texto generado es el mismo. Aparte de la inferencia, el
+worker espera hasta `WORKER_IDLE_POLL_MS` (30 s) para tomar una sesión nueva
+con la cola vacía: eso suma latencia percibida, no tiempo de generación.

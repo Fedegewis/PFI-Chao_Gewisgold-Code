@@ -128,6 +128,36 @@ worker los aplica a la llamada a Ollama (`resolveGenerationOptions` en
   con `num_predict: 300` la salida queda truncada y el backend la rechaza
   como JSON inválido. **Actualizar el worker junto con el backend** (o antes):
   un worker viejo con un backend 3.6 produce sólo intentos fallidos.
+- `num_thread` NO viene del backend (depende del hardware de cada máquina).
+  Se fija localmente con `WORKER_OLLAMA_NUM_THREAD` (opcional, 1–64); el
+  worker ignora un `num_thread` que llegue en `generation_options`.
+
+### Hilos de CPU (`WORKER_OLLAMA_NUM_THREAD`)
+
+Medido en la máquina del worker (i7-1255U, 2 núcleos P + 8 E, 12 hilos,
+Ollama 0.40.13, llama3.2:3b en CPU; la GPU integrada Iris Xe la descarta
+Ollama). Ollama elegía 6 hilos. Con 8, los 7 casos sintéticos medidos
+fueron más rápidos (media 62,5 s → 54,6 s por intento, −12,6%) con la
+salida idéntica byte a byte (misma seed). Con 4 fue más lento y con 10
+igual que con 8. En otra máquina hay que medir antes de fijarlo.
+
+Cambiar el valor (o usar valores distintos en el worker y en el backend
+in-process) hace que Ollama recargue el modelo (~8 s).
+
+### Actualizar el worker local antes del merge
+
+1. Esperar a que no haya un análisis en curso (log del worker sin un claim
+   abierto) y detenerlo con el archivo-centinela `.worker.stop` (termina el
+   ciclo actual sin cortar la inferencia). No matar el proceso.
+2. Actualizar el código del worker (`git pull` de la rama / main una vez
+   mergeado) y `npm ci` en `worker/`.
+3. Opcional: agregar `WORKER_OLLAMA_NUM_THREAD=8` al archivo de entorno del
+   worker (no se commitea).
+4. Correr `npm test` en `worker/`.
+5. Arrancar el worker con el mismo perfil de siempre y verificar en el log
+   el primer claim; el backend con prompt 3.6 debe estar desplegado (o
+   desplegarse inmediatamente después): el worker nuevo funciona con un
+   backend 3.5 (usa sus defaults), pero uno viejo no sirve para 3.6.
 - En CPU (llama3.2:3b) una generación 3.6 tarda ~50–95 s; el timeout de
   Ollama por defecto (180 s, `WORKER_OLLAMA_TIMEOUT_MS`) alcanza.
 

@@ -36,6 +36,18 @@ describe("ollamaClient", () => {
     assert.equal(captured.keep_alive, "30m");
   });
 
+  it("numThread local se envía como options.num_thread y no lo puede fijar el backend", async () => {
+    const bodies = [];
+    const fetchImpl = async (_url, init) => { bodies.push(JSON.parse(init.body)); return makeRes(200, { response: "ok" }); };
+    const withThreads = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", numThread: 8, fetchImpl });
+    await withThreads({ prompt: "x", generationOptions: { num_predict: 900 } });
+    assert.equal(bodies[0].options.num_thread, 8);
+    assert.equal(bodies[0].options.num_predict, 900);
+    const plain = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await plain({ prompt: "x", generationOptions: { num_thread: 2 } });
+    assert.equal("num_thread" in bodies[1].options, false);
+  });
+
   it("sin generationOptions usa los parámetros por defecto (num_predict 300)", async () => {
     let captured;
     const fetchImpl = async (_url, init) => {

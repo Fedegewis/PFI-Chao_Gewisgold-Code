@@ -23,6 +23,16 @@ function parseIntNonNeg(raw, fallback) {
   return Number.isInteger(n) && n >= 0 ? n : fallback;
 }
 
+// Hilos de CPU para Ollama (opcional). Depende del hardware de la máquina del
+// worker, por eso es configuración local y no la envía el backend. Sin valor
+// válido se devuelve null y Ollama usa su propio default.
+const NUM_THREAD_MAX = 64;
+function parseNumThread(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === "") return null;
+  const n = Number(String(raw).trim());
+  return Number.isInteger(n) && n >= 1 && n <= NUM_THREAD_MAX ? n : null;
+}
+
 function stripTrailingSlash(url) {
   return typeof url === "string" ? url.replace(/\/+$/, "") : url;
 }
@@ -74,6 +84,7 @@ export function loadConfig(env = process.env) {
     ollamaUrl,
     model: env.WORKER_MODEL || "llama3.2:3b",
     ollamaTimeoutMs: parseIntPositive(env.WORKER_OLLAMA_TIMEOUT_MS, 180_000),
+    ollamaNumThread: parseNumThread(env.WORKER_OLLAMA_NUM_THREAD),
     concurrency: parseIntPositive(env.WORKER_CONCURRENCY, 1),
     delayBetweenSessionsMs: parseIntNonNeg(env.WORKER_DELAY_MS, 10_000),
     idlePollMs: parseIntPositive(env.WORKER_IDLE_POLL_MS, 30_000),

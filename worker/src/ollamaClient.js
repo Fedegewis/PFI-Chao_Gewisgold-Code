@@ -114,7 +114,7 @@ export function resolveGenerationOptions(override) {
  * Factory. fetchImpl y signal inyectables para tests y para cancelación
  * externa (cuando el claim se pierde mid-inferencia).
  */
-export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, fetchImpl } = {}) {
+export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, numThread = null, fetchImpl } = {}) {
   if (typeof ollamaUrl !== "string" || ollamaUrl.length === 0) {
     throw new TypeError("ollamaUrl requerido");
   }
@@ -152,7 +152,11 @@ export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, fetc
           prompt,
           stream: false,
           format: resolveOutputFormat(generationOptions),
-          options: resolveGenerationOptions(generationOptions),
+          options: {
+            ...resolveGenerationOptions(generationOptions),
+            // Configuración local de la máquina (WORKER_OLLAMA_NUM_THREAD).
+            ...(Number.isInteger(numThread) && numThread > 0 ? { num_thread: numThread } : {}),
+          },
           keep_alive: "30m",
         }),
         signal: controller.signal,

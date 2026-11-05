@@ -575,6 +575,13 @@ profundidad sin perder seguridad. Detalle, evaluación y ejemplos completos en
     (4 rechazos de formato, 1 de contenido); ajustada 27/27 + 3
     determinísticas, 0 observaciones copiadas, 4.15 aspectos válidos,
     ~59 s por intento, total estimado con reintentos 572 s vs 756 s.
+- **Rendimiento** (sección 6 del doc): la máquina del worker es un i7-1255U
+  sin GPU dedicada; Ollama corre 100% en CPU (descarta la Iris Xe). ~70% del
+  tiempo es generación (~9 tokens/s). Única mejora consistente sin costo de
+  calidad: `num_thread` 8 (−12,6%, salida idéntica), como configuración local
+  opcional `WORKER_OLLAMA_NUM_THREAD` / `OLLAMA_NUM_THREAD` (no la envía el
+  backend). GPU por Vulkan, flash attention y modelos más chicos requieren
+  autorización (configuración global o descarga) y no se probaron.
 
 **v3.5 (2026-11-04, rama `fix/ai-content-safety`)**: seguridad y calidad del
 análisis tras la auditoría de los 8 análisis persistidos en producción

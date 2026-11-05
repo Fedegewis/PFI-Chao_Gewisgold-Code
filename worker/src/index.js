@@ -122,6 +122,7 @@ async function main() {
     ollamaUrl: config.ollamaUrl,
     model: config.model,
     timeoutMs: config.ollamaTimeoutMs,
+    numThread: config.ollamaNumThread,
   });
   const ollamaReady = createOllamaHealthCheck({ ollamaUrl: config.ollamaUrl, model: config.model });
 
