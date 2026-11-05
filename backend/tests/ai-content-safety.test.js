@@ -57,11 +57,25 @@ describe("contentSafety — normalización", () => {
 });
 
 describe("contentSafety — regresión con textos reales de producción", () => {
+  // Al leer, en v3 sólo se evalúa el summary (aspects_to_review se descarta).
+  // De los 8 análisis de producción, 3 tienen un summary conforme: se ocultaban
+  // únicamente por sus aspectos.
+  const SUMMARY_COMPLIANT = new Set(["analysis-1", "analysis-3", "analysis-7"]);
+
   for (const a of PROD) {
-    it(`${a.label}: el texto persistido no cumple las reglas vigentes`, () => {
+    const expected = SUMMARY_COMPLIANT.has(a.label);
+    it(`${a.label}: summary ${expected ? "conforme" : "no conforme"} con las reglas vigentes`, () => {
       const review = reviewStoredAnalysis({ schema_version: "3", ...a });
-      assert.equal(review.compliant, false);
-      assert.ok(review.reasons.length > 0);
+      assert.equal(review.compliant, expected);
+      if (!expected) assert.ok(review.reasons.length > 0);
+    });
+
+    it(`${a.label}: los aspects_to_review persistidos contienen afirmaciones no permitidas y nunca se devuelven`, () => {
+      assert.ok(a.aspects_to_review.some((t) => findForbiddenClaim(t)), "se esperaba al menos un aspecto rechazado");
+      const out = withholdNonCompliantText({ schema_version: "3", ...a });
+      assert.deepEqual(out.content.aspects_to_review, []);
+      assert.equal(out.withheld, !expected);
+      assert.equal("summary" in out.content, expected);
     });
   }
 
@@ -237,13 +251,30 @@ describe("contentSafety — protección al leer", () => {
     assert.equal(out.content, content);
   });
 
-  it("v3 no conforme: omite summary y aspects y conserva los bloques determinísticos sin mutar el original", () => {
+  it("v3 con summary conforme y aspectos no conformes: muestra el summary y descarta los aspectos", () => {
+    const content = {
+      schema_version: "3",
+      summary: "La sesión fue completada en su totalidad.",
+      aspects_to_review: ["Revisar la capacidad del paciente para procesar información y tomar decisiones."],
+      ...deterministic,
+    };
+    const snapshot = structuredClone(content);
+    const out = withholdNonCompliantText(content);
+    assert.equal(out.withheld, false);
+    assert.deepEqual(out.reasons, []);
+    assert.equal(out.content.summary, content.summary);
+    assert.deepEqual(out.content.aspects_to_review, []);
+    assert.deepEqual(out.content.observations, deterministic.observations);
+    assert.deepEqual(content, snapshot, "el original no se modifica");
+  });
+
+  it("v3 no conforme: omite summary, descarta aspects y conserva los bloques determinísticos sin mutar el original", () => {
     const content = { schema_version: "3", ...PROD[7], ...deterministic };
     const snapshot = structuredClone(content);
     const out = withholdNonCompliantText(content);
     assert.equal(out.withheld, true);
     assert.equal(out.content.summary, undefined);
-    assert.equal(out.content.aspects_to_review, undefined);
+    assert.deepEqual(out.content.aspects_to_review, []);
     assert.deepEqual(out.content.observations, deterministic.observations);
     assert.deepEqual(out.content.evidence, deterministic.evidence);
     assert.deepEqual(content, snapshot);

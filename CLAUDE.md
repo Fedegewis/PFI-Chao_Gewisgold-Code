@@ -772,12 +772,22 @@ en `backend/tests/fixtures/ai-outputs-prod-2026-11.json`.
 ### Protección al leer
 
 `serializeAnalysisRow` (`backend/src/routes/analysis.js`) vuelve a evaluar el
-texto del modelo de cada análisis persistido con las reglas vigentes. Si no
-cumple, omite `summary`/`aspects_to_review` (y los campos equivalentes de
-contratos v1/v2) y devuelve `ai_text_withheld: true` +
-`ai_text_withheld_reasons`. La DB NO se modifica (reversible, conserva la
-evidencia). El panel muestra un aviso (`data-testid="ai-text-withheld"`) y
-mantiene los bloques determinísticos.
+texto del modelo de cada análisis persistido con las reglas vigentes. La DB
+NO se modifica (reversible, conserva la evidencia).
+- v3: se evalúa sólo el `summary`. `aspects_to_review` se devuelve siempre
+  como `[]` (misma política "discard" que la generación 3.5), así que ya no
+  decide si el summary se muestra. Si el summary no cumple, se omite y se
+  devuelve `ai_text_withheld: true` + `ai_text_withheld_reasons`.
+- v1/v2: todo o nada (summary, aspects, observations_by_section, comparison).
+- El panel muestra el aviso (`data-testid="ai-text-withheld"`) en el lugar de
+  la síntesis, como tarjeta: «La síntesis de IA de esta sesión está pendiente
+  de actualización. Los indicadores y observaciones automáticas siguen
+  disponibles.» Los bloques determinísticos se mantienen.
+- Producción al 2026-11-04 (8 análisis 3.4): con la evaluación sólo del
+  summary se muestran 3 (sesiones 1, 3, 10); 5 siguen ocultos (2, 4, 5, 6,
+  13) y quedan para regeneración controlada con `regenerate-analyses.js`
+  (usar la conexión directa de Neon, no el pooler: el script toma un
+  `pg_advisory_lock` de sesión).
 
 ### Reintentos (máximo 2 llamadas a Ollama en total)
 

@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Database, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, Bot, Clock, Database, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   generateAnalysis,
@@ -220,7 +220,28 @@ function AiSynthesisBlock({ content }) {
   );
 }
 
-function AnalysisContentV3({ content, deterministicFallback }) {
+// Aviso que ocupa el lugar de la síntesis IA cuando el backend la retuvo
+// (ai_text_withheld: el texto persistido no cumple las reglas vigentes).
+// Se muestra con el mismo peso visual que la síntesis para que el
+// profesional no confunda su ausencia con un error de carga.
+export const AI_WITHHELD_MESSAGE =
+  "La síntesis de IA de esta sesión está pendiente de actualización. Los indicadores y observaciones automáticas siguen disponibles.";
+
+function AiWithheldNotice() {
+  return (
+    <div className="analysis-block analysis-withheld" data-testid="ai-text-withheld" role="note">
+      <p className="eyebrow">
+        <Sparkles size={14} aria-hidden="true" style={{ verticalAlign: "middle", marginRight: 4 }} />
+        Síntesis del asistente IA
+      </p>
+      <p className="analysis-withheld-text">
+        <Clock size={16} aria-hidden="true" /> {AI_WITHHELD_MESSAGE}
+      </p>
+    </div>
+  );
+}
+
+function AnalysisContentV3({ content, deterministicFallback, aiTextWithheld }) {
   // v3.4: los bloques determinísticos pueden venir del propio análisis
   // persistido (content.activities/evidence/observations/...) o, cuando
   // alguno falta (análisis v3.0-3.3 pre-v3.4), del fallback deterministic.
@@ -241,12 +262,12 @@ function AnalysisContentV3({ content, deterministicFallback }) {
   return (
     <div className="analysis-body">
       <DeterministicBlocks data={data} />
-      <AiSynthesisBlock content={content} />
+      {aiTextWithheld ? <AiWithheldNotice /> : <AiSynthesisBlock content={content} />}
     </div>
   );
 }
 
-function AnalysisContentLegacy({ content, promptVersion }) {
+function AnalysisContentLegacy({ content, promptVersion, aiTextWithheld }) {
   const summary = content.summary || "";
   const observations = Array.isArray(content.observations_by_section) ? content.observations_by_section : [];
   const aspects = Array.isArray(content.aspects_to_review) ? content.aspects_to_review : [];
@@ -261,6 +282,7 @@ function AnalysisContentLegacy({ content, promptVersion }) {
 
   return (
     <div className="analysis-body">
+      {aiTextWithheld && <AiWithheldNotice />}
       {summary && (
         <div className="analysis-block">
           <p className="eyebrow">Síntesis de la sesión</p>
@@ -333,12 +355,18 @@ function AnalysisContentLegacy({ content, promptVersion }) {
   );
 }
 
-function AnalysisContent({ content, promptVersion, deterministicFallback }) {
+function AnalysisContent({ content, promptVersion, deterministicFallback, aiTextWithheld = false }) {
   if (!content) return null;
   if (content.schema_version === "3") {
-    return <AnalysisContentV3 content={content} deterministicFallback={deterministicFallback} />;
+    return (
+      <AnalysisContentV3
+        content={content}
+        deterministicFallback={deterministicFallback}
+        aiTextWithheld={aiTextWithheld}
+      />
+    );
   }
-  return <AnalysisContentLegacy content={content} promptVersion={promptVersion} />;
+  return <AnalysisContentLegacy content={content} promptVersion={promptVersion} aiTextWithheld={aiTextWithheld} />;
 }
 
 export function AnalysisAsistidoPanel({ session }) {
@@ -691,17 +719,8 @@ export function AnalysisAsistidoPanel({ session }) {
             content={analysis.content}
             promptVersion={analysis.prompt_version}
             deterministicFallback={deterministic}
+            aiTextWithheld={analysis.ai_text_withheld === true}
           />
-          {analysis.ai_text_withheld && (
-            <div className="analysis-block" data-testid="ai-text-withheld">
-              <p className="eyebrow">Síntesis del asistente IA</p>
-              <p className="ai-hint">
-                La síntesis generada para esta sesión no se muestra porque no cumple las reglas vigentes de lenguaje descriptivo
-                (por ejemplo, contenía afirmaciones de tipo clínico, interpretativo o no respaldadas por los datos registrados).
-                Los datos y las observaciones automáticas de arriba no se ven afectados.
-              </p>
-            </div>
-          )}
           <div className="activity-actions single">
             <button
               type="button"

@@ -741,10 +741,58 @@ describe("AnalysisAsistidoPanel", () => {
     vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({ source: "stored", analysis: WITHHELD });
     render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
     const notice = await screen.findByTestId("ai-text-withheld");
-    expect(notice).toHaveTextContent(/no cumple las reglas vigentes de lenguaje descriptivo/i);
+    expect(notice).toHaveTextContent(
+      "La síntesis de IA de esta sesión está pendiente de actualización. Los indicadores y observaciones automáticas siguen disponibles."
+    );
+    expect(notice).toHaveTextContent(/Síntesis del asistente IA/);
     expect(screen.queryByTestId("block-sintesis-ia")).not.toBeInTheDocument();
-    expect(screen.getByTestId("block-observaciones")).toBeInTheDocument();
+    const observations = screen.getByTestId("block-observaciones");
+    // El aviso ocupa el lugar de la síntesis: dentro del cuerpo del informe,
+    // después de los bloques determinísticos.
+    expect(notice.closest(".analysis-body")).toBe(observations.closest(".analysis-body"));
+    expect(observations.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: /Regenerar análisis/i })).toBeInTheDocument();
+  });
+
+  test("análisis 3.4 con summary conforme y aspectos descartados: muestra la síntesis sin aspectos ni aviso", async () => {
+    const RECOVERED = {
+      id: 13, session_id: 4333, model: "llama3.2:3b",
+      schema_version: "3", prompt_version: "3.4", latency_ms: 4000,
+      created_at: "2026-11-04T15:21:00.000Z",
+      ai_text_withheld: false,
+      content: {
+        schema_version: "3",
+        summary: "La sesión fue completada en su totalidad.",
+        aspects_to_review: [],
+        activities: DETERMINISTIC_CONTEXT.activities,
+        evidence: DETERMINISTIC_CONTEXT.evidence,
+        comparison_metrics: null,
+        observations: DETERMINISTIC_CONTEXT.observations,
+        follow_up: DETERMINISTIC_CONTEXT.follow_up,
+      },
+    };
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({ source: "stored", analysis: RECOVERED });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    const block = await screen.findByTestId("block-sintesis-ia");
+    expect(block).toHaveTextContent("La sesión fue completada en su totalidad.");
+    expect(screen.queryByText(/Aspectos a revisar sugeridos por IA/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ai-text-withheld")).not.toBeInTheDocument();
+  });
+
+  test("contrato legacy retenido: muestra el aviso en el cuerpo del informe", async () => {
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({
+      source: "stored",
+      analysis: {
+        ...SAMPLE_ANALYSIS,
+        ai_text_withheld: true,
+        ai_text_withheld_reasons: ["forbidden_clinical_term"],
+        content: { schema_version: "2", evidence: [] },
+      },
+    });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    const notice = await screen.findByTestId("ai-text-withheld");
+    expect(notice.closest(".analysis-body")).not.toBeNull();
+    expect(notice).toHaveTextContent(/pendiente de actualización/);
   });
 
   test("análisis conforme: no muestra el aviso de síntesis retenida", async () => {
