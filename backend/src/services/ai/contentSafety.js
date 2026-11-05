@@ -489,7 +489,16 @@ export function findFactContradiction(text, facts) {
 // Campos redactados por el modelo según la versión del contrato. Todo lo
 // demás (activities, evidence, comparison_metrics, observations, follow_up)
 // es determinístico del backend y se conserva siempre.
-const MODEL_FIELDS_V3 = ["summary", "aspects_to_review"];
+//
+// v3: sólo el summary se evalúa y puede mostrarse. Desde el prompt 3.5,
+// aspects_to_review no se pide y se descarta al generar
+// (GENERATION_VALIDATION_OPTIONS.aspectsPolicy = "discard"); al leer se
+// aplica la misma política a los análisis anteriores: los aspectos
+// persistidos nunca se devuelven, y por lo tanto no deciden si el summary
+// se muestra. Así un summary conforme de un análisis 3.4 no se oculta por
+// culpa de aspectos que hoy tampoco se generarían.
+const MODEL_FIELDS_V3 = ["summary"];
+const DISCARDED_FIELDS_V3 = ["aspects_to_review"];
 const MODEL_FIELDS_LEGACY = ["summary", "aspects_to_review", "observations_by_section", "comparison"];
 
 function collectStrings(value, out = []) {
@@ -501,7 +510,8 @@ function collectStrings(value, out = []) {
 
 /**
  * Evalúa con las reglas vigentes el texto redactado por el modelo en un
- * análisis ya persistido. No modifica nada.
+ * análisis ya persistido. No modifica nada. En v3 evalúa sólo el summary
+ * (los aspects_to_review persistidos se descartan al leer; ver arriba).
  *
  * @param {object} content  session_analyses.analysis
  * @returns {{compliant: boolean, reasons: string[]}}
@@ -549,12 +559,24 @@ export function reviewStoredAnalysis(content) {
 /**
  * Devuelve una copia del contenido sin los campos redactados por el modelo
  * cuando no cumplen las reglas vigentes. El registro en DB no se toca.
+ *
+ * v3: aspects_to_review se devuelve siempre como [] (política "discard");
+ * el summary se omite sólo si él mismo no cumple las reglas, y en ese caso
+ * `withheld` es true. Legacy (v1/v2): todo o nada, como antes.
  */
 export function withholdNonCompliantText(content) {
   const review = reviewStoredAnalysis(content);
-  if (review.compliant) return { content, withheld: false, reasons: [] };
-  const fields = content.schema_version === "3" ? MODEL_FIELDS_V3 : MODEL_FIELDS_LEGACY;
+  const isV3 = Boolean(content) && content.schema_version === "3";
+  const hasDiscardable = isV3 && DISCARDED_FIELDS_V3.some(
+    (f) => Array.isArray(content[f]) ? content[f].length > 0 : content[f] !== undefined,
+  );
+  if (review.compliant && !hasDiscardable) return { content, withheld: false, reasons: [] };
+
   const copy = { ...content };
+  if (isV3) for (const f of DISCARDED_FIELDS_V3) copy[f] = [];
+  if (review.compliant) return { content: copy, withheld: false, reasons: [] };
+
+  const fields = isV3 ? MODEL_FIELDS_V3 : MODEL_FIELDS_LEGACY;
   for (const f of fields) delete copy[f];
   return { content: copy, withheld: true, reasons: review.reasons };
 }

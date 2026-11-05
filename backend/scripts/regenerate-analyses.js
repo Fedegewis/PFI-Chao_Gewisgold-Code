@@ -2,8 +2,13 @@
 //
 // Por defecto es un DRY-RUN de sólo lectura: lista, para cada sesión con
 // análisis ok, la versión del prompt y si su texto cumple las reglas
-// vigentes (contentSafety.reviewStoredAnalysis). No muestra nombres, emails
-// ni textos: sólo ids, versiones y reasons.
+// vigentes (contentSafety.reviewStoredAnalysis; en v3 sólo el summary, igual
+// que la API: los aspects_to_review persistidos se descartan al leer). No
+// muestra nombres, emails ni textos: sólo ids, versiones y reasons.
+//
+// Contra Neon, usar la conexión DIRECTA (no el pooler -pooler.): --apply
+// toma un pg_advisory_lock de sesión, que PgBouncer en modo transacción no
+// garantiza.
 //
 // Con --apply regenera ÚNICAMENTE las sesiones indicadas con --session-ids,
 // de a una, usando Ollama local (AI_PROVIDER=ollama) y el prompt vigente.

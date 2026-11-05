@@ -425,7 +425,7 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
       assert.equal(a.ai_text_withheld, true);
       assert.ok(a.ai_text_withheld_reasons.includes("clinical_rule_out"));
       assert.equal(a.content.summary, undefined);
-      assert.equal(a.content.aspects_to_review, undefined);
+      assert.deepEqual(a.content.aspects_to_review, []);
       // Los bloques determinísticos se conservan.
       assert.deepEqual(a.content.observations, stored.observations);
       assert.deepEqual(a.content.activities, stored.activities);
@@ -434,6 +434,34 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
       // El registro original no se modifica.
       const persisted = await db("session_analyses").where({ id: row.id }).first();
       assert.equal(persisted.analysis.summary, stored.summary);
+      assert.deepEqual(persisted.analysis.aspects_to_review, stored.aspects_to_review);
+    });
+
+    it("GET muestra un summary 3.4 conforme aunque sus aspects_to_review no cumplan (se descartan)", async () => {
+      const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      const stored = {
+        schema_version: "3",
+        summary: "La sesión fue completada en su totalidad.",
+        aspects_to_review: ["Evaluar la efectividad de la actividad en la mejora de las funciones ejecutivas."],
+        activities: [{ slug: "atencion_visual", name: "Objetos de la casa", cognitive_domain_slugs: ["atencion"] }],
+        evidence: [{ scope: "global", metric: "completion_rate", value: 1 }],
+        observations: ["La sesión fue completada en su totalidad."],
+        follow_up: [],
+      };
+      const [row] = await db("session_analyses").insert({
+        session_id: ses.id, status: "ok", model: "llama3.2:3b",
+        schema_version: "3", prompt_version: "3.4", analysis: stored,
+      }).returning("*");
+
+      const r = await request(app).get(`/api/sessions/${ses.id}/analysis`).set("Authorization", authHeaderFor(profA));
+      assert.equal(r.status, 200);
+      const a = r.body.analysis;
+      assert.equal(a.ai_text_withheld, false);
+      assert.equal(a.content.summary, stored.summary);
+      assert.deepEqual(a.content.aspects_to_review, []);
+      assert.ok(!JSON.stringify(r.body).includes("efectividad"));
+
+      const persisted = await db("session_analyses").where({ id: row.id }).first();
       assert.deepEqual(persisted.analysis.aspects_to_review, stored.aspects_to_review);
     });
 
