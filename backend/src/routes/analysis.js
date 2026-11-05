@@ -18,6 +18,7 @@ import {
   loadSessionAnalysisInput,
 } from "../services/ai/analysisService.js";
 import * as analysisRepo from "../services/ai/analysisRepository.js";
+import { getRegenerationState, requestRegeneration } from "../services/ai/analysisQueue.js";
 import { buildSessionAnalysisContext } from "../services/ai/contextBuilder.js";
 import { buildEvidenceFromContext } from "../services/ai/evidenceBuilder.js";
 import { buildObservations } from "../services/ai/observationsBuilder.js";
@@ -168,6 +169,13 @@ router.post(
           analysisRouteDeps.generate ? { generate: analysisRouteDeps.generate } : undefined
         );
       } catch (err) {
+        // Modo deferred: el backend no corre inferencia. Se registra un
+        // pedido explícito para que el worker tome la sesión aunque ya tenga
+        // un análisis ok anterior (botones "Regenerar" y "Reintentar").
+        // Idempotente mientras el pedido esté pendiente.
+        if (err instanceof AiDeferredError) {
+          await requestRegeneration(db, sessionId);
+        }
         const mapped = mapAiErrorToHttp(err, res);
         if (mapped) return mapped;
         throw err;
@@ -218,15 +226,29 @@ router.get(
           latest &&
           latest.status === "generating" &&
           Date.now() - new Date(latest.created_at).getTime() < GENERATING_STALE_MS;
+        // Pedido de regeneración (modo deferred): pending mientras el worker
+        // no lo atendió; failed si se agotaron los intentos desde el pedido.
+        // En ambos casos se sigue mostrando el último ok.
+        const regen = await getRegenerationState(db, sessionId);
         return res.json({
           status: "ok",
           source: "stored",
           regenerating: Boolean(isRegenerating),
+          regeneration_pending: regen.state === "pending",
+          regeneration_failed: regen.state === "failed",
           analysis: serializeAnalysisRow(okRow),
         });
       }
 
       const latest = await analysisRepo.getLatestAnalysisAnyStatus(db, sessionId);
+      // Sin ok: si hay un pedido pendiente (p. ej. "Reintentar" después de
+      // fallos), el análisis está en cola para el worker.
+      if (latest && latest.status === "failed") {
+        const regen = await getRegenerationState(db, sessionId);
+        if (regen.state === "pending") {
+          return res.status(202).json({ status: "generating", queued: true });
+        }
+      }
       if (!latest) {
         return res.status(404).json({
           error: "No hay análisis disponible para esta sesión",

@@ -381,6 +381,9 @@ export function AnalysisAsistidoPanel({ session }) {
   const [regenerating, setRegenerating] = useState(false);
   const [lastFailureCode, setLastFailureCode] = useState(null);
   const [regenFailed, setRegenFailed] = useState(false);
+  // Modo deferred: el profesional pidió una síntesis nueva y el pedido espera
+  // al worker local. Se sigue mostrando la versión anterior.
+  const [regenPending, setRegenPending] = useState(false);
   // v3.4: contexto determinístico para fallback cuando no hay análisis IA
   // exitoso. Se consulta aparte y permite mostrar los bloques determinísticos
   // (actividades, dominios, mood, métricas, comparación, observaciones)
@@ -424,6 +427,7 @@ export function AnalysisAsistidoPanel({ session }) {
     setRegenerating(false);
     setLastFailureCode(null);
     setRegenFailed(false);
+    setRegenPending(false);
     setDeterministic(null);
     setPendingWorker(false);
 
@@ -464,6 +468,8 @@ export function AnalysisAsistidoPanel({ session }) {
           setAnalysis(data.analysis);
           setStatus("ok");
           setRegenerating(Boolean(data?.regenerating));
+          setRegenPending(Boolean(data?.regeneration_pending));
+          if (data?.regeneration_failed) setRegenFailed(true);
           setError("");
           setPendingWorker(false);
           // Si el análisis OK no trae observations (v3.0-3.3), levantar el
@@ -476,10 +482,14 @@ export function AnalysisAsistidoPanel({ session }) {
           // (otra inferencia disparada manualmente), seguir polleando con el
           // intervalo normal.
           if (data?.regenerating) schedulePoll(POLL_INTERVAL_MS);
+          else if (data?.regeneration_pending) schedulePoll(PENDING_POLL_INTERVAL_MS);
           else clearPoll();
         } else if (st === "generating") {
           setAnalysis(null);
           setStatus("generating");
+          // queued: hay un pedido pendiente para el worker (no hay inferencia
+          // corriendo todavía).
+          if (data?.queued) setPendingWorker(true);
           setRegenerating(false);
           setError("");
           loadDeterministic();
@@ -568,6 +578,13 @@ export function AnalysisAsistidoPanel({ session }) {
       // error: cambiamos a estado "generating" con bandera pendingWorker y
       // arrancamos el polling existente para capturar la transición a ok.
       if (data?.status === "deferred_pending") {
+        // Con un análisis ya visible, se conserva mientras el worker genera
+        // la versión nueva; el polling captura el cambio.
+        if (force && analysis && status === "ok") {
+          setRegenPending(true);
+          if (schedulePollRef.current) schedulePollRef.current(PENDING_POLL_INTERVAL_MS);
+          return;
+        }
         setPendingWorker(true);
         setStatus("generating");
         setAnalysis(null);
@@ -709,6 +726,12 @@ export function AnalysisAsistidoPanel({ session }) {
               <Loader2 size={16} aria-hidden="true" /> Regenerando síntesis IA en segundo plano…
             </p>
           )}
+          {regenPending && !regenerating && (
+            <p className="ai-hint" role="status" aria-live="polite" data-testid="regen-pending-hint">
+              <Loader2 size={16} aria-hidden="true" />{" "}
+              Se pidió una nueva síntesis. Se procesará en cuanto el worker local la tome; mientras tanto se muestra la versión anterior.
+            </p>
+          )}
           {regenFailed && (
             <div className="error-box" role="alert" data-testid="regen-failed-banner">
               <AlertTriangle size={20} aria-hidden="true" />{" "}
@@ -725,7 +748,7 @@ export function AnalysisAsistidoPanel({ session }) {
             <button
               type="button"
               onClick={() => runGenerate({ force: true })}
-              disabled={generating}
+              disabled={generating || regenPending || regenerating}
             >
               {generating ? (<><Loader2 size={16} aria-hidden="true" /> Regenerando…</>) : (<><RefreshCw size={16} aria-hidden="true" /> Regenerar análisis</>)}
             </button>

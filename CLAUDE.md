@@ -828,6 +828,20 @@ los bloques determinísticos. Un análisis rechazado nunca se persiste como ok.
   - No se muestra el intento fallido como si fuera el nuevo.
 - Si la regeneración tiene éxito, reemplaza al anterior.
 
+**Modo deferred (producción, 2026-11-05, migración 022):** el backend no corre
+inferencia, así que el POST registra un pedido explícito en
+`sessions.analysis_regeneration_requested_at` (idempotente mientras esté
+pendiente) y responde 202 `deferred_pending`. La cola del worker toma una
+sesión con pedido aunque tenga un ok, si ese ok es anterior al pedido; los
+topes de intentos se cuentan desde el pedido y el orden FIFO usa la hora del
+pedido. Sin pedido, la cola se comporta como antes (no regenera historial).
+El GET con ok agrega `regeneration_pending` / `regeneration_failed`; sin ok y
+con pedido pendiente devuelve 202 `{status: "generating", queued: true}`. El
+panel conserva la versión anterior con el aviso «Se pidió una nueva
+síntesis…» y deshabilita el botón mientras el pedido está pendiente.
+Antes de esta corrección el botón no tenía efecto en producción para
+sesiones con un análisis ok.
+
 ### Archivos clave
 
 - `backend/src/services/ai/promptBuilder.js` — PROMPT_VERSION "3.5", guía en positivo, HECHOS REGISTRADOS como única fuente.

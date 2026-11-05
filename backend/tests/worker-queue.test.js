@@ -286,6 +286,104 @@ describe("Worker queue (claim/result/failed)", () => {
     assert.equal(claim.session_id, s.id);
   });
 
+  // Pedido explícito de regeneración (migración 022): el botón "Regenerar"
+  // del panel en modo deferred registra sessions.analysis_regeneration_requested_at.
+  describe("pedido explícito de regeneración", () => {
+    async function setRequestedAt(sessionId, date) {
+      await db("sessions").where({ id: sessionId }).update({ analysis_regeneration_requested_at: date });
+    }
+    async function insertOkAt(sessionId, createdAt, promptVersion = "3.4") {
+      await db("session_analyses").insert({
+        session_id: sessionId, status: "ok", model: CURRENT_MODEL,
+        schema_version: CURRENT_SCHEMA, prompt_version: promptVersion,
+        analysis: { schema_version: "3", summary: "x", aspects_to_review: [], activities: [], evidence: [] },
+        created_at: createdAt,
+      });
+    }
+    async function insertFailedAt(sessionId, createdAt, errorCode = "ANALYSIS_SCHEMA_INVALID") {
+      await db("session_analyses").insert({
+        session_id: sessionId, status: "failed", model: CURRENT_MODEL,
+        schema_version: CURRENT_SCHEMA, prompt_version: CURRENT_PROMPT,
+        error_code: errorCode, error_message: "intento previo", created_at: createdAt,
+      });
+    }
+
+    it("una sesión con ok ANTERIOR al pedido se reclama (aunque sea de otro prompt)", async () => {
+      const s = await makeCompletedSession(patientA, profA, new Date(Date.now() - 3600_000));
+      await insertOkAt(s.id, new Date(Date.now() - 600_000), "3.4");
+      await setRequestedAt(s.id, new Date());
+      const claim = await claimNextSession();
+      assert.ok(claim);
+      assert.equal(claim.session_id, s.id);
+    });
+
+    it("una sesión con ok de la versión ACTUAL anterior al pedido también se reclama", async () => {
+      const s = await makeCompletedSession(patientA, profA, new Date(Date.now() - 3600_000));
+      await insertOkAt(s.id, new Date(Date.now() - 600_000), CURRENT_PROMPT);
+      await setRequestedAt(s.id, new Date());
+      const claim = await claimNextSession();
+      assert.equal(claim?.session_id, s.id);
+    });
+
+    it("un ok POSTERIOR al pedido lo atiende: la sesión ya no se reclama", async () => {
+      const s = await makeCompletedSession(patientA, profA, new Date(Date.now() - 3600_000));
+      await setRequestedAt(s.id, new Date(Date.now() - 600_000));
+      await insertOkAt(s.id, new Date(), CURRENT_PROMPT);
+      assert.equal(await claimNextSession(), null);
+    });
+
+    it("los fallos ANTERIORES al pedido no cuentan para el tope de intentos", async () => {
+      const s = await makeCompletedSession(patientA, profA, new Date(Date.now() - 3600_000));
+      const max = Number(process.env.WORKER_MAX_GENERATION_ATTEMPTS);
+      for (let i = 0; i < max; i++) await insertFailedAt(s.id, new Date(Date.now() - 900_000 + i * 1000));
+      assert.equal(await claimNextSession(), null, "sin pedido, la sesión agotó sus intentos");
+      await setRequestedAt(s.id, new Date());
+      const claim = await claimNextSession();
+      assert.equal(claim?.session_id, s.id, "el pedido habilita un nuevo ciclo de intentos");
+    });
+
+    it("tras MAX fallos DESDE el pedido la sesión sale de la cola", async () => {
+      const s = await makeCompletedSession(patientA, profA, new Date(Date.now() - 3600_000));
+      await insertOkAt(s.id, new Date(Date.now() - 900_000));
+      await setRequestedAt(s.id, new Date(Date.now() - 600_000));
+      const max = Number(process.env.WORKER_MAX_GENERATION_ATTEMPTS);
+      for (let i = 0; i < max; i++) await insertFailedAt(s.id, new Date(Date.now() - 300_000 + i * 1000));
+      assert.equal(await claimNextSession(), null);
+    });
+
+    it("FIFO: un pedido sobre una sesión vieja se ordena por el momento del pedido", async () => {
+      const old = await makeCompletedSession(patientA, profA, new Date(Date.now() - 7 * 86400_000));
+      await insertOkAt(old.id, new Date(Date.now() - 6 * 86400_000));
+      await setRequestedAt(old.id, new Date());
+      const fresh = await makeCompletedSession(patientB, profB, new Date(Date.now() - 60_000));
+      const claim = await claimNextSession();
+      assert.equal(claim?.session_id, fresh.id, "la sesión recién completada sin análisis va primero");
+    });
+
+    it("getRegenerationState / requestRegeneration: pendiente idempotente, fallido re-pedible, atendido", async () => {
+      const { getRegenerationState, requestRegeneration } = await import("../src/services/ai/analysisQueue.js");
+      const s = await makeCompletedSession(patientA, profA, new Date(Date.now() - 3600_000));
+      await insertOkAt(s.id, new Date(Date.now() - 900_000));
+      assert.equal((await getRegenerationState(db, s.id)).state, "none");
+
+      const first = await requestRegeneration(db, s.id);
+      assert.equal(first.created, true);
+      assert.equal(first.state, "pending");
+      const again = await requestRegeneration(db, s.id);
+      assert.equal(again.created, false, "un pedido pendiente no se reinicia");
+      assert.equal(new Date(again.requested_at).getTime(), new Date(first.requested_at).getTime());
+
+      const max = Number(process.env.WORKER_MAX_GENERATION_ATTEMPTS);
+      for (let i = 0; i < max; i++) await insertFailedAt(s.id, new Date(Date.now() + 1000 + i));
+      assert.equal((await getRegenerationState(db, s.id)).state, "failed");
+      const retry = await requestRegeneration(db, s.id);
+      assert.equal(retry.created, true, "tras agotar intentos se puede volver a pedir");
+
+      await insertOkAt(s.id, new Date(Date.now() + 60_000), CURRENT_PROMPT);
+      assert.equal((await getRegenerationState(db, s.id)).state, "none", "un ok posterior atiende el pedido");
+    });
+  });
+
   it("Concurrencia: dos claims simultáneos sobre una única sesión no colisionan", async () => {
     const s = await makeCompletedSession(patientA, profA, new Date());
     const [a, b] = await Promise.all([claimNextSession(), claimNextSession()]);

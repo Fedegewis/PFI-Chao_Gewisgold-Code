@@ -320,6 +320,55 @@ describe("W-3 — AI_PROVIDER=deferred", () => {
       assert.ok(res.body.analysis.content);
     });
 
+    it("Regenerar en deferred: registra el pedido, el GET lo informa y el worker toma la sesión", async () => {
+      process.env.AI_PROVIDER = "deferred";
+      const session = await makeCompletedSession();
+      await db("session_analyses").insert({
+        session_id: session.id, status: "ok", model: getAiProvider().getConfig().model,
+        schema_version: "3", prompt_version: "3.4",
+        analysis: { schema_version: "3", summary: "La sesión fue completada en su totalidad.", aspects_to_review: [], activities: [], evidence: [] },
+        created_at: new Date(Date.now() - 60_000),
+      });
+
+      const before = await request(app).get(`/api/sessions/${session.id}/analysis`).set("Authorization", authHeaderFor(prof));
+      assert.equal(before.body.regeneration_pending, false);
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/analysis?force=true`)
+        .set("Authorization", authHeaderFor(prof));
+      assert.equal(res.status, 202);
+      assert.equal(res.body.status, "deferred_pending");
+      const row = await db("sessions").where({ id: session.id }).first("analysis_regeneration_requested_at");
+      assert.ok(row.analysis_regeneration_requested_at, "se registró el pedido");
+
+      const pending = await request(app).get(`/api/sessions/${session.id}/analysis`).set("Authorization", authHeaderFor(prof));
+      assert.equal(pending.body.status, "ok", "se sigue mostrando la versión anterior");
+      assert.equal(pending.body.regeneration_pending, true);
+      assert.equal(pending.body.regeneration_failed, false);
+
+      const claim = await claimNextSession();
+      assert.equal(claim?.session_id, session.id, "el worker toma la sesión pese al ok anterior");
+    });
+
+    it("Reintentar en deferred tras fallos: el GET informa que el análisis está en cola", async () => {
+      process.env.AI_PROVIDER = "deferred";
+      const session = await makeCompletedSession();
+      await db("session_analyses").insert({
+        session_id: session.id, status: "failed", model: getAiProvider().getConfig().model,
+        schema_version: "3", prompt_version: PROMPT_BUILDER_VERSION,
+        error_code: "ANALYSIS_SCHEMA_INVALID", error_message: "previo",
+        created_at: new Date(Date.now() - 60_000),
+      });
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/analysis`)
+        .set("Authorization", authHeaderFor(prof));
+      assert.equal(res.status, 202);
+      const get = await request(app).get(`/api/sessions/${session.id}/analysis`).set("Authorization", authHeaderFor(prof));
+      assert.equal(get.status, 202);
+      assert.equal(get.body.status, "generating");
+      assert.equal(get.body.queued, true);
+    });
+
     it("GET /api/sessions/:id/analysis en deferred: 404 sin análisis todavía", async () => {
       process.env.AI_PROVIDER = "deferred";
       const session = await makeCompletedSession();
