@@ -45,6 +45,13 @@
 //         usa como gramática (structured outputs): fija la cantidad exacta de
 //         párrafos, el máximo de puntos y el largo de cada texto. El
 //         validador posterior sigue siendo obligatorio.
+//      9) (3.7) Los resultados se reparten en varios bloques PÁRRAFO de a lo
+//         sumo RESULT_PARAGRAPH_BUDGET caracteres de datos. El 3B copia los
+//         hechos casi literalmente: con 5 o más tipos de pregunta el bloque
+//         único de resultados superaba los 1000 caracteres, la gramática
+//         cortaba el párrafo a mitad de oración y el validador lo rechazaba
+//         (malformed_summary / missing_final_punctuation) en los tres
+//         intentos (sesiones 18 y 21 de producción, 2026-11-05).
 //    Las reglas siguen redactadas en positivo y sin nombrar términos
 //    clínicos que el modelo pueda copiar.
 //
@@ -55,7 +62,7 @@
 //
 // Función pura: no llama Ollama, no lee env, no toca DB.
 
-const PROMPT_VERSION = "3.6";
+const PROMPT_VERSION = "3.7";
 const OUTPUT_SCHEMA_VERSION = "3";
 
 // Largos que se imponen por gramática. El validador admite hasta 1100 por
@@ -68,6 +75,14 @@ const OUTPUT_SCHEMA_VERSION = "3";
 export const OUTPUT_PARAGRAPH_MAX_CHARS = 1000;
 export const OUTPUT_ASPECT_MAX_CHARS = 240;
 const OUTPUT_ASPECTS_MAX = 5;
+// 3.7: máximo de caracteres de DATOS por bloque de resultados. La redacción
+// del 3B mide cerca del largo de los datos que recibe (medido: 982 de datos →
+// párrafo de 914), así que 800 deja margen bajo el tope de 1000 y mantiene en
+// un solo bloque las sesiones de dos o tres tipos de pregunta (~720).
+export const RESULT_PARAGRAPH_BUDGET = 800;
+// Contexto + hasta 4 bloques de resultados (10 preguntas de tipos distintos)
+// + antecedentes.
+export const OUTPUT_PARAGRAPHS_MAX = 6;
 
 const ROLE = [
   "Redactás un informe descriptivo para la psicóloga o el psicólogo que acompaña a una persona mayor en su entrenamiento cognitivo con MenteActiva.",
@@ -114,7 +129,7 @@ function outputInstruction(paragraphCount, topicCount) {
  * validador (responseValidator + contentSafety).
  */
 export function buildOutputSchema(paragraphCount, topicCount) {
-  const n = Math.max(1, Math.min(4, paragraphCount));
+  const n = Math.max(1, Math.min(OUTPUT_PARAGRAPHS_MAX, paragraphCount));
   const t = Math.max(0, Math.min(OUTPUT_ASPECTS_MAX, topicCount));
   return {
     type: "object",
@@ -136,6 +151,26 @@ export function buildOutputSchema(paragraphCount, topicCount) {
     required: ["schema_version", "paragraphs", "aspects_to_review"],
     additionalProperties: false,
   };
+}
+
+// Reparte las líneas, en orden, en grupos cuyo largo total no supera
+// `budget` (una línea más larga que el presupuesto queda sola).
+export function packLines(lines, budget) {
+  const chunks = [];
+  let current = [];
+  let size = 0;
+  for (const line of lines) {
+    const add = line.length + (current.length > 0 ? 1 : 0);
+    if (current.length > 0 && size + add > budget) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    size += line.length + (current.length > 0 ? 1 : 0);
+    current.push(line);
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
 }
 
 function bullet(lines) {
@@ -198,14 +233,19 @@ export function buildSessionAnalysisPrompt(context, extra = {}) {
   resultLines = resultLines.map(sentence);
   historyLines = historyLines.map(sentence);
 
-  // Párrafos proporcionales a los datos.
+  // Párrafos proporcionales a los datos. Los resultados se reparten en
+  // bloques consecutivos de a lo sumo RESULT_PARAGRAPH_BUDGET caracteres
+  // (3.7); sin nivel ni estado de ánimo, la actividad encabeza el primero.
   const paragraphs = [];
-  if (contextLines.length > 0) {
+  const hasContext = contextLines.length > 0;
+  if (hasContext) {
     paragraphs.push({ title: "la actividad y el comienzo de la sesión", lines: [...activityLines, ...contextLines] });
-    paragraphs.push({ title: "los resultados y los tiempos", lines: resultLines });
-  } else {
-    paragraphs.push({ title: "la actividad, los resultados y los tiempos", lines: [...activityLines, ...resultLines] });
   }
+  const resultChunks = packLines(hasContext ? resultLines : [...activityLines, ...resultLines], RESULT_PARAGRAPH_BUDGET);
+  resultChunks.forEach((lines, i) => {
+    const what = i === 0 ? (hasContext ? "los resultados" : "la actividad y los resultados") : "continuación de los resultados";
+    paragraphs.push({ title: what, lines });
+  });
   if (historyLines.length > 0) {
     paragraphs.push({ title: "las sesiones anteriores", lines: historyLines });
   }

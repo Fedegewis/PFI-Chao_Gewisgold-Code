@@ -1078,8 +1078,9 @@ export const RETRIABLE_SEMANTIC_REASONS = Object.freeze(new Set([
 // modelo reciba exactamente la misma decisión por cualquiera de las dos.
 //
 // 3.6: el modelo devuelve `paragraphs` (se unen en `summary`), el summary
-// admite hasta 2400 caracteres (dos o tres párrafos; un párrafo de
-// resultados con varios tipos de preguntas llega a unos 1000) y los aspectos se
+// admite hasta 3200 caracteres (3.7: los resultados de una sesión de diez
+// preguntas de tipos distintos suman unos 1800 de datos, repartidos en varios
+// párrafos, más contexto y antecedentes) y los aspectos se
 // filtran uno por uno con las mismas reglas que el summary
 // (aspectsPolicy "filter"; ver filterAspects).
 export const GENERATION_VALIDATION_OPTIONS = Object.freeze({
@@ -1087,7 +1088,7 @@ export const GENERATION_VALIDATION_OPTIONS = Object.freeze({
   checkForm: true,
   aspectsPolicy: "filter",
   acceptParagraphs: true,
-  summaryMax: 2400,
+  summaryMax: 3200,
 });
 
 // Política 3.5 (sólo summary, aspectos descartados). Se conserva para la

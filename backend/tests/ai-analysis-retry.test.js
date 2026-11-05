@@ -65,10 +65,10 @@ function validV3() {
 }
 
 function invalidSummaryTooLong() {
-  // Techo v3.6 (GENERATION_VALIDATION_OPTIONS.summaryMax): 2400. 2500 chars dispara max_length_exceeded.
+  // Techo v3.7 (GENERATION_VALIDATION_OPTIONS.summaryMax): 3200. 3300 chars dispara max_length_exceeded.
   return JSON.stringify({
     schema_version: "3",
-    summary: "x".repeat(2500),
+    summary: "x".repeat(3300),
   });
 }
 

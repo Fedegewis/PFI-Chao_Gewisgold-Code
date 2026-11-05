@@ -528,7 +528,25 @@ Conectar frontend con backend, reemplazo de pacientes/métricas mock, reemplazo 
 
 Tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
 
-## Contrato IA v3 (prompt_version 3.6, output schema_version 3)
+## Contrato IA v3 (prompt_version 3.7, output schema_version 3)
+
+**v3.7 (2026-11-05)**: corrección de párrafos cortados. Causa (sesiones 18 y
+21 de producción, 3/3 intentos fallidos cada una con `malformed_summary` /
+`missing_final_punctuation`): el 3B copia los hechos casi literalmente y el
+bloque único de resultados crece con cada tipo de pregunta (4 tipos ≈ 990
+caracteres de datos, 6 ≈ 1240, 10 ≈ 1800). Al superar el `maxLength` 1000 del
+JSON Schema la gramática cortaba el párrafo a mitad de oración; el prompt era
+idéntico en cada intento, así que fallaban todos. Reproducido en local.
+- Los resultados (general + tipos + tiempos) se reparten en bloques PÁRRAFO
+  consecutivos de a lo sumo `RESULT_PARAGRAPH_BUDGET` = 800 caracteres de
+  datos (`packLines`). Sesiones de 2-3 tipos siguen en un solo bloque.
+- Hasta 6 párrafos (schema y validador), `summaryMax` 2400 → 3200,
+  `num_predict` 900 → 1300 (lo recibe el worker en el claim; no requiere
+  desplegar el worker).
+- `ai_contract` persistido sigue en "3.6" (mismo contrato de salida y misma
+  revisión al leer). Al cambiar `PROMPT_VERSION`, los topes de intentos
+  fallidos cuentan por versión: las sesiones sin ningún ok que agotaron sus
+  intentos en 3.6 vuelven a la cola automáticamente; las que tienen un ok no.
 
 **v3.6 (2026-11-05, rama `feature/ai-analysis-quality-v36`)**: recuperar
 profundidad sin perder seguridad. Detalle, evaluación y ejemplos completos en
