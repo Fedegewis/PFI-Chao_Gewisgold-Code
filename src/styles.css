@@ -173,6 +173,7 @@ textarea { min-height: 150px; resize: vertical; }
 .professional-layout strong { font-weight: 700; }
 .patient-grid-panel { padding: 24px; display: grid; gap: 20px; }
 .patient-grid-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.professional-layout .professional-greeting { margin: 0 0 -12px; color: #30442a; font-size: 1.375rem; font-weight: 800; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .patient-grid-head h1 { margin: 4px 0 0; font-size: 1.375rem; font-weight: 800; letter-spacing: -0.01em; }
 .patient-grid-count { display: block; margin-top: 6px; color: #6b7d64; font-weight: 500; font-size: 0.8125rem; }
 .patient-grid-search { display: flex; align-items: center; gap: 8px; min-width: 260px; padding: 8px 12px; border: 2px solid #d5decf; border-radius: 8px; background: white; }

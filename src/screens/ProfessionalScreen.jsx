@@ -25,7 +25,15 @@ function buildQuestionSample() {
   return sample;
 }
 
+// Primer nombre del profesional autenticado; null si no hay nombre disponible.
+function getFirstName(fullName) {
+  if (typeof fullName !== "string") return null;
+  const first = fullName.trim().split(/\s+/)[0];
+  return first || null;
+}
+
 export function ProfessionalScreen({
+  professionalName,
   patients,
   professionalId,
   selectedPatient,
@@ -46,6 +54,7 @@ export function ProfessionalScreen({
   );
   const stats = useMemo(() => computeStats(patientSessions), [patientSessions]);
   const questionSample = useMemo(buildQuestionSample, []);
+  const firstName = getFirstName(professionalName);
 
   function handleSelectPatient(patient) {
     setSelectedPatientId(patient.id);
@@ -63,6 +72,9 @@ export function ProfessionalScreen({
 
   return (
     <div className="professional-layout">
+      <p className="professional-greeting" data-testid="professional-greeting">
+        {firstName ? `Hola, ${firstName}` : "Hola"}
+      </p>
       <PatientGrid
         patients={patients}
         professionalId={professionalId}

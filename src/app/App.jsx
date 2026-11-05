@@ -14,6 +14,7 @@ import { ProfessionalScreen } from "../screens/ProfessionalScreen.jsx";
 export function App() {
   const {
     activities,
+    authUser,
     completeActivity,
     deletePatientForProfessional,
     deleteSessionForProfessional,
@@ -97,6 +98,7 @@ export function App() {
             {screen === SCREEN_NAMES.activity && isAuthenticated && role === "patient" && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} activeSession={activeSession} />}
             {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (
               <ProfessionalScreen
+                professionalName={authUser?.name}
                 patients={patients}
                 professionalId={professionalId}
                 selectedPatient={selectedPatient}
