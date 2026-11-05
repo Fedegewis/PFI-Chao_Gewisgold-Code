@@ -83,6 +83,8 @@ async function main() {
     backend: config.backendUrl,
     ollama: config.ollamaUrl,
     model: config.model,
+    // null = default de Ollama (WORKER_OLLAMA_NUM_THREAD sin definir).
+    num_thread: config.ollamaNumThread,
     lock_file: lock.lockFile,
   });
 
@@ -122,6 +124,7 @@ async function main() {
     ollamaUrl: config.ollamaUrl,
     model: config.model,
     timeoutMs: config.ollamaTimeoutMs,
+    numThread: config.ollamaNumThread,
   });
   const ollamaReady = createOllamaHealthCheck({ ollamaUrl: config.ollamaUrl, model: config.model });
 

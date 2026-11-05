@@ -10,6 +10,7 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import db from "../src/db/connection.js";
+import { addAnsweredQuestion } from "./helpers.js";
 import {
   generateSessionAnalysis,
 } from "../src/services/ai/analysisService.js";
@@ -50,8 +51,10 @@ async function insertCompletedSession(patientId = null) {
       completed_at: new Date(),
     })
     .returning("*");
-  await db("session_sections")
-    .insert({ session_id: s.id, section_id: sectionRow.id, requested_count: 4, display_order: 1 });
+  const [ss] = await db("session_sections")
+    .insert({ session_id: s.id, section_id: sectionRow.id, requested_count: 4, display_order: 1 })
+    .returning("*");
+  await addAnsweredQuestion(db, { sessionSectionId: ss.id, sectionId: sectionRow.id });
   // session_results por sección + global.
   const metrics = {
     total_questions: 4, answered_questions: 4,

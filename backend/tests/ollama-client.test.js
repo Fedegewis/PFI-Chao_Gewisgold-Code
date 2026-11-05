@@ -22,6 +22,7 @@ const ENV_KEYS = [
   "OLLAMA_MODEL",
   "OLLAMA_TIMEOUT_MS",
   "OLLAMA_EXTRA_HEADERS",
+  "OLLAMA_NUM_THREAD",
 ];
 const originalEnv = {};
 
@@ -132,6 +133,41 @@ describe("ollamaClient", () => {
         () => generate({ prompt: "hola" }, { fetchImpl: mockFetchOk() }),
         (err) => err.code === OllamaErrorCodes.OLLAMA_DISABLED
       );
+    });
+  });
+
+  describe("OLLAMA_NUM_THREAD", () => {
+    function capture() {
+      const bodies = [];
+      const stub = async (_url, init) => {
+        bodies.push(JSON.parse(init.body));
+        return { ok: true, status: 200, json: async () => ({ response: "ok" }), text: async () => "" };
+      };
+      return { bodies, stub };
+    }
+
+    it("sin variable no envía num_thread", async () => {
+      const { bodies, stub } = capture();
+      await generate({ prompt: "x", options: { temperature: 0.2 } }, { fetchImpl: stub });
+      assert.deepEqual(bodies[0].options, { temperature: 0.2 });
+    });
+
+    it("con un entero válido lo agrega a options sin pisar el resto", async () => {
+      process.env.OLLAMA_NUM_THREAD = "8";
+      const { bodies, stub } = capture();
+      await generate({ prompt: "x", options: { temperature: 0.2, num_predict: 900 } }, { fetchImpl: stub });
+      await generate({ prompt: "y" }, { fetchImpl: stub });
+      assert.deepEqual(bodies[0].options, { temperature: 0.2, num_predict: 900, num_thread: 8 });
+      assert.deepEqual(bodies[1].options, { num_thread: 8 });
+    });
+
+    it("ignora valores inválidos", async () => {
+      for (const bad of ["0", "-1", "abc", "2.5", "65"]) {
+        process.env.OLLAMA_NUM_THREAD = bad;
+        const { bodies, stub } = capture();
+        await generate({ prompt: "x", options: { temperature: 0.2 } }, { fetchImpl: stub });
+        assert.equal("num_thread" in bodies[0].options, false, bad);
+      }
     });
   });
 

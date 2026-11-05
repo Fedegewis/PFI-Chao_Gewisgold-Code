@@ -39,7 +39,19 @@ function readConfig() {
       ? parsedTimeout
       : DEFAULTS.timeoutMs;
   const enabled = process.env.AI_ENABLED === "true";
-  return { url, model, timeoutMs, enabled };
+  return { url, model, timeoutMs, enabled, numThread: readNumThread() };
+}
+
+// OLLAMA_NUM_THREAD (opcional, 1-64): hilos de CPU para la inferencia en el
+// flujo in-process. Depende del procesador de la máquina que corre Ollama,
+// por eso es configuración de entorno y no un parámetro del contrato (el
+// worker tiene su equivalente local, WORKER_OLLAMA_NUM_THREAD). Sin valor
+// válido no se envía y Ollama usa su default.
+function readNumThread() {
+  const raw = process.env.OLLAMA_NUM_THREAD;
+  if (raw === undefined || String(raw).trim() === "") return null;
+  const n = Number(String(raw).trim());
+  return Number.isInteger(n) && n >= 1 && n <= 64 ? n : null;
 }
 
 export function isAiEnabled() {
@@ -201,6 +213,7 @@ export async function generate(
   };
   if (format !== undefined) body.format = format;
   if (options !== undefined) body.options = options;
+  if (cfg.numThread !== null) body.options = { ...(body.options || {}), num_thread: cfg.numThread };
   // keep_alive es un parámetro top-level de /api/generate soportado por Ollama
   // (≥0.1.9). Permite mantener el modelo residente en memoria durante ese
   // período tras la generación, reduciendo cold-start en sesiones consecutivas.

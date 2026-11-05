@@ -78,11 +78,43 @@ export function createOllamaHealthCheck({ ollamaUrl, model, timeoutMs = 5_000, f
   };
 }
 
+// Parámetros de inferencia por defecto (contrato ≤3.5).
+export const DEFAULT_GENERATION_OPTIONS = Object.freeze({ temperature: 0.2, num_predict: 300 });
+
+// Cotas para los parámetros que el backend envía en el claim
+// (generation_options, desde el prompt 3.6). Sólo se aceptan estas dos
+// claves y dentro de rangos razonables; cualquier otra cosa se ignora.
+const NUM_PREDICT_MAX = 2048;
+
+// 3.6 (ajuste): el backend puede enviar en generation_options.format el JSON
+// Schema de la salida (structured outputs de Ollama). Se acepta sólo un
+// objeto JSON de tamaño acotado con type "object"; cualquier otra cosa cae
+// a "json". El backend valida la respuesta igual, con o sin schema.
+const FORMAT_SCHEMA_MAX_BYTES = 8192;
+
+export function resolveOutputFormat(override) {
+  const f = override && typeof override === "object" ? override.format : undefined;
+  if (!f || typeof f !== "object" || Array.isArray(f) || f.type !== "object") return "json";
+  let size;
+  try { size = JSON.stringify(f).length; } catch { return "json"; }
+  return size <= FORMAT_SCHEMA_MAX_BYTES ? f : "json";
+}
+
+export function resolveGenerationOptions(override) {
+  const out = { ...DEFAULT_GENERATION_OPTIONS };
+  if (!override || typeof override !== "object") return out;
+  const np = override.num_predict;
+  if (Number.isInteger(np) && np >= 1 && np <= NUM_PREDICT_MAX) out.num_predict = np;
+  const t = override.temperature;
+  if (typeof t === "number" && Number.isFinite(t) && t >= 0 && t <= 1) out.temperature = t;
+  return out;
+}
+
 /**
  * Factory. fetchImpl y signal inyectables para tests y para cancelación
  * externa (cuando el claim se pierde mid-inferencia).
  */
-export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, fetchImpl } = {}) {
+export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, numThread = null, fetchImpl } = {}) {
   if (typeof ollamaUrl !== "string" || ollamaUrl.length === 0) {
     throw new TypeError("ollamaUrl requerido");
   }
@@ -92,7 +124,7 @@ export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, fetc
   const doFetch = fetchImpl || globalThis.fetch;
   const base = ollamaUrl.replace(/\/+$/, "");
 
-  return async function generate({ prompt, abortSignal } = {}) {
+  return async function generate({ prompt, abortSignal, generationOptions } = {}) {
     if (typeof prompt !== "string" || prompt.length === 0) {
       throw new TypeError("prompt requerido");
     }
@@ -119,8 +151,12 @@ export function createOllamaClient({ ollamaUrl, model, timeoutMs = 180_000, fetc
           model,
           prompt,
           stream: false,
-          format: "json",
-          options: { temperature: 0.2, num_predict: 300 },
+          format: resolveOutputFormat(generationOptions),
+          options: {
+            ...resolveGenerationOptions(generationOptions),
+            // Configuración local de la máquina (WORKER_OLLAMA_NUM_THREAD).
+            ...(Number.isInteger(numThread) && numThread > 0 ? { num_thread: numThread } : {}),
+          },
           keep_alive: "30m",
         }),
         signal: controller.signal,

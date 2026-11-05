@@ -21,7 +21,7 @@ const router = Router();
 
 // POST /api/worker/analysis/claim
 // Body: {} (ignorado; reservado para versiones futuras).
-// 200 → { claim_id, claim_token, session_id, model, schema_version, prompt_version, lease_expires_at, prompt }
+// 200 → { claim_id, claim_token, session_id, model, schema_version, prompt_version, lease_expires_at, prompt, generation_options }
 // 204 → no hay trabajo
 router.post("/worker/analysis/claim", requireWorkerToken, async (_req, res, next) => {
   try {

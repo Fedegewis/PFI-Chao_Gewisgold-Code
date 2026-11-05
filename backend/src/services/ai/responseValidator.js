@@ -51,10 +51,12 @@ import {
 import {
   buildFactSheet,
   buildSupportedStems,
+  filterAspects,
   findFactContradiction,
   findForbiddenClaim,
   findMalformedSummary,
   findUngroundedSentence,
+  NUMERIC_METRIC_PATTERNS,
 } from "./contentSafety.js";
 
 const SCHEMA_VERSION = "3";
@@ -79,6 +81,8 @@ const ROOT_ALLOWED_FIELDS = new Set([
 const LIMITS = Object.freeze({
   summaryMax: 1000,
   aspectMax: 180,
+  // 3.6 (política "filter"): un aspecto más largo se descarta, no rechaza.
+  aspectMaxFiltered: 240,
   aspectsCountMax: 5,
 });
 
@@ -122,10 +126,6 @@ function assertArray(v, path, { max } = {}) {
   }
 }
 
-function validateSummary(v) {
-  return assertString(v, "summary", { max: LIMITS.summaryMax });
-}
-
 function validateAspects(rawList) {
   if (rawList === undefined || rawList === null) return [];
   assertArray(rawList, "aspects_to_review", { max: LIMITS.aspectsCountMax });
@@ -153,20 +153,8 @@ function validateAspects(rawList) {
 //    patrones específicos de cifras que corresponden a métricas (porcentajes,
 //    fracciones de preguntas, tiempos). No bloqueamos cifras aisladas que
 //    puedan aparecer en una frase legítima (ej: "una actividad").
-const NUMERIC_METRIC_PATTERNS = [
-  // Porcentajes: "50%", "50 %", "50 por ciento".
-  /\b\d{1,3}\s?%/,
-  /\b\d{1,3}\s+por\s+ciento\b/i,
-  // Fracciones aciertos/total: "5/8", "5 de 8".
-  /\b\d+\s*\/\s*\d+\b/,
-  /\b\d+\s+de\s+\d+\b/i,
-  // Cantidades de preguntas/respuestas: "6 preguntas", "4 respuestas", "3 aciertos".
-  /\b\d+\s+(preguntas?|respuestas?|aciertos?|errores?|incorrectas?|correctas?)\b/i,
-  // Tiempos: "32 segundos", "1 minuto 20 segundos", "820 ms".
-  /\b\d+\s+(segundos?|minutos?|ms|milisegundos?)\b/i,
-  // Latencia media explícita: "latencia media de 2.3 s".
-  /\blatencia\s+(media|promedio|m[ií]nima|m[aá]xima)\s+de\s+\d/i,
-];
+// (Los patrones viven en contentSafety.NUMERIC_METRIC_PATTERNS, compartidos con
+// la revisión al leer y con el filtro de aspectos.)
 
 function joinTexts(texts) {
   return texts.filter((t) => typeof t === "string" && t.length > 0).join("\n");
@@ -176,11 +164,11 @@ function failSemantic(reason, path, message) {
   fail(CODES.SCHEMA_INVALID, message, path, { reason });
 }
 
-function runSemanticChecks({ summary, aspects }, grounding, facts) {
+function runSemanticChecks({ summary, aspects }, grounding, facts, { reportedMood = null } = {}) {
   const aspTexts = Array.isArray(aspects) ? aspects : [];
   const fullText = joinTexts([summary, ...aspTexts]);
 
-  const claim = findForbiddenClaim(fullText);
+  const claim = findForbiddenClaim(fullText, { reportedMood });
   if (claim) {
     failSemantic(
       claim.reason,
@@ -227,20 +215,49 @@ function runSemanticChecks({ summary, aspects }, grounding, facts) {
   }
 }
 
+// 3.6: el modelo devuelve los párrafos como arreglo (más estable para el 3B
+// que escribir saltos de línea dentro de un string JSON). Se unen con una
+// línea en blanco; el panel los muestra como párrafos.
+const PARAGRAPHS_MAX = 4;
+const PARAGRAPH_MAX_CHARS = 1100;
+const ASPECT_IN_PARAGRAPH = /^(?:observar|registrar|revisar|comparar)\b/i;
+
+function summaryFromParagraphs(raw) {
+  assertArray(raw, "paragraphs", { max: PARAGRAPHS_MAX });
+  if (raw.length === 0) fail(CODES.SCHEMA_INVALID, "paragraphs no puede ser vacío", "paragraphs");
+  const parts = raw.map((p, i) => assertString(p, `paragraphs[${i}]`, { max: PARAGRAPH_MAX_CHARS }).trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) fail(CODES.SCHEMA_INVALID, "paragraphs sin contenido", "paragraphs");
+  return parts.join("\n\n");
+}
+
 /**
  * Parsea y valida el texto crudo del modelo contra el contexto.
  *
  * @param {string} rawText
  * @param {object} context   Salida de buildSessionAnalysisContext (v2+).
- * @param {{observations?: string[], followUp?: string[],
- *          checkFacts?: boolean, aspectsPolicy?: "validate"|"discard"}} [options]
+ * @param {object} [options]
  *   - observations/followUp: observaciones determinísticas de la sesión. Si
  *     se proveen, el summary debe estar anclado a ellas.
+ *   - factSentences (3.6): frases de sessionFacts que el modelo recibió;
+ *     también respaldan el anclaje.
+ *   - detail (3.6): ficha de sessionFacts (tipos, tiempos, nivel, ánimo).
+ *     Habilita la mención del estado de ánimo informado y la verificación
+ *     de esos hechos.
  *   - checkFacts: verifica que el summary no contradiga los datos del
  *     contexto (contentSafety.findFactContradiction).
- *   - aspectsPolicy: "validate" (contrato ≤3.4, default) valida
- *     aspects_to_review; "discard" (prompt 3.5) no lo pide al modelo y, si
- *     igual llega, lo descarta sin evaluarlo: no se persiste ni se muestra.
+ *   - checkForm: summary (o cada párrafo) truncado o mal formado.
+ *   - acceptParagraphs (3.6): admite `paragraphs` en lugar de `summary`.
+ *   - summaryMax: techo de caracteres del summary (default LIMITS.summaryMax).
+ *   - aspectsPolicy:
+ *       "validate" (contrato ≤3.4, default): valida aspects_to_review junto
+ *         con el summary; cualquier falla rechaza todo.
+ *       "discard" (3.5): no se piden; si llegan se descartan sin evaluarlos.
+ *       "filter" (3.6): cada aspecto se evalúa con las mismas reglas que el
+ *         summary (familias, cifras, anclaje, hechos) y se descarta si no
+ *         cumple o si repite una observación o seguimiento automático.
+ *   - onAspectsFiltered(dropped): callback opcional con los descartados
+ *     (para métricas de evaluación; no se persiste).
  * @returns {object}         Objeto congelado con campos canónicos v3.
  * @throws {AnalysisValidationError}
  */
@@ -263,8 +280,16 @@ export function parseAndValidateSessionAnalysis(rawText, context, options = {}) 
     fail(CODES.SCHEMA_INVALID, "root debe ser objeto");
   }
 
-  assertOnlyAllowedFields(parsed, ROOT_ALLOWED_FIELDS, "root");
+  const allowed = options.acceptParagraphs
+    ? new Set([...ROOT_ALLOWED_FIELDS, "paragraphs"])
+    : ROOT_ALLOWED_FIELDS;
+  assertOnlyAllowedFields(parsed, allowed, "root");
 
+  // 3.6: con `paragraphs` el schema lo fija el backend; si el modelo omite
+  // schema_version se completa (un valor distinto sigue siendo un error).
+  if (options.acceptParagraphs && parsed.paragraphs !== undefined && parsed.schema_version === undefined) {
+    parsed = { ...parsed, schema_version: SCHEMA_VERSION };
+  }
   if (parsed.schema_version !== SCHEMA_VERSION) {
     fail(
       CODES.SCHEMA_INVALID,
@@ -273,38 +298,94 @@ export function parseAndValidateSessionAnalysis(rawText, context, options = {}) 
     );
   }
 
-  const summary = validateSummary(parsed.summary);
-  const discardAspects = options.aspectsPolicy === "discard";
-  const aspects = discardAspects ? [] : validateAspects(parsed.aspects_to_review);
+  let rawSummary = parsed.summary;
+  if (options.acceptParagraphs && parsed.paragraphs !== undefined) {
+    if (parsed.summary !== undefined) {
+      fail(CODES.SCHEMA_INVALID, "Se recibieron summary y paragraphs a la vez", "paragraphs");
+    }
+    rawSummary = summaryFromParagraphs(parsed.paragraphs);
+  }
+  const summaryMax = Number.isInteger(options.summaryMax) && options.summaryMax > 0
+    ? options.summaryMax
+    : LIMITS.summaryMax;
+  const summary = assertString(rawSummary, "summary", { max: summaryMax });
+
+  // Formato de aspects (array, tipos, largo) en "validate" y "filter"; en
+  // "filter" el contenido se evalúa aspecto por aspecto más abajo.
+  const policy = options.aspectsPolicy || "validate";
+  const preDropped = [];
+  let aspects;
+  if (policy === "discard") aspects = [];
+  else if (policy === "filter") {
+    // 3.6: un aspecto mal formado (no string, demasiado largo, sobrante) se
+    // descarta; no invalida el summary ya validado.
+    const raw = parsed.aspects_to_review;
+    if (raw !== undefined && raw !== null && !Array.isArray(raw)) {
+      fail(CODES.SCHEMA_INVALID, "aspects_to_review debe ser array", "aspects_to_review");
+    }
+    aspects = [];
+    for (const a of Array.isArray(raw) ? raw : []) {
+      if (typeof a !== "string" || a.trim().length === 0) preDropped.push({ text: String(a), reason: "invalid" });
+      else if (a.length > LIMITS.aspectMaxFiltered) preDropped.push({ text: a, reason: "max_length_exceeded" });
+      else aspects.push(a);
+    }
+  } else aspects = validateAspects(parsed.aspects_to_review);
 
   const observations = Array.isArray(options.observations) ? options.observations : [];
+  const followUp = Array.isArray(options.followUp) ? options.followUp : [];
+  const factSentences = Array.isArray(options.factSentences) ? options.factSentences : [];
   const grounding = observations.length > 0
     ? buildSupportedStems({
       observations,
-      followUp: Array.isArray(options.followUp) ? options.followUp : [],
+      followUp,
       activityNames: (Array.isArray(context.sections) ? context.sections : [])
         .flatMap((s) => [s?.name, s?.slug])
         .filter((x) => typeof x === "string"),
+      facts: factSentences,
     })
     : null;
 
-  const facts = options.checkFacts ? buildFactSheet(context) : null;
+  const detail = options.detail && typeof options.detail === "object" ? options.detail : null;
+  const facts = options.checkFacts ? buildFactSheet(context, detail) : null;
+  const reportedMood = detail?.mood || null;
 
   // Forma (3.5): summary truncado por la gramática JSON o con entidades
-  // HTML. Sólo en la política de generación vigente (checkForm).
+  // HTML. Sólo en la política de generación vigente (checkForm). 3.6: cada
+  // párrafo debe estar completo.
   if (options.checkForm) {
-    const malformed = findMalformedSummary(summary);
-    if (malformed) {
-      failSemantic("malformed_summary", "summary", `Summary incompleto o mal formado (${malformed})`);
+    for (const part of summary.split(/\n\s*\n/)) {
+      // 3.6: un párrafo que empieza como punto de seguimiento ("Observar…")
+      // es la lista de aspectos volcada en el texto narrativo (evaluación
+      // local 2026-11-05): no es una síntesis bien formada.
+      const malformed = findMalformedSummary(part)
+        || (options.acceptParagraphs && ASPECT_IN_PARAGRAPH.test(part) ? "aspects_in_paragraph" : null);
+      if (malformed) {
+        failSemantic("malformed_summary", "summary", `Summary incompleto o mal formado (${malformed})`);
+      }
     }
   }
 
-  runSemanticChecks({ summary, aspects }, grounding, facts);
+  let keptAspects = aspects;
+  if (policy === "filter") {
+    runSemanticChecks({ summary, aspects: [] }, grounding, facts, { reportedMood });
+    const { kept, dropped } = filterAspects(aspects, {
+      stems: grounding,
+      facts,
+      reportedMood,
+      repeated: [...observations, ...followUp],
+    });
+    // Máximo de aspectos: los primeros que cumplen.
+    keptAspects = kept.slice(0, LIMITS.aspectsCountMax);
+    const overflow = kept.slice(LIMITS.aspectsCountMax).map((text) => ({ text, reason: "over_max_count" }));
+    if (typeof options.onAspectsFiltered === "function") options.onAspectsFiltered([...preDropped, ...dropped, ...overflow]);
+  } else {
+    runSemanticChecks({ summary, aspects }, grounding, facts, { reportedMood });
+  }
 
   const out = {
     schema_version: SCHEMA_VERSION,
     summary,
-    aspects_to_review: aspects,
+    aspects_to_review: keptAspects,
   };
   return Object.freeze(out);
 }

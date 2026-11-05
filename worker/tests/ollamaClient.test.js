@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createOllamaClient, createOllamaHealthCheck, OllamaError, OllamaErrorCodes } from "../src/ollamaClient.js";
+import { createOllamaClient, createOllamaHealthCheck, OllamaError, OllamaErrorCodes, resolveGenerationOptions, resolveOutputFormat } from "../src/ollamaClient.js";
 
 function makeRes(status, body) {
   const text = body === null ? "" : JSON.stringify(body);
@@ -34,6 +34,69 @@ describe("ollamaClient", () => {
     assert.equal(captured.format, "json");
     assert.equal(captured.options.temperature, 0.2);
     assert.equal(captured.keep_alive, "30m");
+  });
+
+  it("numThread local se envía como options.num_thread y no lo puede fijar el backend", async () => {
+    const bodies = [];
+    const fetchImpl = async (_url, init) => { bodies.push(JSON.parse(init.body)); return makeRes(200, { response: "ok" }); };
+    const withThreads = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", numThread: 8, fetchImpl });
+    await withThreads({ prompt: "x", generationOptions: { num_predict: 900 } });
+    assert.equal(bodies[0].options.num_thread, 8);
+    assert.equal(bodies[0].options.num_predict, 900);
+    const plain = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await plain({ prompt: "x", generationOptions: { num_thread: 2 } });
+    assert.equal("num_thread" in bodies[1].options, false);
+  });
+
+  it("sin generationOptions usa los parámetros por defecto (num_predict 300)", async () => {
+    let captured;
+    const fetchImpl = async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return makeRes(200, { response: "ok" });
+    };
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await generate({ prompt: "x" });
+    assert.deepEqual(captured.options, { temperature: 0.2, num_predict: 300 });
+  });
+
+  it("generationOptions del claim (3.6) ajusta num_predict y temperature", async () => {
+    let captured;
+    const fetchImpl = async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return makeRes(200, { response: "ok" });
+    };
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await generate({ prompt: "x", generationOptions: { num_predict: 700, temperature: 0.2 } });
+    assert.deepEqual(captured.options, { temperature: 0.2, num_predict: 700 });
+  });
+
+  it("resolveGenerationOptions ignora claves desconocidas y valores fuera de rango", () => {
+    assert.deepEqual(resolveGenerationOptions({ num_predict: 999999, temperature: 5, seed: 1, mirostat: 2 }), { temperature: 0.2, num_predict: 300 });
+    assert.deepEqual(resolveGenerationOptions({ num_predict: "700" }), { temperature: 0.2, num_predict: 300 });
+    assert.deepEqual(resolveGenerationOptions(null), { temperature: 0.2, num_predict: 300 });
+  });
+
+  it("generationOptions.format (JSON Schema) se envía como format y no como option", async () => {
+    let captured;
+    const fetchImpl = async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return makeRes(200, { response: "ok" });
+    };
+    const schema = { type: "object", properties: { paragraphs: { type: "array", minItems: 2, maxItems: 2 } }, required: ["paragraphs"] };
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await generate({ prompt: "x", generationOptions: { num_predict: 900, temperature: 0.2, format: schema } });
+    assert.deepEqual(captured.format, schema);
+    assert.deepEqual(captured.options, { temperature: 0.2, num_predict: 900 });
+  });
+
+  it("resolveOutputFormat cae a json ante formatos no válidos o demasiado grandes", () => {
+    assert.equal(resolveOutputFormat(undefined), "json");
+    assert.equal(resolveOutputFormat({ format: "yaml" }), "json");
+    assert.equal(resolveOutputFormat({ format: ["x"] }), "json");
+    assert.equal(resolveOutputFormat({ format: { type: "string" } }), "json");
+    assert.equal(resolveOutputFormat({ format: { type: "object", description: "x".repeat(9000) } }), "json");
+    const ok = { type: "object", properties: {} };
+    assert.deepEqual(resolveOutputFormat({ format: ok }), ok);
   });
 
   it("200 con response vacía → EMPTY_RESPONSE", async () => {

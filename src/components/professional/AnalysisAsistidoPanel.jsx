@@ -195,6 +195,11 @@ function DeterministicBlocks({ data }) {
   );
 }
 
+function splitParagraphs(text) {
+  if (typeof text !== "string") return [];
+  return text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+}
+
 function AiSynthesisBlock({ content }) {
   const summary = typeof content?.summary === "string" ? content.summary : "";
   const aspects = Array.isArray(content?.aspects_to_review) ? content.aspects_to_review : [];
@@ -205,7 +210,10 @@ function AiSynthesisBlock({ content }) {
         <Sparkles size={14} aria-hidden="true" style={{ verticalAlign: "middle", marginRight: 4 }} />
         Síntesis del asistente IA
       </p>
-      {summary && <p className="analysis-summary">{summary}</p>}
+      {/* 3.6: el summary puede traer dos o tres párrafos separados por una línea en blanco. */}
+      {splitParagraphs(summary).map((p, i) => (
+        <p key={`p-${i}`} className="analysis-summary">{p}</p>
+      ))}
       {aspects.length > 0 && (
         <>
           <p className="analysis-section-label" style={{ marginTop: 8 }}>Aspectos a revisar sugeridos por IA</p>
@@ -241,6 +249,22 @@ function AiWithheldNotice() {
   );
 }
 
+// 3.6 (ajuste): cuando los datos de la sesión no alcanzan para una síntesis
+// que agregue algo a los bloques determinísticos, el backend no llama al
+// modelo y persiste synthesis_source "deterministic". Este aviso NO lleva la
+// marca de IA: no hay texto generado por el modelo.
+export const SYNTHESIS_NOT_GENERATED_MESSAGE =
+  "No se generó una síntesis redactada para esta sesión: los datos registrados no alcanzan para agregar información a los indicadores y observaciones automáticas.";
+
+function SynthesisNotGeneratedNotice() {
+  return (
+    <div className="analysis-block analysis-withheld" data-testid="ai-synthesis-not-generated" role="note">
+      <p className="eyebrow">Síntesis no generada</p>
+      <p className="analysis-withheld-text">{SYNTHESIS_NOT_GENERATED_MESSAGE}</p>
+    </div>
+  );
+}
+
 function AnalysisContentV3({ content, deterministicFallback, aiTextWithheld }) {
   // v3.4: los bloques determinísticos pueden venir del propio análisis
   // persistido (content.activities/evidence/observations/...) o, cuando
@@ -262,7 +286,9 @@ function AnalysisContentV3({ content, deterministicFallback, aiTextWithheld }) {
   return (
     <div className="analysis-body">
       <DeterministicBlocks data={data} />
-      {aiTextWithheld ? <AiWithheldNotice /> : <AiSynthesisBlock content={content} />}
+      {content.synthesis_source === "deterministic"
+        ? <SynthesisNotGeneratedNotice />
+        : aiTextWithheld ? <AiWithheldNotice /> : <AiSynthesisBlock content={content} />}
     </div>
   );
 }

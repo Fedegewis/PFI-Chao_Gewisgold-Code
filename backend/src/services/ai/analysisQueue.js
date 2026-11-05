@@ -15,7 +15,7 @@
 //
 // Reutiliza:
 //   - contextBuilder → buildSessionAnalysisContext
-//   - promptBuilder → buildSessionAnalysisPrompt v3.5
+//   - analysisMaterials → prompt v3.6 + opciones de validación compartidas
 //   - observationsBuilder → observaciones determinísticas
 //   - responseValidator → parseAndValidateSessionAnalysis
 //   - analysisService.loadSessionAnalysisInput → carga desde DB
@@ -26,17 +26,16 @@
 
 import crypto from "node:crypto";
 import db from "../../db/connection.js";
-import { loadSessionAnalysisInput } from "./analysisService.js";
+import { loadSessionAnalysisInput, AI_GENERATE_OPTIONS, buildDeterministicFields } from "./analysisService.js";
 import { buildSessionAnalysisContext, CONTEXT_SCHEMA_VERSION } from "./contextBuilder.js";
-import { buildSessionAnalysisPrompt, PROMPT_BUILDER_VERSION } from "./promptBuilder.js";
-import { buildObservations } from "./observationsBuilder.js";
-import { buildEvidenceFromContext } from "./evidenceBuilder.js";
+import { PROMPT_BUILDER_VERSION } from "./promptBuilder.js";
+import { buildAnalysisMaterials, deterministicAnalysis } from "./analysisMaterials.js";
 import {
   parseAndValidateSessionAnalysis,
   ANALYSIS_SCHEMA_VERSION,
 } from "./responseValidator.js";
 import { AnalysisValidationError, AnalysisValidationCodes } from "./validationErrors.js";
-import { GENERATION_VALIDATION_OPTIONS, RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
+import { RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
 import { toPersistedErrorCode } from "./errorMapping.js";
 
 // ------------------------------------------------------------------
@@ -483,8 +482,23 @@ export async function claimNextSession(deps = {}) {
       });
       return null;
     }
-    const deterministic = buildObservations(context);
-    const { prompt } = buildSessionAnalysisPrompt(context, { observations: deterministic.observations });
+    const materials = buildAnalysisMaterials(context, input);
+    const { prompt } = materials;
+
+    // 3.6 (ajuste) — Datos insuficientes: no se envía al worker. Se persiste
+    // directamente un ok sin texto redactado, marcado como determinístico
+    // (mismo resultado que el flujo in-process). Cuenta como respuesta a un
+    // pedido de regeneración pendiente: es un ok posterior al pedido.
+    if (!materials.sufficient) {
+      await trx("session_analyses").insert({
+        session_id: candidate.session_id,
+        status: "ok",
+        model, schema_version: schemaVersion, prompt_version: promptVersion,
+        analysis: deterministicAnalysis(materials, buildDeterministicFields(context)),
+        attempt_count: priorAttempts,
+      });
+      return null;
+    }
 
     // Emitir claim: fila generating con lease + claim_token.
     const claimToken = crypto.randomBytes(16).toString("hex");
@@ -510,6 +524,11 @@ export async function claimNextSession(deps = {}) {
       prompt_version: created.prompt_version,
       lease_expires_at: created.lease_expires_at,
       prompt,
+      // v3.6: el worker usa estos parámetros para la inferencia (el 3.6
+      // necesita más tokens que el 3.5). `format` es el JSON Schema de la
+      // salida (structured outputs); un worker que no lo reconoce usa
+      // format "json" y el validador sigue aplicándose igual.
+      generation_options: { ...AI_GENERATE_OPTIONS, format: materials.outputSchema },
     };
   });
 }
@@ -563,18 +582,14 @@ export async function submitResult(params, deps = {}) {
     }
     const input = await loadSessionAnalysisInput(trx, row.session_id);
     const context = buildSessionAnalysisContext(input);
-    const deterministic = buildObservations(context);
-    return { context, deterministic, sessionId: row.session_id };
+    const materials = buildAnalysisMaterials(context, input);
+    return { context, materials, sessionId: row.session_id };
   });
 
   // Fase 2 (sin tx): validar JSON del modelo.
   let validated;
   try {
-    validated = parseAndValidateSessionAnalysis(rawText, ctxPkg.context, {
-      observations: ctxPkg.deterministic.observations,
-      followUp: ctxPkg.deterministic.follow_up,
-      ...GENERATION_VALIDATION_OPTIONS,
-    });
+    validated = parseAndValidateSessionAnalysis(rawText, ctxPkg.context, ctxPkg.materials.validationOptions);
   } catch (err) {
     if (!(err instanceof AnalysisValidationError)) throw err;
     const persistedCode = toPersistedErrorCode("analysis", err.code);
@@ -612,21 +627,10 @@ export async function submitResult(params, deps = {}) {
   }
 
   // Fase 3: inyectar bloques determinísticos y persistir OK.
-  const evidence = buildEvidenceFromContext(ctxPkg.context);
-  const activities = ctxPkg.context.sections.map((s) => ({
-    slug: s.slug,
-    name: s.name,
-    cognitive_domain_slugs: Array.isArray(s.cognitive_domain_slugs)
-      ? [...s.cognitive_domain_slugs]
-      : [],
-  }));
   const persistable = {
     ...validated,
-    activities,
-    evidence,
-    ...(ctxPkg.context.comparison_metrics ? { comparison_metrics: ctxPkg.context.comparison_metrics } : {}),
-    observations: ctxPkg.deterministic.observations,
-    follow_up: ctxPkg.deterministic.follow_up,
+    ...buildDeterministicFields(ctxPkg.context),
+    ...ctxPkg.materials.persistExtras,
   };
 
   const [updated] = await dbHandle("session_analyses")

@@ -528,7 +528,60 @@ Conectar frontend con backend, reemplazo de pacientes/métricas mock, reemplazo 
 
 Tests, seguridad, permisos, errores, fallback de IA, performance, accesibilidad, preparación de demo, documentación de tesis.
 
-## Contrato IA v3 (prompt_version 3.5, output schema_version 3)
+## Contrato IA v3 (prompt_version 3.6, output schema_version 3)
+
+**v3.6 (2026-11-05, rama `feature/ai-analysis-quality-v36`)**: recuperar
+profundidad sin perder seguridad. Detalle, evaluación y ejemplos completos en
+`backend/docs/ai-prompt-v36.md`.
+- Diagnóstico: 3.4 y 3.5 recibían sólo nombre de actividad + observaciones;
+  la "profundidad" de 3.4 eran aspectos inventados. Ninguna recibía ánimo,
+  nivel, tipos de pregunta, tiempos ni antecedentes.
+- `sessionFacts.js` (determinístico, sin cifras): actividad, nivel, ánimo
+  informado, resultado y presentación por tipo de pregunta (`subdimension`),
+  información previa vs. a la vista, tiempos correctas vs. incorrectas, tipo
+  más lento, sesiones anteriores, `facts_sheet` y temas de seguimiento.
+- Prompt por bloques (PÁRRAFO 1/2/3 + TEMAS PARA SEGUIMIENTO), sin ejemplo de
+  estilo (el 3B copiaba su contenido). El modelo devuelve `paragraphs` (se unen
+  en `summary`) y `aspects_to_review`.
+- Aspectos de vuelta con `aspectsPolicy: "filter"`: cada uno pasa las mismas
+  reglas que el summary y los que fallan se descartan uno por uno.
+- Validación: ninguna regla quitada; excepciones sólo respaldadas por la ficha
+  (ánimo informado sin vínculo causal, sesiones anteriores sin comparar,
+  tiempos internos, resultados por tipo). Contradicciones y patrones nuevos
+  (mejorar la precisión, áreas de mejora, impacto de X en Y, aspectos
+  volcados como párrafo).
+- Lectura: 3.6 persistido se revisa con `context_facts`/`facts_sheet`.
+- `num_predict` 900, enviado al worker en `generation_options`. **El worker
+  debe desplegarse junto con el backend o antes.**
+- Medido (llama3.2:3b CPU, 10 casos × 3 seeds, validador vigente): aceptación
+  por intento 3.4 0/30, 3.5 21/30, 3.6 22/30. Aceptadas de 3.6: ~1000 chars,
+  3 párrafos, 3.2 aspectos, cobertura de tipos/tiempos/información previa del
+  100%. Latencia ~59 s (3.5: ~11 s). La profundidad proviene sobre todo de los
+  hechos determinísticos: el 3B los redacta casi literalmente.
+- **Ajuste final 3.6** (misma versión, detalle en la sección 5 del doc):
+  - Las observaciones automáticas ya NO se envían al modelo (antes se
+    copiaban literalmente); sólo hechos en prosa (las fichas etiquetadas se
+    probaron y se descartaron: el 3B interpretaba).
+  - Hechos de balance general y de comparación con la sesión anterior
+    (comparable o "no directamente comparable" si cambia el nivel).
+  - 1 a 3 párrafos según los datos.
+  - Salida estructurada: JSON Schema en `format` de Ollama, enviado al worker
+    en `generation_options.format` (in-process y worker). El validador
+    posterior se mantiene completo.
+  - Sin ningún tipo de pregunta con respuestas puntuadas no se llama a Ollama:
+    se persiste un ok con `synthesis_source: "deterministic"` y texto vacío;
+    el panel muestra «Síntesis no generada», sin rótulo de IA.
+  - Medido (mismo setup, mismo validador): 3.6 inicial 25/30 aceptadas
+    (4 rechazos de formato, 1 de contenido); ajustada 27/27 + 3
+    determinísticas, 0 observaciones copiadas, 4.15 aspectos válidos,
+    ~59 s por intento, total estimado con reintentos 572 s vs 756 s.
+- **Rendimiento** (sección 6 del doc): la máquina del worker es un i7-1255U
+  sin GPU dedicada; Ollama corre 100% en CPU (descarta la Iris Xe). ~70% del
+  tiempo es generación (~9 tokens/s). Única mejora consistente sin costo de
+  calidad: `num_thread` 8 (−12,6%, salida idéntica), como configuración local
+  opcional `WORKER_OLLAMA_NUM_THREAD` / `OLLAMA_NUM_THREAD` (no la envía el
+  backend). GPU por Vulkan, flash attention y modelos más chicos requieren
+  autorización (configuración global o descarga) y no se probaron.
 
 **v3.5 (2026-11-04, rama `fix/ai-content-safety`)**: seguridad y calidad del
 análisis tras la auditoría de los 8 análisis persistidos en producción
@@ -844,7 +897,9 @@ sesiones con un análisis ok.
 
 ### Archivos clave
 
-- `backend/src/services/ai/promptBuilder.js` — PROMPT_VERSION "3.5", guía en positivo, HECHOS REGISTRADOS como única fuente.
+- `backend/src/services/ai/promptBuilder.js` — PROMPT_VERSION "3.6", guía en positivo, datos por bloques de párrafo + temas de seguimiento.
+- `backend/src/services/ai/sessionFacts.js` — hechos enriquecidos determinísticos (3.6).
+- `backend/src/services/ai/analysisMaterials.js` — prompt + opciones de validación + extras persistidos, compartido por servicio y worker (3.6).
 - `backend/src/services/ai/contentSafety.js` — familias, anclaje, ficha de hechos, revisión de análisis persistidos, opciones de validación compartidas.
 - `backend/src/services/ai/observationsBuilder.js` — determinístico: `{observations, follow_up}`.
 - `backend/src/routes/analysis.js` — endpoint `GET /sessions/:id/analysis-context` (v3.4).

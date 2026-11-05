@@ -85,8 +85,8 @@ describe("7J.2 — Generación automática y estado generating", () => {
     sectionRow = await db("sections").where({ slug: "orientacion_temporal" }).first();
     // Fixture: 2 preguntas validated con source dedicado.
     const inserted = await db("questions").insert([
-      { section_id: sectionRow.id, prompt: "Q1", response_type: "multiple_choice", options: JSON.stringify(["a","b","c","d"]), correct_answer: 0, difficulty: 1, is_active: true, is_validated: true, source: "auto_analysis_test_fixture" },
-      { section_id: sectionRow.id, prompt: "Q2", response_type: "multiple_choice", options: JSON.stringify(["a","b","c","d"]), correct_answer: 1, difficulty: 1, is_active: true, is_validated: true, source: "auto_analysis_test_fixture" },
+      { section_id: sectionRow.id, prompt: "Q1", response_type: "multiple_choice", options: JSON.stringify(["a","b","c","d"]), correct_answer: 0, difficulty: 1, is_active: true, is_validated: true, source: "auto_analysis_test_fixture", subdimension: "orientacion_temporal" },
+      { section_id: sectionRow.id, prompt: "Q2", response_type: "multiple_choice", options: JSON.stringify(["a","b","c","d"]), correct_answer: 1, difficulty: 1, is_active: true, is_validated: true, source: "auto_analysis_test_fixture", subdimension: "orientacion_temporal" },
     ]).returning("id");
     questionIds = inserted.map((r) => r.id);
   });

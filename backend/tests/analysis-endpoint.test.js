@@ -14,7 +14,7 @@ process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:3b";
 
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
-import { authHeaderFor } from "./helpers.js";
+import { authHeaderFor, addAnsweredQuestion } from "./helpers.js";
 import { analysisRouteDeps } from "../src/routes/analysis.js";
 import { OllamaClientError, OllamaErrorCodes } from "../src/services/ai/errors.js";
 import { PROMPT_BUILDER_VERSION } from "../src/services/ai/promptBuilder.js";
@@ -35,15 +35,7 @@ async function makeCompletedSession(patient, professional, sectionId) {
   const [ss] = await db("session_sections")
     .insert({ session_id: session.id, section_id: sectionId, requested_count: 1, display_order: 1 })
     .returning("*");
-  const [q] = await db("questions")
-    .where({ section_id: sectionId, is_active: true })
-    .orderBy("id").limit(1).select("*");
-  await db("session_questions")
-    .insert({
-      session_section_id: ss.id, question_id: q.id, display_order: 1,
-      prompt_snapshot: q.prompt, options_snapshot: JSON.stringify(q.options),
-      correct_answer_snapshot: q.correct_answer ?? 0, response_type: q.response_type,
-    });
+  await addAnsweredQuestion(db, { sessionSectionId: ss.id, sectionId });
   await db("session_results").insert({
     session_id: session.id, section_id: sectionId,
     total_questions: 1, answered_questions: 1, correct_count: 1,
@@ -187,13 +179,42 @@ describe("POST/GET /api/sessions/:id/analysis (7G)", () => {
     });
   });
 
+  describe("POST con datos insuficientes (3.6)", () => {
+    it("no llama al modelo, persiste un ok determinístico y el GET no devuelve texto", async () => {
+      const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
+      const sqIds = db("session_questions as sq").select("sq.id")
+        .join("session_sections as ss", "ss.id", "sq.session_section_id").where("ss.session_id", ses.id);
+      await db("answers").whereIn("session_question_id", sqIds).del();
+      let calls = 0;
+      analysisRouteDeps.generate = async () => { calls++; throw new Error("no debería llamarse"); };
+      const res = await request(app)
+        .post(`/api/sessions/${ses.id}/analysis`)
+        .set("Authorization", authHeaderFor(profA));
+      assert.equal(res.status, 201);
+      assert.equal(calls, 0);
+      assert.equal(res.body.analysis.latency_ms, null);
+      assert.equal(res.body.analysis.content.synthesis_source, "deterministic");
+      assert.equal(res.body.analysis.content.summary, "");
+      assert.deepEqual(res.body.analysis.content.aspects_to_review, []);
+      assert.equal(res.body.analysis.ai_text_withheld, false);
+      const get = await request(app)
+        .get(`/api/sessions/${ses.id}/analysis`)
+        .set("Authorization", authHeaderFor(profA));
+      assert.equal(get.status, 200);
+      assert.equal(get.body.analysis.content.synthesis_source, "deterministic");
+      assert.equal(get.body.analysis.content.summary, "");
+    });
+  });
+
   describe("POST pipeline exitoso", () => {
     it("201 generated persiste con model+latency y devuelve content validado; sin PII/raw/prompt", async () => {
       const ses = await makeCompletedSession(patientA, profA, sectionRow.id);
       let calls = 0;
       analysisRouteDeps.generate = async (args) => {
         calls++;
-        assert.equal(args.format, "json");
+        // 3.6: JSON Schema de la salida como gramática (structured outputs).
+        assert.equal(args.format.type, "object");
+        assert.deepEqual(args.format.required, ["schema_version", "paragraphs", "aspects_to_review"]);
         assert.ok(!args.prompt.includes("Pac A")); // no PII
         assert.ok(!args.prompt.includes("patient_age")); // no age
         assert.ok(!args.prompt.includes("correct_answer"));

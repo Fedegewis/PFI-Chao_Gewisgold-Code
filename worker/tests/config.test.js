@@ -13,6 +13,14 @@ function base(extra = {}) {
 }
 
 describe("config.loadConfig", () => {
+  it("WORKER_OLLAMA_NUM_THREAD es opcional y se valida", () => {
+    assert.equal(loadConfig(base()).ollamaNumThread, null);
+    assert.equal(loadConfig(base({ WORKER_OLLAMA_NUM_THREAD: "8" })).ollamaNumThread, 8);
+    for (const bad of ["0", "-2", "abc", "4.5", "65", ""]) {
+      assert.equal(loadConfig(base({ WORKER_OLLAMA_NUM_THREAD: bad })).ollamaNumThread, null, bad);
+    }
+  });
+
   it("acepta HTTPS en producción", () => {
     const c = loadConfig(base());
     assert.equal(c.backendUrl, "https://api.menteactiva.ar");
