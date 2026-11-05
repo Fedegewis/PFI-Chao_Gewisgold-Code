@@ -21,31 +21,35 @@ import {
   buildSessionAnalysisContext,
   CONTEXT_SCHEMA_VERSION,
 } from "./contextBuilder.js";
-import {
-  buildSessionAnalysisPrompt,
-  PROMPT_BUILDER_VERSION,
-} from "./promptBuilder.js";
+import { PROMPT_BUILDER_VERSION } from "./promptBuilder.js";
 import {
   parseAndValidateSessionAnalysis,
   ANALYSIS_SCHEMA_VERSION,
 } from "./responseValidator.js";
 import { AnalysisValidationError, AnalysisValidationCodes } from "./validationErrors.js";
-import { GENERATION_VALIDATION_OPTIONS, RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
+import { RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
 import { toPersistedErrorCode } from "./errorMapping.js";
 import * as defaultRepo from "./analysisRepository.js";
 import { withAnalysisLock as defaultWithAnalysisLock } from "./analysisLock.js";
 import { loadPreviousSessions, filterComparableSessions, HISTORICAL_SESSION_LIMIT } from "./historicalContext.js";
 import { buildEvidenceFromContext } from "./evidenceBuilder.js";
 import { buildComparisonMetrics } from "./comparisonBuilder.js";
-import { buildObservations } from "./observationsBuilder.js";
+import { buildAnalysisMaterials } from "./analysisMaterials.js";
 
 // Parámetros de inferencia. num_predict: cota superior de tokens generados.
 // v3.0 — bajado a 300. El contrato v3 limita la salida del modelo a
 //   { summary (≤500 chars), aspects_to_review (≤5 strings de ≤180 chars) }.
 //   ~300 tokens cubren el peor caso con margen y acortan la generación.
+//
+// v3.6 — subido a 900. El contrato 3.6 pide dos o tres párrafos y de tres a
+//   cinco aspectos: en la evaluación local (llama3.2:3b) las salidas
+//   completas llegaron a ~2000-2500 caracteres (~600-700 tokens); con 300 la
+//   gramática JSON quedaba truncada. 900 deja margen sin permitir que un
+//   bucle de repetición siga generando indefinidamente.
+//   El worker recibe este valor en el claim (generation_options).
 export const AI_GENERATE_OPTIONS = Object.freeze({
   temperature: 0.2,
-  num_predict: 300,
+  num_predict: 900,
 });
 
 // keep_alive: mantiene el modelo residente en Ollama durante 30 minutos
@@ -200,6 +204,33 @@ export async function loadSessionAnalysisInput(dbOrTrx, sessionId) {
     .first("adaptive_level");
   const currentAdaptiveLevel = levelRow?.adaptive_level ?? null;
 
+  // v3.6 — detalle por pregunta para sessionFacts: tipo (subdimensión), si
+  // tenía información previa que luego se oculta, si fue respondida, si fue
+  // correcta y su tiempo. NO trae el texto de la pregunta, las opciones, la
+  // respuesta elegida ni el contenido del stimulus (sólo si existía).
+  const questionDetails = await dbOrTrx("session_questions as sq")
+    .join("session_sections as ss", "sq.session_section_id", "ss.id")
+    .join("sections as s", "ss.section_id", "s.id")
+    .leftJoin("questions as q", "q.id", "sq.question_id")
+    .leftJoin("answers as a", "a.session_question_id", "sq.id")
+    .where("ss.session_id", sessionId)
+    .orderBy([{ column: "ss.display_order" }, { column: "sq.display_order" }])
+    .select(
+      "s.slug as section_slug",
+      "q.subdimension as subdimension",
+      dbOrTrx.raw("(sq.stimulus_snapshot IS NOT NULL AND length(trim(sq.stimulus_snapshot)) > 0) AS has_stimulus"),
+      dbOrTrx.raw("(a.id IS NOT NULL) AS answered"),
+      "a.is_correct as is_correct",
+      "a.response_time_ms as response_time_ms",
+    );
+
+  // v3.6 — cuántas de las previas cargadas son de la misma actividad. Sólo
+  // se usa para decir "hay una / varias sesiones anteriores" (sin cifras).
+  const currentSlug = sections[0]?.slug ?? null;
+  const sameActivityPreviousCount = currentSlug
+    ? previousSessions.filter((p) => Array.isArray(p.section_slugs) && p.section_slugs.includes(currentSlug)).length
+    : 0;
+
   // v2.4 (BUG-11): comparison_metrics determinístico. El backend compara contra
   // la previa comparable más reciente (misma section_slug). Si no hay previa
   // de la misma actividad, no se emite — el modelo no debe inventar comparación.
@@ -225,6 +256,11 @@ export async function loadSessionAnalysisInput(dbOrTrx, sessionId) {
     sections,
     previous_sessions: previousSessions,
     ...(comparisonMetrics ? { comparison_metrics: comparisonMetrics } : {}),
+    // v3.6 — sólo los usa analysisMaterials/sessionFacts; contextBuilder
+    // no los transporta.
+    question_details: questionDetails,
+    adaptive_level: currentAdaptiveLevel,
+    same_activity_previous_count: sameActivityPreviousCount,
   };
 }
 
@@ -375,8 +411,10 @@ async function runGenerationCritical({
   //    Las observations se calculan ANTES del prompt para alimentarlo y
   //    luego se persisten junto al análisis para que el frontend las
   //    muestre tal cual (sin depender de que el modelo las parafrase bien).
-  const deterministic = buildObservations(context);
-  const { prompt } = buildSessionAnalysisPrompt(context, { observations: deterministic.observations });
+  //    v3.6: los hechos enriquecidos (sessionFacts) alimentan el prompt y la
+  //    validación; analysisMaterials es compartido con el worker.
+  const materials = buildAnalysisMaterials(context, input);
+  const { prompt } = materials;
 
   // 5+6) Ollama + Validador — con un único reintento controlado para
   //      modos conocidos de inestabilidad de llama3.2:3b.
@@ -430,11 +468,7 @@ async function runGenerationCritical({
     }
 
     try {
-      validated = parseAndValidateSessionAnalysis(ollamaResponse.text, context, {
-        observations: deterministic.observations,
-        followUp: deterministic.follow_up,
-        ...GENERATION_VALIDATION_OPTIONS,
-      });
+      validated = parseAndValidateSessionAnalysis(ollamaResponse.text, context, materials.validationOptions);
       lastValidationError = null;
       break; // éxito
     } catch (err) {
@@ -500,10 +534,8 @@ async function runGenerationCritical({
     evidence,
     ...(context.comparison_metrics ? { comparison_metrics: context.comparison_metrics } : {}),
     // v3.4 — observaciones y aspectos orientativos determinísticos.
-    // Fuente de verdad para el bloque "Observaciones para seguimiento"
-    // del panel; el summary del modelo las parafrasea.
-    observations: deterministic.observations,
-    follow_up: deterministic.follow_up,
+    // v3.6 — más la marca de contrato y los hechos que vio el modelo.
+    ...materials.persistExtras,
   };
 
   // 8) Persistencia OK: promocionar fila generating → ok.

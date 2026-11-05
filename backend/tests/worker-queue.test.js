@@ -508,7 +508,7 @@ describe("Worker queue (claim/result/failed)", () => {
     });
   }
 
-  it("Paridad deferred: aspects_to_review del modelo se descarta al persistir", async () => {
+  it("Paridad deferred (3.6): aspects_to_review no permitidos se descartan al persistir", async () => {
     await makeCompletedSession(patientA, profA, new Date());
     const claim = await claimNextSession();
     assert.ok(claim);
@@ -529,6 +529,37 @@ describe("Worker queue (claim/result/failed)", () => {
     assert.equal(row.status, "ok");
     assert.deepEqual(row.analysis.aspects_to_review, []);
     assert.ok(Array.isArray(row.analysis.follow_up));
+  });
+
+  it("Contrato 3.6: paragraphs + aspecto permitido se persisten con los hechos que vio el modelo", async () => {
+    await makeCompletedSession(patientA, profA, new Date());
+    const claim = await claimNextSession();
+    assert.ok(claim);
+    const aspect = "Observar el tiempo de las respuestas en la próxima sesión de esta actividad.";
+    const res = await request(app)
+      .post("/api/worker/analysis/result")
+      .set("Authorization", `Bearer ${VALID_TOKEN}`)
+      .send({
+        claim_id: claim.claim_id,
+        claim_token: claim.claim_token,
+        raw_text: JSON.stringify({
+          schema_version: "3",
+          paragraphs: [
+            "La sesión de entrenamiento fue completada en su totalidad.",
+            "Las respuestas quedaron registradas por el sistema.",
+          ],
+          aspects_to_review: [aspect, "Se recomienda derivar a un especialista."],
+        }),
+      });
+    assert.equal(res.status, 200);
+    const row = await db("session_analyses").where({ id: claim.claim_id }).first();
+    assert.equal(row.status, "ok");
+    assert.equal(row.analysis.summary, "La sesión de entrenamiento fue completada en su totalidad.\n\nLas respuestas quedaron registradas por el sistema.");
+    assert.deepEqual(row.analysis.aspects_to_review, [aspect]);
+    assert.equal(row.analysis.ai_contract, "3.6");
+    assert.ok(Array.isArray(row.analysis.context_facts));
+    assert.equal(typeof row.analysis.facts_sheet, "object");
+    assert.equal(row.analysis.paragraphs, undefined);
   });
 
   it("Validación OK: persiste status=ok con activities + evidence + observations + follow_up", async () => {
@@ -723,5 +754,7 @@ describe("Worker queue (claim/result/failed)", () => {
     assert.equal(res.body.schema_version, CURRENT_SCHEMA);
     assert.equal(res.body.prompt_version, CURRENT_PROMPT);
     assert.ok(res.body.lease_expires_at);
+    // 3.6: el backend indica los parámetros de inferencia al worker.
+    assert.deepEqual(res.body.generation_options, { temperature: 0.2, num_predict: 900 });
   });
 });

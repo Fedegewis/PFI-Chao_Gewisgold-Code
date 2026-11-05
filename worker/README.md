@@ -103,6 +103,24 @@ Durante operación:
 - SIGINT / SIGTERM / SIGBREAK → termina el ciclo actual con shutdown
   ordenado; libera el lockfile.
 
+## Parámetros de generación (contrato 3.6)
+
+Desde el prompt 3.6 la respuesta de `/claim` incluye `generation_options`
+(`{ temperature, num_predict }`), definidos en el backend
+(`AI_GENERATE_OPTIONS` en `backend/src/services/ai/analysisService.js`). El
+worker los aplica a la llamada a Ollama (`resolveGenerationOptions` en
+`src/ollamaClient.js` sólo acepta `num_predict` entero 1–2048 y
+`temperature` 0–1; cualquier otro valor se ignora y se usa el default).
+
+- Sin `generation_options` (backend anterior), el worker usa el default
+  histórico `{ temperature: 0.2, num_predict: 300 }`.
+- El contrato 3.6 pide dos o tres párrafos y de tres a cinco aspectos:
+  con `num_predict: 300` la salida queda truncada y el backend la rechaza
+  como JSON inválido. **Actualizar el worker junto con el backend** (o antes):
+  un worker viejo con un backend 3.6 produce sólo intentos fallidos.
+- En CPU (llama3.2:3b) una generación 3.6 tarda ~50–95 s; el timeout de
+  Ollama por defecto (180 s, `WORKER_OLLAMA_TIMEOUT_MS`) alcanza.
+
 ## Perfiles de configuración (local vs. producción)
 
 El worker soporta la variable `WORKER_ENV_FILE` para elegir qué archivo

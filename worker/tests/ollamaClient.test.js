@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createOllamaClient, createOllamaHealthCheck, OllamaError, OllamaErrorCodes } from "../src/ollamaClient.js";
+import { createOllamaClient, createOllamaHealthCheck, OllamaError, OllamaErrorCodes, resolveGenerationOptions } from "../src/ollamaClient.js";
 
 function makeRes(status, body) {
   const text = body === null ? "" : JSON.stringify(body);
@@ -34,6 +34,34 @@ describe("ollamaClient", () => {
     assert.equal(captured.format, "json");
     assert.equal(captured.options.temperature, 0.2);
     assert.equal(captured.keep_alive, "30m");
+  });
+
+  it("sin generationOptions usa los parámetros por defecto (num_predict 300)", async () => {
+    let captured;
+    const fetchImpl = async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return makeRes(200, { response: "ok" });
+    };
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await generate({ prompt: "x" });
+    assert.deepEqual(captured.options, { temperature: 0.2, num_predict: 300 });
+  });
+
+  it("generationOptions del claim (3.6) ajusta num_predict y temperature", async () => {
+    let captured;
+    const fetchImpl = async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return makeRes(200, { response: "ok" });
+    };
+    const generate = createOllamaClient({ ollamaUrl: "http://127.0.0.1:11434", model: "llama3.2:3b", fetchImpl });
+    await generate({ prompt: "x", generationOptions: { num_predict: 700, temperature: 0.2 } });
+    assert.deepEqual(captured.options, { temperature: 0.2, num_predict: 700 });
+  });
+
+  it("resolveGenerationOptions ignora claves desconocidas y valores fuera de rango", () => {
+    assert.deepEqual(resolveGenerationOptions({ num_predict: 999999, temperature: 5, seed: 1, mirostat: 2 }), { temperature: 0.2, num_predict: 300 });
+    assert.deepEqual(resolveGenerationOptions({ num_predict: "700" }), { temperature: 0.2, num_predict: 300 });
+    assert.deepEqual(resolveGenerationOptions(null), { temperature: 0.2, num_predict: 300 });
   });
 
   it("200 con response vacía → EMPTY_RESPONSE", async () => {

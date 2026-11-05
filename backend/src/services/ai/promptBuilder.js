@@ -1,86 +1,100 @@
-// Prompt Builder — v3.5 (auditoría de seguridad del análisis IA, 2026-11-04).
+// Prompt Builder — v3.6 (recuperar profundidad sin perder seguridad, 2026-11-05).
 //
 // Historia breve:
 //  - v3.0-3.3: el modelo recibe un contexto mínimo (nombres de actividades)
 //    y devuelve summary + aspects_to_review. Sin métricas crudas.
 //  - v3.4: se agrega un bloque OBSERVATIONS con frases determinísticas para
-//    que el modelo las parafrasee.
-//  - v3.5 (este archivo). Problemas observados en producción con 3.4:
-//      1) Eco de las reglas: la REGLA 1 enumeraba literalmente los términos
-//         prohibidos y decía "Una sesión aislada no evidencia una condición
-//         clínica"; el 3B la reprodujo como contenido ("No se detectaron
-//         patologías ni condiciones clínicas en esta sesión aislada").
-//         → Las reglas se redactan en positivo y NO nombran términos
-//           clínicos ni frases que el modelo pueda copiar.
-//      2) Contradicción: OBSERVATIONS traía comparaciones pero la REGLA 3
-//         prohibía mencionar otras sesiones; el modelo lo resolvía
-//         escribiendo "mejora".
-//         → Se elimina la prohibición: el modelo puede reformular las
-//           comparaciones VÁLIDAS (las que observationsBuilder emitió) sin
-//           cambiar su dirección, y repetir la aclaración de "no directamente
-//           comparable" cuando los niveles de dificultad difieren.
-//      3) aspects_to_review: en los 8 análisis persistidos concentraba la
-//         mayoría de las afirmaciones especulativas (eficacia de la
-//         actividad, capacidades, recomendaciones). No está anclado a ningún
-//         dato.
-//         → Ya no se pide. Los aspectos de seguimiento son los follow_up
-//           determinísticos del backend. Si el modelo igual lo devuelve, el
-//           validador lo descarta (ver responseValidator, aspectsPolicy).
+//    que el modelo las parafrasee. Pide summary (1-2 oraciones) + aspects.
+//  - v3.5: reglas en positivo (el 3B copiaba los términos prohibidos que la
+//    regla enumeraba), HECHOS REGISTRADOS como única fuente y ya NO pide
+//    aspects_to_review (concentraba la especulación). Resultado: una o dos
+//    oraciones que repiten las observaciones automáticas, sin aspectos.
+//    Copia congelada en scripts/eval/legacyPromptV35.js.
+//  - v3.6 (este archivo). Diagnóstico: la falta de profundidad no venía del
+//    modelo sino de lo que recibía. Ni 3.4 ni 3.5 le pasaban estado de ánimo,
+//    nivel, tiempos, tipos de preguntas ni antecedentes; con sólo las
+//    observaciones, lo único posible era parafrasearlas.
+//      1) El modelo recibe datos construidos por sessionFacts.js: descripción
+//         de la actividad, nivel de dificultad, estado de ánimo informado,
+//         resultado por tipo de pregunta, tiempos descriptos por comparación
+//         interna y antecedentes. Todo en palabras y sin cifras.
+//      2) Los datos llegan ya repartidos en un bloque por párrafo. Con un
+//         ejemplo de estilo completo el 3B copiaba contenido del ejemplo
+//         (estado de ánimo inexistente, "no hay sesiones comparables" cuando
+//         sí las había); sin ejemplo y con una sola lista de datos agregaba
+//         explicaciones propias. Con un bloque por párrafo la tarea se reduce
+//         a redactar en prosa lo que ya está en ese bloque.
+//      3) Los aspectos vuelven a pedirse, pero sobre TEMAS determinísticos
+//         (un dato registrado por tema): el modelo los redacta, no decide qué
+//         merece atención. Se validan igual que el summary (familias, cifras,
+//         anclaje, contradicción con los hechos) y los que no cumplen se
+//         descartan uno por uno (aspectsPolicy "filter").
+//      4) El estado de ánimo se puede mencionar sólo como algo que la persona
+//         informó y sin relacionarlo con los resultados (contentSafety valida
+//         el valor registrado y la ausencia de conectores causales).
+//    Las reglas siguen redactadas en positivo y sin nombrar términos
+//    clínicos que el modelo pueda copiar.
 //
-// Qué recibe el modelo: nombres humanos de las actividades + HECHOS
-// REGISTRADOS (las observaciones determinísticas). NO recibe cifras, estado
-// de ánimo, nombre, edad, slugs, dominios, niveles de dificultad ni
-// historial: esos datos los muestra el backend por otros canales.
-//
-// Qué devuelve: { "schema_version": "3", "summary": "..." }.
-// El schema de salida sigue siendo "3" (compatible con el validador, la API
-// y los análisis persistidos).
+// Qué devuelve el modelo:
+//   { "schema_version": "3", "paragraphs": ["...", "..."], "aspects_to_review": ["...", ...] }
+// El análisis persistido sigue siendo schema "3" con `summary` (compatible
+// con la API, el panel y los análisis anteriores).
 //
 // Función pura: no llama Ollama, no lee env, no toca DB.
 
-const PROMPT_VERSION = "3.5";
+const PROMPT_VERSION = "3.6";
 const OUTPUT_SCHEMA_VERSION = "3";
 
 const ROLE = [
-  "Redactás una síntesis breve para una psicóloga o un psicólogo que revisa una sesión de entrenamiento cognitivo realizada en MenteActiva.",
-  "Tu única fuente de información son los HECHOS REGISTRADOS que figuran más abajo. Fueron calculados por el sistema a partir de las respuestas y son exactos.",
+  "Redactás un informe descriptivo para la psicóloga o el psicólogo que acompaña a una persona mayor en su entrenamiento cognitivo con MenteActiva.",
+  "Los datos de la sesión figuran más abajo, repartidos en bloques: fueron calculados por el sistema a partir de las respuestas y son exactos.",
 ].join(" ");
 
-const WRITING_GUIDE = [
-  "Cómo escribir la síntesis:",
-  "1. Reformulá los hechos registrados en una o dos oraciones claras, en español rioplatense, con tono profesional. Nombrá la actividad tal como figura, sin comillas.",
-  "2. Usá solamente información que figure en los hechos registrados. Si algo no figura, no lo menciones.",
-  "3. Conservá la dirección de cada hecho tal como está escrita (más correctas o más incorrectas; superior, inferior o similar; aumentó o disminuyó).",
-  "4. Si un hecho dice que una comparación no es directamente comparable, decilo de esa forma y no describas la diferencia como subida ni bajada.",
-  "5. Si un hecho dice que todavía no hay sesiones comparables, no hables de evolución ni de tendencia.",
-  "6. Describí lo que se registró durante la sesión. Las conclusiones sobre la persona, sus capacidades, su salud, su estado o los pasos a seguir corresponden exclusivamente al profesional, no a esta síntesis.",
-  "7. No escribas números ni porcentajes: el sistema muestra las cifras por separado.",
-].join("\n");
+const GUIDE_INTRO = [
+  "Cómo escribir el informe:",
+  "1. \"paragraphs\": escribí un párrafo por cada bloque PÁRRAFO, en el mismo orden, usando sólo las oraciones de ese bloque. Redactalas como prosa conectada, en español rioplatense y con tono profesional, conservando el sentido y la dirección de cada dato. Podés unir oraciones y agrupar los tipos de preguntas que tuvieron el mismo resultado. Nombrá la actividad tal como figura, sin comillas.",
+  "2. Cada oración del informe cuenta un dato registrado. Las explicaciones, las causas, las valoraciones y las conclusiones sobre la persona corresponden al profesional: dejalas fuera del informe.",
+];
+// Sólo cuando hay un estado de ánimo registrado: con la regla y sin el dato,
+// el 3B lo inventaba.
+const GUIDE_MOOD = "Contá el estado de ánimo como lo que la persona informó al comenzar, en una oración propia, sin unirlo a los resultados ni a los tiempos.";
+const GUIDE_NOT_COMPARABLE = "Si un dato dice que una comparación no es directamente comparable, decilo de esa forma.";
+const GUIDE_NUMBERS = "No escribas números ni porcentajes: el sistema muestra las cifras por separado.";
+const GUIDE_ASPECTS = "\"aspects_to_review\": escribí un punto por cada tema del bloque TEMAS PARA SEGUIMIENTO, de una sola oración. Cada punto empieza con Observar, Registrar, Revisar o Comparar, nombra el dato del tema y dice qué mirar en las próximas sesiones.";
 
-const OUTPUT_INSTRUCTION = [
-  "FORMATO DE RESPUESTA: devolvé únicamente un objeto JSON, sin texto antes ni después y sin bloque de código, con exactamente estos dos campos:",
-  `{"schema_version": "${OUTPUT_SCHEMA_VERSION}", "summary": "<la síntesis>"}`,
-].join("\n");
+function writingGuide({ hasMood }) {
+  const rest = [...(hasMood ? [GUIDE_MOOD] : []), GUIDE_NOT_COMPARABLE, GUIDE_NUMBERS, GUIDE_ASPECTS];
+  return [...GUIDE_INTRO, ...rest.map((r, i) => `${i + 3}. ${r}`)].join("\n");
+}
 
-// Ejemplo de estilo con datos ficticios y una actividad inexistente, para
-// que el modelo no lo confunda con la sesión real.
-const STYLE_EXAMPLE = [
-  "EJEMPLO DE ESTILO (datos ficticios, no corresponden a esta sesión):",
-  "ACTIVIDAD: Actividad de ejemplo",
-  "HECHOS REGISTRADOS:",
-  "- La sesión fue completada en su totalidad.",
-  "- Se registraron más respuestas incorrectas que correctas.",
-  "- No existen todavía sesiones comparables para describir una tendencia.",
-  "RESPUESTA:",
-  `{"schema_version": "${OUTPUT_SCHEMA_VERSION}", "summary": "En la Actividad de ejemplo, la sesión se completó en su totalidad y se registraron más respuestas incorrectas que correctas. Todavía no hay sesiones comparables para describir una evolución."}`,
-].join("\n");
+// La plantilla muestra exactamente tantos párrafos y puntos como bloques y
+// temas hay: con una plantilla de dos párrafos y tres bloques, el 3B escribía
+// el tercer párrafo como una clave JSON nueva.
+function outputInstruction(paragraphCount, topicCount) {
+  const paragraphs = Array.from({ length: paragraphCount }, (_, i) => `"<párrafo ${i + 1}>"`).join(", ");
+  const aspects = Array.from({ length: Math.max(1, topicCount) }, (_, i) => `"<punto ${i + 1}>"`).join(", ");
+  return [
+    "FORMATO DE RESPUESTA: devolvé únicamente un objeto JSON, sin texto antes ni después y sin bloque de código, con exactamente estos tres campos:",
+    `{"schema_version": "${OUTPUT_SCHEMA_VERSION}", "paragraphs": [${paragraphs}], "aspects_to_review": [${aspects}]}`,
+  ].join("\n");
+}
+
+function bullet(lines) {
+  return lines.map((l) => `- ${l}`);
+}
+
+function sentence(text) {
+  const t = String(text).trim();
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+}
 
 /**
- * Construye el prompt que se envía a Ollama (v3.5).
+ * Construye el prompt que se envía a Ollama (v3.6).
  *
  * @param {object} context     Salida de buildSessionAnalysisContext.
- * @param {object} [extra]     { observations: string[] } — hechos
- *   determinísticos (observationsBuilder) que el modelo reformula.
+ * @param {object} [extra]
+ * @param {string[]} [extra.observations]  Hechos determinísticos (observationsBuilder).
+ * @param {object}   [extra.facts]         Salida de sessionFacts.buildSessionFacts.
  * @returns {{ prompt: string, promptVersion: string }}
  */
 export function buildSessionAnalysisPrompt(context, extra = {}) {
@@ -91,27 +105,56 @@ export function buildSessionAnalysisPrompt(context, extra = {}) {
     throw new TypeError("context.sections vacío");
   }
 
-  // Sin comillas: con format=json, si el modelo copia una comilla doble la
-  // gramática de Ollama cierra el string y el summary queda truncado
-  // (observado en la evaluación 3.5; ver contentSafety.findMalformedSummary).
-  const activityNames = context.sections.map((s) => s.name).join(", ");
   const observations = Array.isArray(extra.observations) ? extra.observations : [];
-  const factsBlock = observations.length > 0
-    ? ["HECHOS REGISTRADOS:", ...observations.map((o) => `- ${o}`)]
-    : ["HECHOS REGISTRADOS:", "- La sesión fue registrada."];
+  const blocks = extra.facts?.blocks || {};
+
+  // Sin comillas: con format=json, si el modelo copia una comilla doble la
+  // gramática de Ollama cierra el string (ver contentSafety.findMalformedSummary).
+  const activities = Array.isArray(blocks.activities) && blocks.activities.length > 0
+    ? blocks.activities
+    : context.sections.map((s) => ({ name: s.name, description: null }));
+  const activityLines = activities.map((a) => (a.description
+    ? `La persona realizó la actividad ${a.name}, que propone ${a.description}.`
+    : `La persona realizó la actividad ${a.name}.`));
+
+  // Las observaciones determinísticas se reparten: las comparativas van al
+  // párrafo de antecedentes y el resto al de resultados.
+  const isHistory = (o) => /sesi[oó]n(es)? (anterior|comparable)|sesiones comparables/i.test(o);
+  const resultLines = observations.filter((o) => !isHistory(o));
+  const historyLines = [...(blocks.history || []), ...observations.filter(isHistory)];
+
+  const p1 = [
+    ...activityLines,
+    ...(blocks.level ? [`Las preguntas correspondieron al nivel de dificultad ${blocks.level}.`] : []),
+    // "bien" es un adverbio: "informó sentirse bien", no "sentir bien".
+    ...(blocks.mood ? [`Al comenzar, la persona informó ${blocks.mood === "bien" ? "sentirse" : "sentir"} ${blocks.mood}.`] : []),
+  ];
+  const p2 = [
+    ...(resultLines.length > 0 ? resultLines : ["La sesión fue registrada."]),
+    ...(blocks.types || []),
+    ...(blocks.times || []),
+  ].map(sentence);
+  const p3 = historyLines.map(sentence);
+  const topics = Array.isArray(blocks.topics) ? blocks.topics : [];
+
+  const data = [
+    "PÁRRAFO 1 (la actividad y el comienzo de la sesión):",
+    ...bullet(p1),
+    "",
+    "PÁRRAFO 2 (los resultados y los tiempos):",
+    ...bullet(p2),
+    ...(p3.length > 0 ? ["", "PÁRRAFO 3 (los antecedentes):", ...bullet(p3)] : []),
+    ...(topics.length > 0 ? ["", "TEMAS PARA SEGUIMIENTO:", ...bullet(topics)] : []),
+  ];
 
   const prompt = [
     ROLE,
     "",
-    WRITING_GUIDE,
+    writingGuide({ hasMood: Boolean(blocks.mood) }),
     "",
-    STYLE_EXAMPLE,
+    ...data,
     "",
-    "SESIÓN A SINTETIZAR:",
-    `ACTIVIDAD: ${activityNames}`,
-    ...factsBlock,
-    "",
-    OUTPUT_INSTRUCTION,
+    outputInstruction(p3.length > 0 ? 3 : 2, topics.length),
   ].join("\n");
 
   return { prompt, promptVersion: PROMPT_VERSION };

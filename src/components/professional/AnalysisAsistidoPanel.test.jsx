@@ -505,6 +505,30 @@ describe("AnalysisAsistidoPanel", () => {
     expect(screen.queryByText(/Aspectos a revisar/i)).not.toBeInTheDocument();
   });
 
+  test("v3.6: muestra la síntesis en párrafos y los aspectos sugeridos por IA", async () => {
+    const v36 = {
+      ...SAMPLE_ANALYSIS,
+      schema_version: "3",
+      prompt_version: "3.6",
+      content: {
+        schema_version: "3",
+        ai_contract: "3.6",
+        summary: "Primer párrafo de la síntesis.\n\nSegundo párrafo de la síntesis.",
+        aspects_to_review: ["Observar si se repite el resultado en las preguntas con información previa."],
+        activities: [{ slug: "atencion_visual", name: "Objetos de la casa", cognitive_domain_slugs: [] }],
+        evidence: [],
+        observations: [],
+        follow_up: [],
+      },
+    };
+    vi.spyOn(analysisApi, "getAnalysis").mockResolvedValue({ source: "stored", analysis: v36 });
+    render(<AnalysisAsistidoPanel session={COMPLETED_SESSION} />);
+    expect(await screen.findByText("Primer párrafo de la síntesis.")).toBeInTheDocument();
+    expect(screen.getByText("Segundo párrafo de la síntesis.")).toBeInTheDocument();
+    expect(screen.getByText(/Aspectos a revisar sugeridos por IA/i)).toBeInTheDocument();
+    expect(screen.getByText(v36.content.aspects_to_review[0])).toBeInTheDocument();
+  });
+
   // v2.1 — exposición del código de causa en estados failed.
   test("muestra la causa del último failed cuando el backend devuelve error_code", async () => {
     const err = new Error("No hay análisis");

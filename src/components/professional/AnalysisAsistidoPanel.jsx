@@ -195,6 +195,11 @@ function DeterministicBlocks({ data }) {
   );
 }
 
+function splitParagraphs(text) {
+  if (typeof text !== "string") return [];
+  return text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+}
+
 function AiSynthesisBlock({ content }) {
   const summary = typeof content?.summary === "string" ? content.summary : "";
   const aspects = Array.isArray(content?.aspects_to_review) ? content.aspects_to_review : [];
@@ -205,7 +210,10 @@ function AiSynthesisBlock({ content }) {
         <Sparkles size={14} aria-hidden="true" style={{ verticalAlign: "middle", marginRight: 4 }} />
         Síntesis del asistente IA
       </p>
-      {summary && <p className="analysis-summary">{summary}</p>}
+      {/* 3.6: el summary puede traer dos o tres párrafos separados por una línea en blanco. */}
+      {splitParagraphs(summary).map((p, i) => (
+        <p key={`p-${i}`} className="analysis-summary">{p}</p>
+      ))}
       {aspects.length > 0 && (
         <>
           <p className="analysis-section-label" style={{ marginTop: 8 }}>Aspectos a revisar sugeridos por IA</p>

@@ -15,7 +15,7 @@
 //
 // Reutiliza:
 //   - contextBuilder → buildSessionAnalysisContext
-//   - promptBuilder → buildSessionAnalysisPrompt v3.5
+//   - analysisMaterials → prompt v3.6 + opciones de validación compartidas
 //   - observationsBuilder → observaciones determinísticas
 //   - responseValidator → parseAndValidateSessionAnalysis
 //   - analysisService.loadSessionAnalysisInput → carga desde DB
@@ -26,17 +26,17 @@
 
 import crypto from "node:crypto";
 import db from "../../db/connection.js";
-import { loadSessionAnalysisInput } from "./analysisService.js";
+import { loadSessionAnalysisInput, AI_GENERATE_OPTIONS } from "./analysisService.js";
 import { buildSessionAnalysisContext, CONTEXT_SCHEMA_VERSION } from "./contextBuilder.js";
-import { buildSessionAnalysisPrompt, PROMPT_BUILDER_VERSION } from "./promptBuilder.js";
-import { buildObservations } from "./observationsBuilder.js";
+import { PROMPT_BUILDER_VERSION } from "./promptBuilder.js";
+import { buildAnalysisMaterials } from "./analysisMaterials.js";
 import { buildEvidenceFromContext } from "./evidenceBuilder.js";
 import {
   parseAndValidateSessionAnalysis,
   ANALYSIS_SCHEMA_VERSION,
 } from "./responseValidator.js";
 import { AnalysisValidationError, AnalysisValidationCodes } from "./validationErrors.js";
-import { GENERATION_VALIDATION_OPTIONS, RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
+import { RETRIABLE_SEMANTIC_REASONS, formatValidationFailure } from "./contentSafety.js";
 import { toPersistedErrorCode } from "./errorMapping.js";
 
 // ------------------------------------------------------------------
@@ -483,8 +483,7 @@ export async function claimNextSession(deps = {}) {
       });
       return null;
     }
-    const deterministic = buildObservations(context);
-    const { prompt } = buildSessionAnalysisPrompt(context, { observations: deterministic.observations });
+    const { prompt } = buildAnalysisMaterials(context, input);
 
     // Emitir claim: fila generating con lease + claim_token.
     const claimToken = crypto.randomBytes(16).toString("hex");
@@ -510,6 +509,9 @@ export async function claimNextSession(deps = {}) {
       prompt_version: created.prompt_version,
       lease_expires_at: created.lease_expires_at,
       prompt,
+      // v3.6: el worker usa estos parámetros para la inferencia (el 3.6
+      // necesita más tokens que el 3.5). Workers anteriores los ignoran.
+      generation_options: { ...AI_GENERATE_OPTIONS },
     };
   });
 }
@@ -563,18 +565,14 @@ export async function submitResult(params, deps = {}) {
     }
     const input = await loadSessionAnalysisInput(trx, row.session_id);
     const context = buildSessionAnalysisContext(input);
-    const deterministic = buildObservations(context);
-    return { context, deterministic, sessionId: row.session_id };
+    const materials = buildAnalysisMaterials(context, input);
+    return { context, materials, sessionId: row.session_id };
   });
 
   // Fase 2 (sin tx): validar JSON del modelo.
   let validated;
   try {
-    validated = parseAndValidateSessionAnalysis(rawText, ctxPkg.context, {
-      observations: ctxPkg.deterministic.observations,
-      followUp: ctxPkg.deterministic.follow_up,
-      ...GENERATION_VALIDATION_OPTIONS,
-    });
+    validated = parseAndValidateSessionAnalysis(rawText, ctxPkg.context, ctxPkg.materials.validationOptions);
   } catch (err) {
     if (!(err instanceof AnalysisValidationError)) throw err;
     const persistedCode = toPersistedErrorCode("analysis", err.code);
@@ -625,8 +623,7 @@ export async function submitResult(params, deps = {}) {
     activities,
     evidence,
     ...(ctxPkg.context.comparison_metrics ? { comparison_metrics: ctxPkg.context.comparison_metrics } : {}),
-    observations: ctxPkg.deterministic.observations,
-    follow_up: ctxPkg.deterministic.follow_up,
+    ...ctxPkg.materials.persistExtras,
   };
 
   const [updated] = await dbHandle("session_analyses")

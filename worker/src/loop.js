@@ -108,7 +108,12 @@ export async function runOneCycle(ctx) {
   let ollamaLatency;
   let ollamaErr = null;
   try {
-    const r = await ollama({ prompt: claim.prompt, abortSignal: inferenceAbort.signal });
+    const r = await ollama({
+      prompt: claim.prompt,
+      abortSignal: inferenceAbort.signal,
+      // Desde el prompt 3.6 el backend indica num_predict/temperature.
+      generationOptions: claim.generation_options,
+    });
     ollamaText = r.text;
     ollamaLatency = r.latencyMs;
   } catch (err) {
