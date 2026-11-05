@@ -668,6 +668,20 @@ export function useAppController() {
     return true;
   }
 
+  // Invitación aceptada sin contraseña: el backend ya abrió la sesión por
+  // cookie (authService guardó el CSRF en memoria). Mismo ingreso que el
+  // canje de un enlace por correo.
+  function acceptInvitationCookieSession(data) {
+    if (!data?.user || data.user.role !== "patient") return false;
+    setInviteToken(null);
+    clearActivityDraft();
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", buildHash(SCREEN_NAMES.patient, selectedActivity.id));
+    }
+    enterPatientSession(data.user);
+    return true;
+  }
+
   function goToLogin() {
     setInviteToken(null);
     if (typeof window !== "undefined") {
@@ -808,6 +822,7 @@ export function useAppController() {
     completeActivity,
     inviteToken,
     acceptInvitationSession,
+    acceptInvitationCookieSession,
     goToLogin,
     loginLinkToken,
     completeLoginLink,

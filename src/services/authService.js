@@ -263,6 +263,31 @@ export async function consumePatientLoginLink(token) {
   return data;
 }
 
+// Acepta una invitación SIN contraseña: el backend crea al paciente y abre
+// una sesión por cookie (igual que el canje de un enlace). El token de la
+// invitación viaja en la URL del POST, como en la aceptación con contraseña.
+export async function acceptInvitationWithoutPassword(token) {
+  const res = await fetch(`${API_URL}/invitations/${encodeURIComponent(token)}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ passwordless: true }),
+  });
+  const data = await readJsonSafely(res);
+  if (!res.ok || !data) {
+    const err = buildResponseError(res, data);
+    err.data = data;
+    err.code = data?.status || null;
+    throw err;
+  }
+  if (!data.user || data.user.role !== "patient" || !data.csrf_token) {
+    throw new Error("Respuesta inesperada del servidor");
+  }
+  localStorage.removeItem("ma_auth_token");
+  localStorage.removeItem("ma_auth_user");
+  setPatientCookieSession(data);
+  return data;
+}
+
 // Restaura la sesión por cookie al recargar. Devuelve el usuario o null.
 // Un error de red NO borra la marca (se puede reintentar); un 401 sí.
 export async function restorePatientSession() {

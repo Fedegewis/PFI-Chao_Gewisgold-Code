@@ -1,6 +1,7 @@
-import { AlertTriangle, CheckCircle2, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, LogIn, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { acceptInvitationApi, lookupInvitationApi } from "../services/invitationsApi.js";
+import { acceptInvitationWithoutPassword, isSameOriginApi } from "../services/authService.js";
 import { MedicalDisclaimerLink } from "../components/common/MedicalDisclaimer.jsx";
 
 const MIN_PASSWORD_LENGTH = 6;
@@ -14,8 +15,23 @@ function formatDate(value) {
   }
 }
 
-export function InviteAcceptScreen({ token, onAccepted, onGoToLogin }) {
+// Si el backend lo permite (acceso por enlace habilitado y API en el mismo
+// origen para la cookie), la persona entra directo con «Ingresar», sin crear
+// una contraseña. Puede elegir crear una igual. No se acepta automáticamente
+// al abrir el enlace: los programas que revisan correos no la consumen.
+function translateAcceptError(err) {
+  const code = err?.data?.status || err?.code;
+  if (code === "expired") return "Esta invitación venció. Pedile a tu profesional una nueva invitación.";
+  if (code === "revoked") return "Esta invitación ya no está disponible. Pedile a tu profesional una nueva invitación.";
+  if (code === "accepted") return "Esta invitación ya fue utilizada. Iniciá sesión desde la pantalla de ingreso.";
+  if (code === "invalid") return "El enlace de invitación no es válido.";
+  if (code === "email_taken") return "El email de la invitación ya está registrado. Contactá a tu profesional.";
+  return null;
+}
+
+export function InviteAcceptScreen({ token, onAccepted, onAcceptedWithoutPassword, onGoToLogin }) {
   const [state, setState] = useState({ loading: true, status: null, data: null, error: "" });
+  const [usePassword, setUsePassword] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -71,13 +87,27 @@ export function InviteAcceptScreen({ token, onAccepted, onGoToLogin }) {
       }
       onAccepted?.(result);
     } catch (err) {
-      const code = err?.data?.status;
-      if (code === "expired") setFormError("Esta invitación venció. Pedile a tu profesional una nueva invitación.");
-      else if (code === "revoked") setFormError("Esta invitación ya no está disponible. Pedile a tu profesional una nueva invitación.");
-      else if (code === "accepted") setFormError("Esta invitación ya fue utilizada. Iniciá sesión con tu email y contraseña.");
-      else if (code === "invalid") setFormError("El enlace de invitación no es válido.");
-      else if (code === "email_taken") setFormError("El email de la invitación ya está registrado. Contactá a tu profesional.");
-      else setFormError(err?.message || "No se pudo aceptar la invitación.");
+      setFormError(translateAcceptError(err) || err?.message || "No se pudo aceptar la invitación.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleEnterWithoutPassword() {
+    if (submitting) return;
+    setFormError("");
+    setSubmitting(true);
+    try {
+      const data = await acceptInvitationWithoutPassword(token);
+      onAcceptedWithoutPassword?.(data);
+    } catch (err) {
+      if (err?.status === 503) {
+        // El acceso sin contraseña se apagó entre la carga y el clic.
+        setUsePassword(true);
+        setFormError("El ingreso directo no está disponible en este momento. Creá una contraseña para continuar.");
+      } else {
+        setFormError(translateAcceptError(err) || err?.message || "No se pudo aceptar la invitación.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -152,6 +182,63 @@ export function InviteAcceptScreen({ token, onAccepted, onGoToLogin }) {
   }
 
   const info = state.data || {};
+  const directAvailable = info.passwordless_available === true && isSameOriginApi() && Boolean(onAcceptedWithoutPassword);
+
+  if (directAvailable && !usePassword) {
+    return (
+      <section className="login-layout" aria-label="Aceptar invitación">
+        <div className="login-copy">
+          <p className="eyebrow"></p>
+          <h1>MenteActiva</h1>
+          <p>Confirmá tus datos e ingresá a las actividades. No necesitás crear una contraseña.</p>
+        </div>
+        <div className="panel login-panel">
+          <div className="login-title">
+            <ShieldCheck size={34} aria-hidden="true" />
+            <div>
+              <h2>Aceptar invitación</h2>
+              <p>Te invitó {info.professional_name || "tu profesional"}.</p>
+            </div>
+          </div>
+
+          <dl className="invite-details">
+            <dt>Nombre</dt><dd>{info.patient_name}</dd>
+            <dt>Email</dt><dd>{info.email}</dd>
+            {info.age != null && (<><dt>Edad</dt><dd>{info.age}</dd></>)}
+            <dt>Vence</dt><dd>{formatDate(info.expires_at)}</dd>
+          </dl>
+
+          <p>
+            La sesión queda abierta en este dispositivo. Si más adelante se cierra, vas a poder
+            volver a entrar pidiendo un enlace a tu correo desde la pantalla de ingreso.
+          </p>
+
+          {formError && (
+            <div className="error-box" role="alert">
+              <AlertTriangle size={20} aria-hidden="true" /> {formError}
+            </div>
+          )}
+
+          <p style={{ margin: "4px 0 0" }}>
+            <MedicalDisclaimerLink />
+          </p>
+          <button type="button" className="primary" onClick={handleEnterWithoutPassword} disabled={submitting}>
+            {submitting
+              ? "Ingresando..."
+              : (<><LogIn size={20} aria-hidden="true" /> Ingresar</>)}
+          </button>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => { setUsePassword(true); setFormError(""); }}
+            disabled={submitting}
+          >
+            Prefiero crear una contraseña
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="login-layout" aria-label="Aceptar invitación">
@@ -211,6 +298,16 @@ export function InviteAcceptScreen({ token, onAccepted, onGoToLogin }) {
             ? "Creando acceso..."
             : (<><CheckCircle2 size={20} aria-hidden="true" /> Aceptar invitación</>)}
         </button>
+        {directAvailable && (
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => { setUsePassword(false); setFormError(""); }}
+            disabled={submitting}
+          >
+            Ingresar sin contraseña
+          </button>
+        )}
       </form>
     </section>
   );
