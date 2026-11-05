@@ -777,7 +777,8 @@ describe("Worker queue (claim/result/failed)", () => {
     assert.ok(res.body.lease_expires_at);
     // 3.6: el backend indica los parámetros de inferencia al worker.
     const { format, ...options } = res.body.generation_options;
-    assert.deepEqual(options, { temperature: 0.2, num_predict: 900 });
+    // 3.7: num_predict 1300 (resultados repartidos en varios párrafos).
+    assert.deepEqual(options, { temperature: 0.2, num_predict: 1300 });
     // 3.6 (ajuste): JSON Schema de la salida para Ollama (structured outputs).
     assert.equal(format.type, "object");
     assert.equal(format.additionalProperties, false);

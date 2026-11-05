@@ -47,9 +47,15 @@ import { buildAnalysisMaterials, deterministicAnalysis } from "./analysisMateria
 //   gramática JSON quedaba truncada. 900 deja margen sin permitir que un
 //   bucle de repetición siga generando indefinidamente.
 //   El worker recibe este valor en el claim (generation_options).
+//
+// v3.7 — subido a 1300. Con los resultados repartidos en varios párrafos, una
+//   sesión de diez preguntas de tipos distintos puede llegar a ~3200
+//   caracteres entre párrafos y aspectos (~850 tokens a ~3,9 caracteres por
+//   token, medido en la evaluación local). 1300 deja margen y sigue por debajo
+//   del tope del worker (NUM_PREDICT_MAX 2048).
 export const AI_GENERATE_OPTIONS = Object.freeze({
   temperature: 0.2,
-  num_predict: 900,
+  num_predict: 1300,
 });
 
 // keep_alive: mantiene el modelo residente en Ollama durante 30 minutos

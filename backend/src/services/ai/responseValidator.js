@@ -218,7 +218,8 @@ function runSemanticChecks({ summary, aspects }, grounding, facts, { reportedMoo
 // 3.6: el modelo devuelve los párrafos como arreglo (más estable para el 3B
 // que escribir saltos de línea dentro de un string JSON). Se unen con una
 // línea en blanco; el panel los muestra como párrafos.
-const PARAGRAPHS_MAX = 4;
+// 3.7: hasta 6 (contexto + bloques de resultados + antecedentes).
+const PARAGRAPHS_MAX = 6;
 const PARAGRAPH_MAX_CHARS = 1100;
 const ASPECT_IN_PARAGRAPH = /^(?:observar|registrar|revisar|comparar)\b/i;
 

@@ -13,7 +13,10 @@ import assert from "node:assert/strict";
 import {
   buildSessionAnalysisPrompt,
   buildOutputSchema,
+  packLines,
   OUTPUT_PARAGRAPH_MAX_CHARS,
+  OUTPUT_PARAGRAPHS_MAX,
+  RESULT_PARAGRAPH_BUDGET,
   PROMPT_BUILDER_VERSION,
   PROMPT_OUTPUT_SCHEMA_VERSION,
 } from "../src/services/ai/promptBuilder.js";
@@ -96,7 +99,7 @@ describe("promptBuilder v3.6 — shape básico", () => {
     const { prompt, promptVersion } = buildSessionAnalysisPrompt(makeCtx());
     assert.equal(typeof prompt, "string");
     assert.ok(prompt.length > 0);
-    assert.equal(promptVersion, "3.6");
+    assert.equal(promptVersion, "3.7");
     assert.equal(promptVersion, PROMPT_BUILDER_VERSION);
   });
 
@@ -360,10 +363,9 @@ describe("promptBuilder v3.6 — JSON Schema para Ollama (structured outputs)", 
   });
 
   it("los topes del schema quedan dentro de los límites del validador", () => {
-    const schema = buildOutputSchema(4, 9);
-    assert.equal(schema.properties.paragraphs.maxItems, 4);
+    const schema = buildOutputSchema(9, 9);
+    assert.equal(schema.properties.paragraphs.maxItems, OUTPUT_PARAGRAPHS_MAX);
     assert.equal(schema.properties.aspects_to_review.maxItems, 5);
-    assert.ok(OUTPUT_PARAGRAPH_MAX_CHARS * 4 + 6 <= 4096);
     assert.ok(schema.properties.paragraphs.items.maxLength <= 1100);
     assert.ok(schema.properties.aspects_to_review.items.maxLength <= 240);
     assert.equal(buildOutputSchema(0, 0).properties.paragraphs.minItems, 1);
@@ -379,5 +381,58 @@ describe("promptBuilder v3.6 — errores", () => {
   it("lanza si sections está vacío", () => {
     const ctx = { ...makeCtx(), sections: [] };
     assert.throws(() => buildSessionAnalysisPrompt(ctx), /sections/);
+  });
+});
+
+describe("promptBuilder v3.7 — resultados repartidos en bloques acotados", () => {
+  const TYPES = [
+    "orientacion_temporal", "calculo_funcional", "retencion_y_evocacion", "planificacion_secuencial",
+    "juicio_y_resolucion", "comprension_funcional", "estrategia_y_autorregulacion", "orientacion_espacial",
+    "reconocimiento_funcional", "atencion_selectiva",
+  ];
+  function manyTypes(n, previous = 0) {
+    return buildSessionFacts(makeCtx(), {
+      questionDetails: TYPES.slice(0, n).map((t, i) => detail(t, i % 2 === 0, i % 3 !== 0, 1500 + i * 300)),
+      adaptiveLevel: 2,
+      sameActivityPreviousCount: previous,
+    });
+  }
+  function dataBlocks(prompt) {
+    return prompt.slice(prompt.indexOf("PÁRRAFO 1"), prompt.indexOf("FORMATO DE RESPUESTA"))
+      .split(/\n(?=PÁRRAFO \d|TEMAS PARA SEGUIMIENTO)/)
+      .filter((b) => b.startsWith("PÁRRAFO"))
+      .map((b) => b.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2)).join(" "));
+  }
+
+  it("packLines respeta el orden y el presupuesto", () => {
+    assert.deepEqual(packLines(["aaaa", "bbbb", "cccc"], 9), [["aaaa", "bbbb"], ["cccc"]]);
+    assert.deepEqual(packLines(["x".repeat(20), "y"], 10), [["x".repeat(20)], ["y"]]);
+    assert.deepEqual(packLines([], 10), []);
+  });
+
+  it("regresión sesiones 18/21: con muchos tipos ningún bloque de datos supera el presupuesto", () => {
+    for (const n of [5, 6, 8, 10]) {
+      const facts = manyTypes(n, 1);
+      const { prompt, paragraphCount, outputSchema } = buildSessionAnalysisPrompt(makeCtx(), { facts });
+      const blocks = dataBlocks(prompt);
+      assert.equal(blocks.length, paragraphCount, `n=${n}`);
+      assert.ok(paragraphCount <= OUTPUT_PARAGRAPHS_MAX, `n=${n}: ${paragraphCount} párrafos`);
+      assert.equal(outputSchema.properties.paragraphs.minItems, paragraphCount);
+      for (const b of blocks) assert.ok(b.length <= RESULT_PARAGRAPH_BUDGET, `n=${n}: bloque de ${b.length}`);
+      // Todos los hechos de resultados llegan, en orden, sin repetirse.
+      const expected = [...facts.blocks.general, ...facts.blocks.types, ...facts.blocks.times];
+      const sent = blocks.slice(1, paragraphCount - 1).join(" ");
+      let at = 0;
+      for (const line of expected) {
+        const i = sent.indexOf(line.trim(), at);
+        assert.ok(i >= at, `n=${n}: falta o desordenado: ${line}`);
+        at = i + line.length;
+      }
+    }
+  });
+
+  it("con pocos tipos sigue habiendo un único bloque de resultados", () => {
+    const { paragraphCount } = buildSessionAnalysisPrompt(makeCtx(), { facts: richFacts() });
+    assert.equal(paragraphCount, 3);
   });
 });
