@@ -511,6 +511,11 @@ despliegue en `backend/docs/patient-passwordless-auth.md`.
 - Kill switch: `PATIENT_PASSWORDLESS_ENABLED`. Los JWT (contraseña, Google)
   no dependen de este flujo.
 - Migraciones 019–021 aditivas. Migrar Neon ANTES de mergear.
+- Invitación sin contraseña (rama `feature/invite-passwordless`): el paciente
+  invitado toca «Ingresar» y entra con sesión F3, sin crear contraseña
+  (`accept` con `{passwordless: true}`). Opción de crear contraseña igual.
+  Requiere el flujo habilitado y correo configurado; si no, formulario con
+  contraseña. Sin migraciones. Detalle en la sección 5b del doc.
 
 ### ETAPA 7 — Integración IA/Ollama
 

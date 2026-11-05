@@ -39,6 +39,7 @@ export function App() {
     updatePatient,
     inviteToken,
     acceptInvitationSession,
+    acceptInvitationCookieSession,
     goToLogin,
     activityStartError,
     activeSession,
@@ -76,6 +77,7 @@ export function App() {
               <InviteAcceptScreen
                 token={inviteToken}
                 onAccepted={acceptInvitationSession}
+                onAcceptedWithoutPassword={acceptInvitationCookieSession}
                 onGoToLogin={goToLogin}
               />
             )}

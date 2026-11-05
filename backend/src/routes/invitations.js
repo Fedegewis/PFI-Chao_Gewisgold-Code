@@ -4,6 +4,13 @@ import bcrypt from "bcrypt";
 import db from "../db/connection.js";
 import { generateToken, requireAuth, requireRole } from "../middleware/auth.js";
 import defaultEmailService from "../services/emailService.js";
+import {
+  createSession,
+  isPasswordlessEnabled,
+  publicSessionPayload,
+  resolveFrontendUrl as resolvePasswordlessFrontendUrl,
+  setSessionCookie,
+} from "../services/patientPasswordless.js";
 
 const router = Router();
 
@@ -20,6 +27,15 @@ function normalizeEmail(email) {
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+// Aceptar sin contraseña exige el flujo completo del acceso por enlace: la
+// sesión inicial es una cookie (F3) y, cuando venza o se cierre, el paciente
+// vuelve a entrar pidiendo un enlace a su correo (F2). Sin correo configurado
+// no tendría forma de volver a entrar.
+function isPasswordlessAcceptAvailable(req) {
+  const emailService = req.app.locals.emailService || defaultEmailService;
+  return isPasswordlessEnabled() && emailService.isConfigured() && Boolean(resolvePasswordlessFrontendUrl());
 }
 
 function deriveStatus(row, now = new Date()) {
@@ -209,6 +225,7 @@ router.get("/invitations/lookup", async (req, res, next) => {
       age: row.age ?? null,
       expires_at: row.expires_at,
       professional_name: row.professional_name,
+      passwordless_available: isPasswordlessAcceptAvailable(req),
     });
   } catch (err) {
     next(err);
@@ -349,21 +366,36 @@ router.post("/invitations/:token/accept", async (req, res, next) => {
       return res.status(404).json({ error: "Invitación no encontrada", status: "invalid" });
     }
 
-    const { password } = req.body || {};
-    if (!password || typeof password !== "string") {
-      return res.status(400).json({ error: "password es obligatorio", status: "invalid_password" });
-    }
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      return res
-        .status(400)
-        .json({
-          error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
-          status: "invalid_password",
+    // Dos modos: con contraseña (como antes) o sin contraseña
+    // (`passwordless: true`): el paciente entra directo con una sesión por
+    // cookie y queda habilitado para pedir enlaces a su correo.
+    const { password, passwordless } = req.body || {};
+    const withoutPassword = passwordless === true;
+    if (withoutPassword) {
+      res.set("Cache-Control", "no-store");
+      res.set("Referrer-Policy", "no-referrer");
+      if (!isPasswordlessAcceptAvailable(req)) {
+        return res.status(503).json({
+          error: "El ingreso sin contraseña no está disponible en este momento.",
+          status: "passwordless_unavailable",
         });
+      }
+    } else {
+      if (!password || typeof password !== "string") {
+        return res.status(400).json({ error: "password es obligatorio", status: "invalid_password" });
+      }
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        return res
+          .status(400)
+          .json({
+            error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
+            status: "invalid_password",
+          });
+      }
     }
 
     const tokenHash = hashToken(rawToken);
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const passwordHash = withoutPassword ? null : await bcrypt.hash(password, SALT_ROUNDS);
 
     let outcome;
     try {
@@ -421,6 +453,9 @@ router.post("/invitations/:token/accept", async (req, res, next) => {
             password_hash: passwordHash,
             auth_provider: "local",
             is_active: true,
+            // Sin contraseña, el enlace por correo es su único método de
+            // acceso (D5 impide desactivarlo mientras no tenga contraseña).
+            ...(withoutPassword ? { allow_passwordless: true } : {}),
           })
           .returning([
             "id",
@@ -440,6 +475,10 @@ router.post("/invitations/:token/accept", async (req, res, next) => {
             accepted_user_id: createdUser.id,
           });
 
+        if (withoutPassword) {
+          const { session, sessionToken } = await createSession(trx, createdUser.id);
+          return { kind: "ok", user: createdUser, session, sessionToken };
+        }
         return { kind: "ok", user: createdUser };
       });
     } catch (err) {
@@ -451,6 +490,11 @@ router.post("/invitations/:token/accept", async (req, res, next) => {
 
     if (outcome.kind === "error") {
       return res.status(outcome.status).json({ error: outcome.message, status: outcome.code });
+    }
+
+    if (withoutPassword) {
+      setSessionCookie(res, outcome.sessionToken, outcome.session.expires_at);
+      return res.status(201).json(publicSessionPayload(outcome.user, outcome.session));
     }
 
     const jwt = generateToken(outcome.user);

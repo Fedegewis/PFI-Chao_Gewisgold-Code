@@ -237,7 +237,9 @@ export async function consumeLoginLink(token, { now = Date.now() } = {}) {
 // Sesiones persistentes (F3)
 // ---------------------------------------------------------------------------
 
-async function createSession(trx, userId, now) {
+// También la usa la aceptación de invitaciones sin contraseña
+// (routes/invitations.js), dentro de la misma transacción que crea al paciente.
+export async function createSession(trx, userId, now = Date.now()) {
   const sessionToken = generateToken();
   const [session] = await trx("patient_auth_sessions")
     .insert({

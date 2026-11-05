@@ -138,6 +138,30 @@ mismo modelo que «olvidé mi contraseña».
   2. Con confirmación (o sin sesiones): en una transacción, revoca las sesiones
      (`passwordless_disabled`), invalida enlaces pendientes y guarda el permiso.
 
+## 5b. Invitación aceptada sin contraseña (2026-11-05)
+
+La invitación por correo (`#/invite/<token>`) deja entrar directo, sin crear
+una contraseña:
+
+- `GET /api/invitations/lookup` agrega `passwordless_available`: kill switch
+  encendido + correo configurado + `FRONTEND_URL` (sin correo el paciente no
+  podría volver a entrar cuando la sesión venza).
+- `POST /api/invitations/:token/accept` con `{passwordless: true}` (booleano
+  estricto) crea al paciente con `password_hash = NULL` y
+  `allow_passwordless = true`, y en la MISMA transacción abre una sesión F3:
+  responde 201 con `{user, csrf_token, expires_at}` + `Set-Cookie` (sin JWT),
+  `Cache-Control: no-store`. Flujo apagado o sin correo → 503
+  `passwordless_unavailable` sin consumir la invitación. Vencida, revocada o
+  usada → mismos códigos que con contraseña.
+- Frontend: si `passwordless_available` y la API es same-origin, la pantalla
+  muestra «Ingresar» (no acepta sola al abrir el enlace, por los antivirus de
+  correo) y la opción «Prefiero crear una contraseña». Si no, el formulario
+  con contraseña de siempre.
+- Volver a entrar: la sesión dura 30 días; después, «Ingresar con un enlace a
+  mi correo» en la pantalla de ingreso. D5 impide que el profesional le quite
+  el enlace mientras no tenga contraseña.
+- Sin migraciones: usa columnas y tablas existentes (017, 020).
+
 ## 6. Despliegue (NO ejecutado — pasos manuales)
 
 ### 6.1 Orden
