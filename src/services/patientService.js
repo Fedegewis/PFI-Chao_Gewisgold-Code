@@ -110,17 +110,25 @@ export function refreshDailyPatientState(patient, now = new Date()) {
 
   const dailyReset =
     patient.completed.length > 0 && !isSameCalendarDay(patient.lastSessionAt, now);
+  // El progreso semanal se reinicia cuando la última actividad es de una
+  // semana anterior, aunque hoy todavía no haya actividades completadas
+  // (antes sólo se reiniciaba junto con el reset diario y la semana vieja
+  // quedaba a la vista). Sin lastSessionAt (perfiles de demo) no se toca.
+  const weeklyReset =
+    Boolean(patient.lastSessionAt) &&
+    !isSameCalendarWeek(patient.lastSessionAt, now) &&
+    Array.isArray(patient.weeklyProgress) &&
+    patient.weeklyProgress.some((v) => v > 0);
 
-  if (!dailyReset) {
+  if (!dailyReset && !weeklyReset) {
     return moodPatch ? { ...patient, ...moodPatch } : patient;
   }
 
-  const sameWeek = isSameCalendarWeek(patient.lastSessionAt, now);
   return {
     ...patient,
     ...(moodPatch || {}),
-    completed: [],
-    ...(!sameWeek ? { weeklyProgress: createWeeklyProgress() } : {})
+    ...(dailyReset ? { completed: [] } : {}),
+    ...(weeklyReset ? { weeklyProgress: createWeeklyProgress() } : {})
   };
 }
 

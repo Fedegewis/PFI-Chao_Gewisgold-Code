@@ -8,7 +8,7 @@ import { ACTIVITY_TO_SECTION_SLUG, DEFAULT_PROFESSIONAL_ID, MOOD_OPTIONS, MOTIVA
 const VALID_MOOD_SLUGS = new Set(MOOD_OPTIONS.map((o) => o.id));
 import { createPatientSession, fetchMySessionsApi } from "../services/patientSessionsApi.js";
 import { fetchPatientAvailableSections } from "../services/trainingConfigApi.js";
-import { deriveCompletedTodayFromSessions, latestCompletedAt } from "../services/patientProgress.js";
+import { deriveCompletedTodayFromSessions, deriveWeeklyProgressFromSessions, latestCompletedAt } from "../services/patientProgress.js";
 import { activities, getActivityById } from "../data/activities.js";
 import { buildHash, clearCapturedLoginLinkToken, readHashState, takeLoginLinkTokenFromUrl } from "../services/navigationService.js";
 import {
@@ -298,10 +298,11 @@ export function useAppController() {
       const list = Array.isArray(rows) ? rows : [];
       const completed = deriveCompletedTodayFromSessions(list);
       const lastSessionAt = latestCompletedAt(list);
+      const weeklyProgress = deriveWeeklyProgressFromSessions(list);
       setPatients((current) =>
         current.map((p) =>
           p.id === authUser.id
-            ? { ...p, completed, lastSessionAt: lastSessionAt || p.lastSessionAt }
+            ? { ...p, completed, weeklyProgress, lastSessionAt: lastSessionAt || p.lastSessionAt }
             : p
         )
       );
@@ -350,10 +351,11 @@ export function useAppController() {
         const list = Array.isArray(rows) ? rows : [];
         const completed = deriveCompletedTodayFromSessions(list);
         const lastSessionAt = latestCompletedAt(list);
+        const weeklyProgress = deriveWeeklyProgressFromSessions(list);
         setPatients((current) =>
           current.map((p) =>
             p.id === authUser.id
-              ? { ...p, completed, lastSessionAt: lastSessionAt || p.lastSessionAt }
+              ? { ...p, completed, weeklyProgress, lastSessionAt: lastSessionAt || p.lastSessionAt }
               : p
           )
         );
