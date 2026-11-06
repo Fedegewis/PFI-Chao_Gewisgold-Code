@@ -711,6 +711,11 @@ textarea { min-height: 150px; resize: vertical; }
 .access-confirm__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .access-password { display: grid; gap: 8px; margin-top: 8px; }
 .access-password__form, .patient-password__form { display: grid; gap: 8px; }
-.patient-password { display: grid; gap: 10px; }
+/* El aside del paciente usa una columna `auto` (ancho del contenido). Este
+   panel tiene un texto largo: sin este ajuste ensanchaba el aside hasta
+   poner la frase en una línea y aplastaba la columna de actividades.
+   width:0 + min-width:100% hace que tome el ancho que fijan los otros
+   paneles sin aportar su propio ancho. */
+.patient-password { display: grid; gap: 10px; width: 0; min-width: 100%; }
 .patient-password h3 { display: flex; align-items: center; gap: 8px; margin: 0; }
 .patient-password__actions { display: flex; flex-wrap: wrap; gap: 8px; }

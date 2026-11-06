@@ -25,6 +25,28 @@ export function deriveCompletedTodayFromSessions(sessions, now = new Date()) {
   return [...activityIds];
 }
 
+// Progreso semanal del paciente backend: para la semana calendario actual
+// (domingo a sábado, hora local, igual que DAY_LABELS y getDay()) devuelve un
+// array de 7 con la cantidad de sesiones completadas cada día. Antes el panel
+// leía `weeklyProgress` de localStorage, que para pacientes backend nunca se
+// actualizaba (quedaba siempre en cero).
+export function deriveWeeklyProgressFromSessions(sessions, now = new Date()) {
+  const week = [0, 0, 0, 0, 0, 0, 0];
+  if (!Array.isArray(sessions)) return week;
+  const start = new Date(now);
+  start.setDate(now.getDate() - now.getDay());
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+  for (const session of sessions) {
+    if (!session || session.status !== "completed" || !session.completed_at) continue;
+    const date = new Date(session.completed_at);
+    if (Number.isNaN(date.getTime()) || date < start || date >= end) continue;
+    week[date.getDay()] += 1;
+  }
+  return week;
+}
+
 // 7H.2: fecha (Date | ISO string | null) del último completed_at de la lista.
 // Alimenta patient.lastSessionAt para que refreshDailyPatientState siga
 // funcionando exactamente igual que en modo demo.

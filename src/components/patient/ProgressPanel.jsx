@@ -5,14 +5,25 @@ const RING_SIZE = 132;
 const RING_STROKE = 12;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRC = 2 * Math.PI * RING_RADIUS;
+const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
+// Progreso semanal = días de la semana actual (domingo a sábado) con al menos
+// una actividad completada. `weeklyProgress` trae un valor por día: para
+// pacientes backend, la cantidad de sesiones completadas ese día; en la demo,
+// el porcentaje acumulado. En ambos casos sólo importa si es mayor que cero.
+// No se usa un porcentaje: hacer pocas actividades por día no "baja" la semana.
 export function ProgressPanel({ patient, completedCount }) {
   const todayIndex = new Date().getDay();
-  const values = patient.weeklyProgress;
-  const activeDays = values.filter((v) => v > 0).length;
-  const average = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-  const dashOffset = RING_CIRC * (1 - average / 100);
-  const ariaLabel = `Progreso semanal: ${average}% promedio. ${DAY_LABELS.map((d, i) => `${d} ${values[i]}%`).join(", ")}`;
+  const values = Array.isArray(patient.weeklyProgress) && patient.weeklyProgress.length === 7
+    ? patient.weeklyProgress
+    : [0, 0, 0, 0, 0, 0, 0];
+  const activeFlags = values.map((v) => Number(v) > 0);
+  const activeDays = activeFlags.filter(Boolean).length;
+  const dashOffset = RING_CIRC * (1 - activeDays / 7);
+  const activeNames = DAY_NAMES.filter((_, i) => activeFlags[i]);
+  const ariaLabel = `Progreso semanal: ${activeDays} de 7 días con actividad.${
+    activeNames.length ? ` Días con actividad: ${activeNames.join(", ")}.` : ""
+  }`;
 
   return (
     <div className="panel">
@@ -28,19 +39,21 @@ export function ProgressPanel({ patient, completedCount }) {
               stroke="#e4ecdf"
               strokeWidth={RING_STROKE}
             />
-            <circle
-              cx={RING_SIZE / 2}
-              cy={RING_SIZE / 2}
-              r={RING_RADIUS}
-              fill="none"
-              stroke="url(#week-ring-gradient)"
-              strokeWidth={RING_STROKE}
-              strokeLinecap="round"
-              strokeDasharray={RING_CIRC}
-              strokeDashoffset={dashOffset}
-              transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
-              style={{ transition: "stroke-dashoffset 480ms ease" }}
-            />
+            {activeDays > 0 && (
+              <circle
+                cx={RING_SIZE / 2}
+                cy={RING_SIZE / 2}
+                r={RING_RADIUS}
+                fill="none"
+                stroke="url(#week-ring-gradient)"
+                strokeWidth={RING_STROKE}
+                strokeLinecap="round"
+                strokeDasharray={RING_CIRC}
+                strokeDashoffset={dashOffset}
+                transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+                style={{ transition: "stroke-dashoffset 480ms ease" }}
+              />
+            )}
             <defs>
               <linearGradient id="week-ring-gradient" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stopColor="#8fb283" />
@@ -49,24 +62,26 @@ export function ProgressPanel({ patient, completedCount }) {
             </defs>
           </svg>
           <div className="week-ring-center">
-            <strong>{average}%</strong>
-            <span>Semana</span>
+            <strong>{activeDays}/7</strong>
+            <span>Días</span>
           </div>
         </div>
         <div className="week-meta">
           <p className="week-active">
-            <strong>{activeDays}</strong>/7 días activos
+            {activeDays === 0
+              ? "Esta semana todavía no hay días con actividad."
+              : `${activeDays === 1 ? "1 día" : `${activeDays} días`} con actividad esta semana.`}
           </p>
           <div className="week-dots" aria-hidden="true">
-            {values.map((value, index) => (
+            {activeFlags.map((active, index) => (
               <div key={`${DAY_LABELS[index]}-${index}`} className="week-dot-slot">
                 <span
                   className={cx(
                     "week-dot",
-                    value > 0 && "week-dot--filled",
+                    active && "week-dot--filled",
                     index === todayIndex && "week-dot--today"
                   )}
-                  style={{ "--fill": `${Math.min(100, value)}%` }}
+                  style={{ "--fill": active ? "100%" : "0%" }}
                 />
                 <small>{DAY_LABELS[index]}</small>
               </div>
