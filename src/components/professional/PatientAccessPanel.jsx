@@ -1,6 +1,12 @@
 import { AlertTriangle, CheckCircle2, KeyRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { fetchPatientAccess, revokePatientSessions, savePatientAccess } from "../../services/patientsApi.js";
+import { MIN_PASSWORD_LENGTH, newPasswordError } from "../../lib/passwordRules.js";
+import {
+  fetchPatientAccess,
+  revokePatientSessions,
+  savePatientAccess,
+  setPatientPasswordByProfessional,
+} from "../../services/patientsApi.js";
 
 // F1 + F2/F3 — Permiso de acceso sin contraseña por paciente.
 //
@@ -33,6 +39,8 @@ export function PatientAccessPanel({ patientId }) {
   const [saveError, setSaveError] = useState("");
   // E2: confirmación pendiente antes de desactivar ({ activeSessions }).
   const [pendingDisable, setPendingDisable] = useState(null);
+  // Opción A: formulario para crear/cambiar la contraseña ({ password, confirm, error }).
+  const [passwordForm, setPasswordForm] = useState(null);
 
   const load = useCallback(async () => {
     if (!patientId) return;
@@ -41,6 +49,7 @@ export function PatientAccessPanel({ patientId }) {
     setStatus("");
     setSaveError("");
     setPendingDisable(null);
+    setPasswordForm(null);
     try {
       setAccess(await fetchPatientAccess(patientId));
     } catch (err) {
@@ -112,6 +121,38 @@ export function PatientAccessPanel({ patientId }) {
     }
   }
 
+  function openPasswordForm() {
+    setStatus("");
+    setSaveError("");
+    setPasswordForm({ password: "", confirm: "", error: "" });
+  }
+
+  async function handlePasswordSubmit(event) {
+    event.preventDefault();
+    const error = newPasswordError(passwordForm.password, passwordForm.confirm);
+    if (error) {
+      setPasswordForm({ ...passwordForm, error });
+      return;
+    }
+    setSaving(true);
+    setStatus("");
+    setSaveError("");
+    try {
+      const updated = await setPatientPasswordByProfessional(patientId, passwordForm.password);
+      setAccess(updated);
+      setPasswordForm(null);
+      setStatus(
+        updated.password_action === "replaced"
+          ? "Contraseña cambiada. La anterior ya no sirve."
+          : "Contraseña creada. El paciente ya puede ingresar con su correo y esta contraseña."
+      );
+    } catch (err) {
+      setPasswordForm({ ...passwordForm, error: err?.message || "No se pudo guardar la contraseña." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const available = access?.passwordless_login_available === true;
   const onlyMethod = access?.allow_passwordless === true && access?.has_password === false;
   const activeSessions = access?.active_sessions || 0;
@@ -163,7 +204,7 @@ export function PatientAccessPanel({ patientId }) {
               </p>
               {onlyMethod && (
                 <p id={onlyMethodId} className="training-hint">
-                  Es el único método de acceso de este paciente (no tiene contraseña), por eso no se puede desactivar.
+                  Es el único método de acceso de este paciente (no tiene contraseña), por eso no se puede desactivar. Podés crearle una contraseña más abajo.
                 </p>
               )}
             </div>
@@ -185,6 +226,55 @@ export function PatientAccessPanel({ patientId }) {
               </div>
             </div>
           )}
+
+          <div className="access-password">
+            <p className="training-hint">
+              <strong>Contraseña:</strong>{" "}
+              {access.has_password
+                ? "el paciente puede ingresar con su correo y contraseña."
+                : "el paciente todavía no tiene contraseña."}
+            </p>
+            {!passwordForm ? (
+              <div>
+                <button type="button" onClick={openPasswordForm} disabled={saving}>
+                  {access.has_password ? "Cambiar contraseña" : "Crear contraseña"}
+                </button>
+              </div>
+            ) : (
+              <form className="access-password__form" onSubmit={handlePasswordSubmit} noValidate>
+                <p className="training-hint">
+                  Útil si el paciente no puede recibir el enlace en su correo. Después compartí la contraseña con el paciente por un medio seguro.
+                </p>
+                <label htmlFor={`${checkboxId}-pw`}>Nueva contraseña</label>
+                <input
+                  id={`${checkboxId}-pw`}
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordForm.password}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value, error: "" })}
+                  minLength={MIN_PASSWORD_LENGTH}
+                />
+                <label htmlFor={`${checkboxId}-pw2`}>Repetir contraseña</label>
+                <input
+                  id={`${checkboxId}-pw2`}
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordForm.confirm}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value, error: "" })}
+                  minLength={MIN_PASSWORD_LENGTH}
+                />
+                {passwordForm.error && (
+                  <p className="form-feedback form-feedback-error" role="alert">
+                    <AlertTriangle size={14} aria-hidden="true" /> {passwordForm.error}
+                  </p>
+                )}
+                <div className="access-confirm__actions">
+                  <button type="submit" className="primary" disabled={saving}>Guardar contraseña</button>
+                  <button type="button" onClick={() => setPasswordForm(null)} disabled={saving}>Cancelar</button>
+                </div>
+              </form>
+            )}
+          </div>
 
           {activeSessions > 0 && !pendingDisable && (
             <div className="access-sessions">

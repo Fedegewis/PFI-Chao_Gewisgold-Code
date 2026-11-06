@@ -57,6 +57,25 @@ export async function revokePatientSessions(patientId) {
   return apiRequest(`/patients/${patientId}/access/revoke-sessions`, { method: "POST" });
 }
 
+// Opción A: el profesional dueño crea o reemplaza la contraseña del paciente.
+export async function setPatientPasswordByProfessional(patientId, password) {
+  return apiRequest(`/patients/${patientId}/password`, {
+    method: "PUT",
+    body: JSON.stringify({ password }),
+  });
+}
+
+// Opción B: el paciente autenticado (enlace o contraseña) gestiona la suya.
+export async function fetchOwnPasswordStatus() {
+  return apiRequest("/patient/password", { method: "GET" });
+}
+
+export async function saveOwnPassword(password, currentPassword) {
+  const body = { password };
+  if (currentPassword) body.current_password = currentPassword;
+  return apiRequest("/patient/password", { method: "PUT", body: JSON.stringify(body) });
+}
+
 // Eliminación física de una sesión no completada (sólo el profesional dueño).
 export async function deleteSessionApi(sessionId) {
   return apiRequest(`/sessions/${sessionId}`, { method: "DELETE" });

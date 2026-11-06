@@ -516,6 +516,11 @@ despliegue en `backend/docs/patient-passwordless-auth.md`.
   (`accept` con `{passwordless: true}`). Opción de crear contraseña igual.
   Requiere el flujo habilitado y correo configurado; si no, formulario con
   contraseña. Sin migraciones. Detalle en la sección 5b del doc.
+- Crear contraseña sin correo (sección 5c del doc): el profesional dueño la
+  fija (`PUT /api/patients/:id/password`) o el paciente con sesión abierta la
+  crea (`PUT /api/patient/password`; cambiarla exige la actual). NO existe un
+  endpoint público que fije contraseñas a partir de un email (sería toma de
+  cuentas). Sin migraciones.
 
 ### ETAPA 7 — Integración IA/Ollama
 
