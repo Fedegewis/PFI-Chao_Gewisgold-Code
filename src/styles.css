@@ -709,3 +709,8 @@ textarea { min-height: 150px; resize: vertical; }
 .access-sessions { display: grid; gap: 8px; margin-top: 8px; }
 .access-confirm { display: grid; gap: 10px; padding: 12px; border: 2px solid #f1b5a7; border-radius: 8px; background: #fff7f4; }
 .access-confirm__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.access-password { display: grid; gap: 8px; margin-top: 8px; }
+.access-password__form, .patient-password__form { display: grid; gap: 8px; }
+.patient-password { display: grid; gap: 10px; }
+.patient-password h3 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.patient-password__actions { display: flex; flex-wrap: wrap; gap: 8px; }

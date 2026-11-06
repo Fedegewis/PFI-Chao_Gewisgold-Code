@@ -2,6 +2,7 @@ import { Router } from "express";
 import db from "../db/connection.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import defaultEmailService from "../services/emailService.js";
+import { hashPassword, validateNewPassword } from "../services/passwordPolicy.js";
 import {
   countActiveSessions,
   invalidatePendingLinksForUser,
@@ -175,6 +176,56 @@ router.patch(
       });
 
       res.status(outcome.status).json(outcome.body);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Opción A — el profesional dueño crea o reemplaza la contraseña del paciente.
+// Caso de uso: el paciente entró por enlace o invitación sin contraseña y no
+// tiene acceso al correo registrado (p. ej. correo inexistente). La prueba de
+// titularidad la da el profesional, que es quien dio de alta al paciente.
+// - Sólo el profesional dueño (404 uniforme para el resto).
+// - No revoca sesiones con enlace ni cambia allow_passwordless.
+// - Nunca devuelve la contraseña ni el hash.
+router.put(
+  "/patients/:id/password",
+  requireAuth,
+  requireRole("professional"),
+  async (req, res, next) => {
+    try {
+      const body = req.body;
+      if (!parsePatientId(req.params.id)) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({ error: "El cuerpo debe ser un objeto JSON" });
+      }
+      const unexpected = Object.keys(body).filter((k) => k !== "password");
+      if (unexpected.length > 0) {
+        return res.status(400).json({ error: `Campos no permitidos: ${unexpected.join(", ")}` });
+      }
+      const invalid = validateNewPassword(body.password);
+      if (invalid) {
+        return res.status(400).json({ error: invalid, status: "invalid_password" });
+      }
+
+      const patient = await loadOwnedPatient(req.user.id, req.params.id);
+      if (!patient) {
+        return res.status(404).json({ error: "Paciente no encontrado" });
+      }
+
+      const passwordHash = await hashPassword(body.password);
+      const [updated] = await db("users")
+        .where({ id: patient.id })
+        .update({ password_hash: passwordHash, updated_at: db.fn.now() })
+        .returning(["id", "allow_passwordless", "password_hash"]);
+
+      res.json({
+        ...(await serializeAccess(req, updated)),
+        password_action: patient.password_hash ? "replaced" : "created",
+      });
     } catch (err) {
       next(err);
     }

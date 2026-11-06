@@ -3,6 +3,7 @@
 import { ActivityCard } from "../components/patient/ActivityCard.jsx";
 import { GardenStrip } from "../components/patient/GardenStrip.jsx";
 import { MoodPanel } from "../components/patient/MoodPanel.jsx";
+import { PatientPasswordPanel } from "../components/patient/PatientPasswordPanel.jsx";
 import { PerformancePanel } from "../components/patient/PerformancePanel.jsx";
 import { ProgressPanel } from "../components/patient/ProgressPanel.jsx";
 import { MedicalDisclaimerBanner } from "../components/common/MedicalDisclaimer.jsx";
@@ -91,6 +92,7 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
         />
         {!isMobile && moodPanel}
         <ProgressPanel patient={patient} completedCount={completedCount} />
+        {isBackendPatient && <PatientPasswordPanel />}
       </aside>
     </div>
   );

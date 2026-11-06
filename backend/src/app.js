@@ -12,6 +12,7 @@ import analysisRouter from "./routes/analysis.js";
 import trainingConfigRouter from "./routes/training-config.js";
 import workerRouter from "./routes/worker.js";
 import patientPasswordlessRouter from "./routes/patient-passwordless.js";
+import patientPasswordRouter from "./routes/patient-password.js";
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use(express.json());
 app.use("/api", healthRouter);
 app.use("/api", authRouter);
 app.use("/api", patientPasswordlessRouter);
+app.use("/api", patientPasswordRouter);
 app.use("/api", googleAuthRouter);
 app.use("/api", sectionsRouter);
 app.use("/api", usersRouter);

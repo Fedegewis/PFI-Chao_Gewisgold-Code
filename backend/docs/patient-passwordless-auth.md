@@ -162,6 +162,35 @@ una contraseña:
   el enlace mientras no tenga contraseña.
 - Sin migraciones: usa columnas y tablas existentes (017, 020).
 
+## 5c. Crear contraseña sin depender del correo (2026-11-06)
+
+Problema: un paciente que entró por enlace o invitación sin contraseña, con un
+correo al que no tiene acceso (p. ej. inventado), no puede volver a entrar
+cuando cierra o pierde la sesión.
+
+Se descartó un botón público «crear contraseña» en el login que sólo
+verifique que el email exista: permitiría tomar cualquier cuenta sin
+contraseña conociendo su correo. Fijar una contraseña exige probar la
+titularidad, por una de dos vías:
+
+- **A — el profesional dueño** (`PUT /api/patients/:id/password`,
+  `{password}`): crea o reemplaza la contraseña. 404 uniforme para
+  profesionales ajenos, 403 para pacientes. No revoca sesiones con enlace ni
+  cambia `allow_passwordless`. Responde lo mismo que `GET /access` +
+  `password_action: "created" | "replaced"`. Panel: «Forma de ingreso» →
+  «Crear / Cambiar contraseña».
+- **B — el propio paciente con sesión abierta** (`GET|PUT
+  /api/patient/password`): sesión F3 (cookie + `X-CSRF-Token`) o JWT. Crear
+  no pide nada más (la sesión ya prueba la titularidad); CAMBIAR una
+  contraseña existente exige `current_password` (403
+  `current_password_invalid`), con límite de 5 intentos cada 15 min (429).
+  Panel «Tu contraseña» en la pantalla del paciente.
+- Política compartida (`services/passwordPolicy.js`): 6 a 72 bytes (tope de
+  bcrypt), bcrypt 10 rondas. Nunca se devuelve la contraseña ni el hash.
+- Login: el `POST /api/auth/login` de siempre (correo + contraseña). El
+  enlace por correo sigue disponible igual que antes.
+- Sin migraciones (`password_hash` existe desde 008).
+
 ## 6. Despliegue (NO ejecutado — pasos manuales)
 
 ### 6.1 Orden
