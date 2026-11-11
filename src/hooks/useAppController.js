@@ -479,6 +479,19 @@ export function useAppController() {
     return () => window.removeEventListener("hashchange", syncFromHash);
   }, [isAuthenticated, role]);
 
+  // Un paciente del backend sólo puede estar en la pantalla de actividad con
+  // una sesión creada por openActivity. Si llega sin ella (recarga, pestaña
+  // restaurada por el celular, atrás/adelante del navegador), ActivityScreen
+  // caería al modo local de demo: preguntas de prueba y respuestas que nunca
+  // llegan al backend. Se lo devuelve a la lista para que inicie de nuevo.
+  // Va DESPUÉS de la sincronización por hash: al montar, ésta fija la pantalla
+  // desde la URL y este efecto tiene que poder corregirla en el mismo pase.
+  useEffect(() => {
+    if (screen === SCREEN_NAMES.activity && isBackendPatient && !activeSession) {
+      setScreen(SCREEN_NAMES.patient);
+    }
+  }, [screen, isBackendPatient, activeSession, isAuthenticated, role]);
+
   // Estado común de "paciente autenticado" por enlace (F2/F3).
   function enterPatientSession(user) {
     const base = patientFromBackendUser(user);

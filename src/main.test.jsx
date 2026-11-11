@@ -1070,6 +1070,20 @@ describe("MenteActiva critical flows", () => {
     expect(startCalls.length).toBe(1);
   });
 
+  // Regresión: al recargar en #/activity/<id> no hay sesión backend en memoria;
+  // antes caía al modo local de demo (preguntas de prueba, nada persistido).
+  test("recarga en la pantalla de actividad: vuelve a la lista sin mostrar preguntas locales", async () => {
+    setStoredPatientAuth();
+    window.location.hash = "#/activity/market";
+    const calls = stubBackendActivityFetch({ questions: [] });
+    renderApp();
+
+    expect(await screen.findByRole("button", { name: /lista del supermercado/i })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/patient");
+    expect(screen.queryByRole("button", { name: "Siguiente" })).toBeNull();
+    expect(calls.some((c) => c.url.match(/\/sessions\/\d+\/(start|answers)$/))).toBe(false);
+  });
+
   // Regresión (prod 2026-11-11): con el backend despertando, el paciente tocaba
   // la actividad dos veces, se creaban dos sesiones y las respuestas iban a la
   // que nunca se había iniciado (409 "estado 'created'").
