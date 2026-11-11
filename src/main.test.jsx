@@ -1070,6 +1070,56 @@ describe("MenteActiva critical flows", () => {
     expect(startCalls.length).toBe(1);
   });
 
+  // Regresión (prod 2026-11-11): con el backend despertando, el paciente tocaba
+  // la actividad dos veces, se creaban dos sesiones y las respuestas iban a la
+  // que nunca se había iniciado (409 "estado 'created'").
+  test("doble toque mientras se crea la sesión: una sola creación y respuestas a la sesión iniciada", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    const calls = [];
+    let releaseCreate;
+    const createGate = new Promise((resolve) => { releaseCreate = resolve; });
+    let nextId = 500;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      calls.push({ url: strUrl, method });
+      if (strUrl.endsWith("/patient/sessions") && method === "POST") {
+        const id = nextId++;
+        return createGate.then(() => jsonResponse({
+          id, patient_id: 42, status: "created",
+          sections: [{ id: 1, section_id: 100, questions: [
+            { id: 100, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+          ] }],
+        }, 201));
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/) && method === "POST") return jsonResponse({ status: "in_progress" });
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") return jsonResponse({ id: 1 }, 201);
+      if (strUrl.match(/\/sessions\/\d+\/complete$/) && method === "POST") return jsonResponse({ status: "completed" });
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    const card = await screen.findByRole("button", { name: /lista del supermercado/i });
+    await user.click(card);
+    await user.click(card);
+    expect(card).toBeDisabled();
+    expect(await screen.findByText("Preparando…")).toBeInTheDocument();
+    releaseCreate();
+
+    await screen.findByText("Q1");
+    await user.click(screen.getByRole("button", { name: /^a/ }));
+    await user.click(screen.getByRole("button", { name: /finalizar|siguiente/i }));
+    await vi.waitFor(() => expect(calls.some((c) => c.url.match(/\/answers$/))).toBe(true));
+
+    const creates = calls.filter((c) => c.url.endsWith("/patient/sessions") && c.method === "POST");
+    expect(creates).toHaveLength(1);
+    const started = calls.filter((c) => c.url.match(/\/start$/)).map((c) => c.url.match(/\/sessions\/(\d+)\//)[1]);
+    const answered = calls.filter((c) => c.url.match(/\/answers$/)).map((c) => c.url.match(/\/sessions\/(\d+)\//)[1]);
+    expect(started).toEqual(["500"]);
+    expect(answered).toEqual(["500"]);
+  });
+
   test("6D.3: answer body only contains session_question_id + selected_answer + response_time_ms", async () => {
     const user = userEvent.setup();
     setStoredPatientAuth();

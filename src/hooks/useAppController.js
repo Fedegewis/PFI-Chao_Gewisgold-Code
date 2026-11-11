@@ -165,6 +165,11 @@ export function useAppController() {
   const [loginError, setLoginError] = useState(() => (init.sessionExpired ? SESSION_EXPIRED_MESSAGE : ""));
   const [activeSession, setActiveSession] = useState(null);
   const [activityStartError, setActivityStartError] = useState("");
+  // Evita crear dos sesiones si el paciente toca la actividad de nuevo
+  // mientras la primera creación sigue en curso (p. ej. backend despertando).
+  // El ref bloquea de forma sincrónica; el estado sólo alimenta la UI.
+  const openingActivityRef = useRef(false);
+  const [openingActivityId, setOpeningActivityId] = useState(null);
   const [backendPatientSessions, setBackendPatientSessions] = useState({ patientId: null, list: null, loading: false, error: "" });
   // F3: catálogo de secciones iniciables para el paciente autenticado.
   // null = aún no cargado (equivale a "todas" transitoriamente para no bloquear
@@ -755,6 +760,7 @@ export function useAppController() {
   async function openActivity(activity) {
     if (!selectedPatient) return;
     if (selectedPatient.completed.includes(activity.id)) return;
+    if (openingActivityRef.current) return;
     setActivityStartError("");
 
     if (isBackendPatient) {
@@ -772,6 +778,8 @@ export function useAppController() {
           return;
         }
       }
+      openingActivityRef.current = true;
+      setOpeningActivityId(activity.id);
       try {
         // Cantidad y dominios los resuelve el backend a partir de la configuración
         // persistida del paciente (users.max_questions / users.active_domain_slugs).
@@ -792,6 +800,9 @@ export function useAppController() {
       } catch (err) {
         setActivityStartError(err?.message || "No se pudo iniciar la actividad. Reintentá más tarde.");
         return;
+      } finally {
+        openingActivityRef.current = false;
+        setOpeningActivityId(null);
       }
     } else {
       setActiveSession(null);
@@ -863,6 +874,7 @@ export function useAppController() {
     restoringSession,
     activeSession,
     activityStartError,
+    openingActivityId,
     backendPatientSessions,
     patientAvailableSections,
     patientAvailableSectionsError,
