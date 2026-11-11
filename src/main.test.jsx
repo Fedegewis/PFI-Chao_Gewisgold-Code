@@ -1715,6 +1715,73 @@ describe("MenteActiva critical flows", () => {
     expect(screen.queryByText(/ana pendiente/i)).not.toBeInTheDocument();
   });
 
+  // Al aceptar la invitación, el paciente aparece en el panel sin recargar y
+  // el profesional puede abrirlo para configurar su entrenamiento.
+  function pendingAna() {
+    return {
+      id: 601,
+      patient_name: "Ana Nueva",
+      email: "ana.nueva@demo.com",
+      age: 70,
+      status: "pending",
+      expires_at: new Date(Date.now() + 86400000).toISOString(),
+    };
+  }
+  const ANA_PATIENT = { id: 777, role: "patient", name: "Ana Nueva", email: "ana.nueva@demo.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true };
+
+  test("invitación aceptada: al volver a la pestaña aparece el paciente con aviso", async () => {
+    const user = userEvent.setup();
+    const patients = [DEMO_PATIENT];
+    const invitations = [pendingAna()];
+    installFetchStub({ patients, invitations });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    expect(await screen.findByRole("button", { name: /revocar invitación a ana\.nueva@demo\.com/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("invite-accepted-notice")).toBeNull();
+
+    // El paciente acepta en otro dispositivo.
+    invitations.splice(0, invitations.length);
+    patients.push(ANA_PATIENT);
+    window.dispatchEvent(new Event("focus"));
+
+    const notice = await screen.findByTestId("invite-accepted-notice");
+    expect(notice).toHaveTextContent(/ana nueva aceptó la invitación/i);
+    expect(screen.queryByRole("button", { name: /revocar invitación a ana\.nueva@demo\.com/i })).toBeNull();
+    expect(screen.getByText(/no hay invitaciones pendientes/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Ver paciente" }));
+    expect(screen.queryByTestId("invite-accepted-notice")).toBeNull();
+    expect(screen.getByRole("list", { name: "Lista de pacientes" })).toHaveTextContent(/ana nueva/i);
+  });
+
+  test("invitación aceptada: con la pestaña abierta se detecta sola (consulta periódica)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const patients = [DEMO_PATIENT];
+      const invitations = [pendingAna()];
+      const fetchStub = installFetchStub({ patients, invitations });
+      setStoredProfessionalSession();
+      window.location.hash = "#/professional";
+      renderApp();
+      expect(await screen.findByRole("button", { name: /revocar invitación a ana\.nueva@demo\.com/i })).toBeInTheDocument();
+
+      invitations.splice(0, invitations.length);
+      patients.push(ANA_PATIENT);
+      await vi.advanceTimersByTimeAsync(15000);
+
+      expect(await screen.findByTestId("invite-accepted-notice")).toHaveTextContent(/ana nueva/i);
+
+      // Sin invitaciones pendientes, no se sigue consultando.
+      const before = fetchStub.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(fetchStub.mock.calls.length).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("deletes a patient after confirmation and removes it from the list", async () => {
     const user = userEvent.setup();
     const deleteCalls = [];

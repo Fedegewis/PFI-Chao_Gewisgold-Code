@@ -281,6 +281,39 @@ export function useAppController() {
     };
   }, [isBackendProfessional, selectedPatientId, fetchSelectedPatientSessions]);
 
+  // Refresco silencioso de la lista del profesional (p. ej. cuando un paciente
+  // acepta una invitación). Sólo agrega los pacientes nuevos y quita los que
+  // ya no están: los existentes conservan su objeto para no interrumpir una
+  // edición en curso del paciente seleccionado. Devuelve los pacientes nuevos.
+  const patientsRef = useRef(patients);
+  useEffect(() => { patientsRef.current = patients; }, [patients]);
+  const refreshPatients = useCallback(async () => {
+    if (!isBackendProfessional) return [];
+    let rows;
+    try {
+      rows = await fetchPatients();
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(rows)) return [];
+    const fresh = rows.map(patientFromBackendUser);
+    const knownIds = new Set(patientsRef.current.map((p) => p.id));
+    const added = fresh.filter((p) => !knownIds.has(p.id));
+    setPatients((current) => {
+      const currentIds = new Set(current.map((p) => p.id));
+      const freshIds = new Set(fresh.map((p) => p.id));
+      const newcomers = fresh.filter((p) => !currentIds.has(p.id));
+      const kept = current.filter((p) => freshIds.has(p.id));
+      if (newcomers.length === 0 && kept.length === current.length) return current;
+      return [...kept, ...newcomers];
+    });
+    setSelectedPatientId((current) => {
+      if (current != null && fresh.some((p) => p.id === current)) return current;
+      return fresh.length > 0 ? fresh[0].id : null;
+    });
+    return added;
+  }, [isBackendProfessional]);
+
   useEffect(() => {
     if (!isBackendProfessional) return;
     let cancelled = false;
@@ -888,6 +921,7 @@ export function useAppController() {
     activeSession,
     activityStartError,
     openingActivityId,
+    refreshPatients,
     backendPatientSessions,
     patientAvailableSections,
     patientAvailableSectionsError,

@@ -43,6 +43,7 @@ export function App() {
     goToLogin,
     activityStartError,
     openingActivityId,
+    refreshPatients,
     activeSession,
     backendPatientSessions,
     patientAvailableSections,
@@ -112,6 +113,7 @@ export function App() {
                 deletePatientForProfessional={deletePatientForProfessional}
                 deleteSessionForProfessional={deleteSessionForProfessional}
                 backendPatientSessions={backendPatientSessions}
+                refreshPatients={refreshPatients}
               />
             )}
           </main>
