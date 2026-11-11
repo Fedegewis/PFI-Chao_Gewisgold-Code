@@ -24,7 +24,7 @@ export const activities = [
     icon: ShoppingBasket,
     status: "Recomendado",
     focus: "Memoria de trabajo, reconocimiento y control atencional",
-    intro: "Mira la consigna y elegí la opción qué mejor recuerda o completa la situación.",
+    intro: "Mirá la consigna y elegí la opción que mejor recuerda o completa la situación.",
     questions: [
       createQuestion("La lista original tenía pan, leche y manzanas. Cuál opción coincide?", ["Pan, leche y manzanas", "Café, arroz y jabón", "Tomates, queso y pilas"], 0, "Correcto. Recuperaste la lista completa.", "Revisemos. Probemos mirando de nuevo los productos.", "Reconocimiento verbal simple y mantenimiento de tres ítems."),
       createQuestion("Antes de salir, Elena quería comprar leche, arroz y jabón. Qué producto NO estaba en la lista?", ["Arroz", "Pilas", "Jabón"], 1, "Correcto. Detectaste el elemento intruso.", "Revisemos. La idea era encontrar lo qué sobra.", "Control inhibitorio ante distractor semántico."),
@@ -41,7 +41,7 @@ export const activities = [
     icon: CalendarDays,
     status: "Breve",
     focus: "Cálculo funcional, atención selectiva y toma de decisión",
-    intro: "Resoluciónes cortas con dinero, horarios y decisiónes de traslado.",
+    intro: "Resoluciones cortas con dinero, horarios y decisiones de traslado.",
     questions: [
       createQuestion("El boleto cuesta $480. Qué combinacion paga justo?", ["$500 + $100", "$100 + $100 + $100", "$200 + $200 + $80"], 2, "Correcto. Calculaste el monto exacto.", "Revisamos la suma y seguimos.", "Cálculo monetario funcional."),
       createQuestion("El colectivo sale a las 10:30 y tarda 20 minutos. A qué hora llega?", ["10:50", "10:40", "11:10"], 0, "Correcto. Sumaste el tiempo de viaje.", "Estás tareas entrenan orientación temporal.", "Orientación temporal y adición de intervalo."),
@@ -58,7 +58,7 @@ export const activities = [
     icon: ListChecks,
     status: "Guiado",
     focus: "Planificación, secuenciación y flexibilidad cognitiva",
-    intro: "Ordena pasos y elegí acciones coherentes para completar una tarea diaria.",
+    intro: "Ordená pasos y elegí acciones coherentes para completar una tarea diaria.",
     questions: [
       createQuestion("Para preparar te, cual paso va primero?", ["Servir el te en la taza", "Calentar agua", "Guardar la taza"], 1, "Correcto. Identificaste el primer paso.", "Pensemos qué accion necesita ocurrir antes.", "Inicio de secuencia y planificación básica."),
       createQuestion("Ya calentaste agua y pusiste el saquito. Qué sigue?", ["Esperar unos minutos", "Comprar una tetera", "Lavar la ropa"], 0, "Correcto. Mantuviste la continuidad.", "La clave es elegir el paso qué continúa.", "Continuidad secuencial y descarte de distractores."),
@@ -75,7 +75,7 @@ export const activities = [
     icon: Clock3,
     status: "Nuevo",
     focus: "Orientación temporal, memoria prospectiva y comprensión de agenda",
-    intro: "Práctica fechas, horarios y recordatorios como en una agenda diaria.",
+    intro: "Practicá fechas, horarios y recordatorios como en una agenda diaria.",
     questions: [
       createQuestion("El turno con la doctora es el martes a las 16:00. Qué dato es importante recordar?", ["Jueves a las 10:00", "Domingo a la noche", "Martes a las 16:00"], 2, "Correcto. Recordaste dia y horario juntos.", "En la agenda conviene unir siempre dia y hora.", "Memoria prospectiva con asociación dia-horario."),
       createQuestion("Si hoy es lunes y el turno es mañana, qué dia es el turno?", ["Martes", "Miércoles", "Viernes"], 0, "Correcto. Ubicaste mañana dentro de la semana.", "Estás preguntas práctican orientación semanal.", "Orientación temporal relativa."),
@@ -91,7 +91,7 @@ export const activities = [
     icon: UsersRound,
     status: "Social",
     focus: "Asociación rostro-nombre, reconocimiento y recuperación guiada",
-    intro: "Asocia personas con datos simples para entrenar memoria social.",
+    intro: "Asociá personas con datos simples para entrenar la memoria social.",
     questions: [
       createQuestion("Ana usa lentes y trae una carpeta azul. Quién trae la carpeta azul?", ["Ana", "Luis", "Marta"], 0, "Correcto. Uniste el nombre con la pista visual.", "La pista era la carpeta azul.", "Codificación asociativa nombre-atributo."),
       createQuestion("Luis dijo qué vive cerca de la plaza. Quién vive cerca de la plaza?", ["Luis", "Ana", "Elena"], 0, "Correcto. Recuperaste el dato asociado.", "Lo importante es volver a buscar la asociación.", "Recuperación de información contextual."),
@@ -107,7 +107,7 @@ export const activities = [
     icon: SunMedium,
     status: "Diario",
     focus: "Registro subjetivo, metacognición y adherencia emocional",
-    intro: "Un cierre breve para registrar energía, animo y dificultad percibida.",
+    intro: "Un cierre breve para registrar energía, ánimo y dificultad percibida.",
     questions: [
       createQuestion("Si hoy sentis poca energía, qué opción ayuda a continúar?", ["Abandonar toda la semana", "Elegir una actividad breve", "Hacer todo mas rápido"], 1, "Correcto. Adaptar la rutina tambien es avanzar.", "La idea es encontrar una forma amable de continúar.", "Autorregulación y seleccion de carga apropiada."),
       createQuestion("Después de una pregunta difícil, qué conviene hacer?", ["Respirar y probar la siguiente", "Pensar qué ya no sirve", "Cerrar sin registrar nada"], 0, "Correcto. Mantener la participacion es parte del entrenamiento.", "Una pregunta difícil no define toda la sesión.", "Tolerancia a frustracion y persistencia."),
@@ -123,7 +123,7 @@ export const activities = [
     icon: ClipboardList,
     status: "Salud",
     focus: "Memoria prospectiva, lectura funcional y seguimiento de instrucciones",
-    intro: "Lee recordatorios y elegí la accion qué mejor cuida la rutina diaria.",
+    intro: "Leé recordatorios y elegí la acción que mejor cuida la rutina diaria.",
     questions: [
       createQuestion("La pastilla azul se toma después del desayuno. Cuándo conviene tomarla?", ["Después del desayuno", "Antes de dormir", "En cualquier momento"], 0, "Correcto. Ubicaste el momento correcto.", "La clave era mirar en qué parte del dia aparece la toma.", "Memoria prospectiva ligada a rutina diaria."),
       createQuestion("Si hoy ya tomaste la medicación de la mañana, qué ayuda a no repetirla?", ["Tomarla otra vez por las dudas", "Marcarla en el pastillero o agenda", "No mirar ningun registro"], 1, "Correcto. Elegiste una estrategia segura.", "Estás consignas práctican chequeo antes de actuar.", "Monitoreo de rutina y prevención de duplicados."),
@@ -139,7 +139,7 @@ export const activities = [
     icon: Home,
     status: "Hogar",
     focus: "Atención selectiva, reconocimiento y asociación funcional",
-    intro: "Relaciona objetos cotidianos con el lugar o uso qué mejor corresponde.",
+    intro: "Relacioná objetos cotidianos con el lugar o el uso que mejor corresponde.",
     questions: [
       createQuestion("Cuál de estos objetos se usa para barrer el piso?", ["Almohada", "Escoba", "Toalla"], 1, "Correcto. Identificaste el objeto correcto.", "Pensemos para qué sirve cada elemento en la vida diaria.", "Reconocimiento funcional de objetos."),
       createQuestion("Si queres guardar comida en la heladera, qué conviene usar?", ["Una revista", "Un control remoto", "Un recipiente con tapa"], 2, "Correcto. Elegiste la opción mas útil.", "La consigna buscaba una solucion práctica y segura.", "Decisión funcional en contexto doméstico."),
@@ -155,7 +155,7 @@ export const activities = [
     icon: Send,
     status: "Comunicación",
     focus: "Comprensión de mensajes, seleccion de respuesta y memoria inmediata",
-    intro: "Resuelve situaciónes simples de teléfono, mensajes y avisos.",
+    intro: "Resolvé situaciones simples de teléfono, mensajes y avisos.",
     questions: [
       createQuestion("Tu hija escribe: 'Llego a las 18'. Qué dato importante conviene recordar?", ["Qué llega a las 18", "Qué sale mañana", "Qué cambia de teléfono"], 0, "Correcto. Recuperaste la información central.", "Lo importante era quedarse con el horario del mensaje.", "Comprensión de mensaje breve."),
       createQuestion("Si escuchas una llamada perdida del medico, qué accion ayuda mas?", ["Borrar el número", "Apagar el teléfono", "Devolver la llamada o anotarla"], 2, "Correcto. Elegiste una respuesta útil.", "La consigna buscaba continuidad y seguimiento.", "Toma de decisión ante aviso relevante."),
@@ -171,7 +171,7 @@ export const activities = [
     icon: MapPinned,
     status: "Trayecto",
     focus: "Orientación espacial básica, lectura de referencias y toma de decisión",
-    intro: "Usa referencias simples del barrio para elegir el camino o la señal correcta.",
+    intro: "Usá referencias simples del barrio para elegir el camino o la señal correcta.",
     questions: [
       createQuestion("La farmacia esta después de la plaza y antes del banco. Dónde queda?", ["Antes de la plaza", "Entre la plaza y el banco", "Detras del banco"], 1, "Correcto. Ordenaste las referencias del camino.", "La pista estaba en mirar qué lugar va antes y después.", "Orientación espacial verbal."),
       createQuestion("Si el cartel dice 'Salida' con una flecha a la derecha, para donde conviene ir?", ["Hacia la derecha", "Hacia la izquierda", "Quedarse quieto"], 0, "Correcto. Seguiste la señal principal.", "Estás tareas entrenan lectura funcional del entorno.", "Lectura de señaletica."),
