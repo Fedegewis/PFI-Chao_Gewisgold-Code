@@ -12,6 +12,25 @@ export function getToken() {
   return readStoredToken();
 }
 
+// El JWT dura 24 h. Al abrir la app, un token vencido no debe mostrar la
+// pantalla autenticada (todas las llamadas fallarían con 401). Sólo se lee
+// `exp` para decidir la pantalla inicial; la validación real es del backend.
+// Un token ilegible no se descarta acá: si no sirve, el primer 401 de la API
+// cierra la sesión igual (ver authRequest.js).
+export function isStoredTokenExpired(now = Date.now()) {
+  const token = readStoredToken();
+  if (!token) return false;
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return false;
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    if (typeof json?.exp !== "number") return false;
+    return json.exp * 1000 <= now;
+  } catch {
+    return false;
+  }
+}
+
 export function setToken(token) {
   if (token) {
     localStorage.setItem("ma_auth_token", token);

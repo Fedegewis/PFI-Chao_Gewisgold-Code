@@ -41,6 +41,7 @@ import {
   getSavedUser,
   getToken,
   hasPatientSessionHint,
+  isStoredTokenExpired,
   loginWithPassword,
   logoutPatientSession,
   restorePatientSession,
@@ -48,6 +49,9 @@ import {
   persistAuthSession,
   registerProfessional,
 } from "../services/authService.js";
+import { AUTH_EXPIRED_EVENT } from "../services/authRequest.js";
+
+const SESSION_EXPIRED_MESSAGE = "Tu sesión terminó. Volvé a ingresar.";
 
 function loadAppPatients() {
   const initialPatients = buildInitialPatients();
@@ -68,7 +72,15 @@ function loadAppPatients() {
 
 export function useAppController() {
   const [init] = useState(() => {
-    const session = loadAppSession();
+    // JWT vencido (dura 24 h): se descarta junto con la sesión de la app y se
+    // arranca en el login con un aviso, en lugar de mostrar una pantalla
+    // autenticada donde todas las llamadas fallan.
+    const sessionExpired = isStoredTokenExpired();
+    if (sessionExpired) {
+      clearAuth();
+      clearAppSession();
+    }
+    const session = sessionExpired ? null : loadAppSession();
     const hash = readHashState();
     const savedUser = getSavedUser();
     const hasToken = Boolean(getToken());
@@ -104,7 +116,7 @@ export function useAppController() {
     } else {
       patients = loadAppPatients();
     }
-    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional, isAuthenticatedPatient, loginLinkToken, restoringPatientSession };
+    return { session, hash, patients, savedUser, hasToken, isAuthenticatedProfessional, isAuthenticatedPatient, loginLinkToken, restoringPatientSession, sessionExpired };
   });
   const [role, setRole] = useState(() => {
     if (init.hasToken && init.savedUser?.role === "professional") return "professional";
@@ -150,7 +162,7 @@ export function useAppController() {
     init.patients.length > 0 ? init.patients[0].id : null
   );
   const [selectedActivity, setSelectedActivity] = useState(() => getActivityById(init.hash.activityId));
-  const [loginError, setLoginError] = useState("");
+  const [loginError, setLoginError] = useState(() => (init.sessionExpired ? SESSION_EXPIRED_MESSAGE : ""));
   const [activeSession, setActiveSession] = useState(null);
   const [activityStartError, setActivityStartError] = useState("");
   const [backendPatientSessions, setBackendPatientSessions] = useState({ patientId: null, list: null, loading: false, error: "" });
@@ -717,6 +729,24 @@ export function useAppController() {
     setRole("patient");
     setLoginError("");
   }
+
+  // Sesión vencida o revocada durante el uso (cualquier 401 de la API, ver
+  // authRequest.js): se cierra la sesión local y se vuelve al login con un
+  // aviso, conservando la pestaña (paciente / psicólogo) en la que estaba.
+  const expireSessionRef = useRef(null);
+  expireSessionRef.current = () => {
+    if (!isAuthenticated) return;
+    const previousRole = role;
+    logout();
+    setRole(previousRole);
+    setLoginError(SESSION_EXPIRED_MESSAGE);
+  };
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onExpired = () => expireSessionRef.current?.();
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
 
   function updatePatient(patientId, patch) {
     setPatients((current) => current.map((patient) => (patient.id === patientId ? { ...patient, ...patch } : patient)));

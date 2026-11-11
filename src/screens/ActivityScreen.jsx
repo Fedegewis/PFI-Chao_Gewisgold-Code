@@ -173,6 +173,24 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
   async function goNext() {
     if (usingBackend) {
       if (submitting || starting || completing) return;
+      // Si el inicio automático falló (p. ej. el servidor estaba despertando),
+      // se reintenta acá: sin sesión iniciada el backend rechaza la respuesta.
+      // Un 409 con status in_progress significa que ya había quedado iniciada.
+      if (startError) {
+        setStarting(true);
+        try {
+          await startSessionApi(activeSession.id);
+        } catch (err) {
+          if (!(err?.status === 409 && err?.data?.status === "in_progress")) {
+            setStartError(err?.message || "No se pudo iniciar la sesión.");
+            setStarting(false);
+            return;
+          }
+        }
+        startedRef.current = true;
+        setStartError("");
+        setStarting(false);
+      }
       // Si la respuesta ya fue persistida, saltar el submit.
       if (!selectedEntry?.submitted) {
         setSubmitting(true);
