@@ -2,12 +2,12 @@
 // (prevención del error de preguntas insuficientes). Usa fixtures aisladas con
 // un sufijo propio para no mezclarse con otros tests concurrentes de la suite.
 
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
-import { authHeaderFor } from "./helpers.js";
+import { authHeaderFor, expirePendingSessionReuse } from "./helpers.js";
 
 const EMAIL_SUFFIX = "@flex-config-test.com";
 const SECTION_PREFIX = `flex_cfg_${Date.now()}`;
@@ -33,6 +33,9 @@ async function cleanup() {
 }
 
 describe("Configuración flexible F1+F2+F3", { concurrency: false }, () => {
+  // Cada test verifica su propia creación: sin reutilizar pendientes previas.
+  beforeEach(() => expirePendingSessionReuse(db));
+
   let prof, patient, patientAuth, profAuth;
   let secA, secB, secC, secD;
   let memoriaId, atencionId, orientacionId;

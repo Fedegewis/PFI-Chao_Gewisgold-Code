@@ -466,6 +466,22 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
     }
 
     const result = await db.transaction(async (trx) => {
+      // Locks en orden de section_id para que dos pedidos con varias
+      // actividades nunca se bloqueen mutuamente. Se toman ANTES de buscar una
+      // sesión reutilizable: dos pedidos simultáneos (doble toque, dos
+      // pestañas) quedan serializados y el segundo encuentra la del primero.
+      const lockIds = [...new Set(resolvedSections.map((r) => r.section.id))].sort((a, b) => a - b);
+      for (const sectionId of lockIds) {
+        await lockPatientSection(trx, patient.id, sectionId);
+      }
+
+      const reusable = await findReusableCreatedSession(trx, patient.id, lockIds);
+      if (reusable) {
+        // Se devuelve tal cual: el snapshot de mood (y de preguntas) es
+        // inmutable una vez creado, aunque el pedido traiga otro mood.
+        return { ...reusable, sections: await loadSessionSectionsWithQuestions(trx, reusable.id), reused: true };
+      }
+
       const [session] = await trx("sessions")
         .insert({
           patient_id: patient.id,
@@ -473,13 +489,6 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
           patient_reported_mood: moodSnapshot,
         })
         .returning("*");
-
-      // Locks en orden de section_id para que dos pedidos con varias
-      // actividades nunca se bloqueen mutuamente.
-      const lockIds = [...new Set(resolvedSections.map((r) => r.section.id))].sort((a, b) => a - b);
-      for (const sectionId of lockIds) {
-        await lockPatientSection(trx, patient.id, sectionId);
-      }
 
       const sessionSectionsData = [];
       for (let i = 0; i < resolvedSections.length; i++) {
@@ -536,14 +545,57 @@ router.post("/patient/sessions", requireAuth, requireRole("patient"), async (req
       return { ...session, sections: sessionSectionsData };
     });
 
-    return res.status(201).json({
-      ...result,
-      sections: sanitizeSectionsForPatient(result.sections),
+    // 200 si se devolvió una sesión pendiente ya existente; 201 si se creó.
+    const { reused, ...payload } = result;
+    return res.status(reused ? 200 : 201).json({
+      ...payload,
+      sections: sanitizeSectionsForPatient(payload.sections),
     });
   } catch (err) {
     next(err);
   }
 });
+
+// Ventana en la que una sesión `created` (nunca iniciada) del paciente se
+// reutiliza en lugar de crear otra para las mismas actividades. Cubre el doble
+// toque con el servidor despertando, dos pestañas o un reintento de red.
+// Pasada la ventana se crea una nueva: el nivel adaptativo, la configuración
+// y el día pueden haber cambiado.
+export const REUSE_CREATED_SESSION_MINUTES = 15;
+
+// Busca la sesión `created` más reciente del paciente, dentro de la ventana,
+// cuyas actividades sean exactamente `sectionIds` (ordenados). Debe llamarse
+// con los locks de (paciente, sección) ya tomados en `trx`.
+async function findReusableCreatedSession(trx, patientId, sectionIds) {
+  const candidates = await trx("sessions")
+    .where({ patient_id: patientId, status: "created" })
+    .where("created_at", ">", trx.raw(`now() - interval '${REUSE_CREATED_SESSION_MINUTES} minutes'`))
+    .orderBy("created_at", "desc")
+    .orderBy("id", "desc")
+    .select("*");
+  for (const candidate of candidates) {
+    const rows = await trx("session_sections").where("session_id", candidate.id).select("section_id");
+    const ids = rows.map((r) => r.section_id).sort((a, b) => a - b);
+    if (ids.length === sectionIds.length && ids.every((id, i) => id === sectionIds[i])) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function loadSessionSectionsWithQuestions(trx, sessionId) {
+  const sections = await trx("session_sections")
+    .where("session_id", sessionId)
+    .orderBy("display_order")
+    .select("*");
+  for (const section of sections) {
+    section.questions = await trx("session_questions")
+      .where("session_section_id", section.id)
+      .orderBy("display_order")
+      .select("*");
+  }
+  return sections;
+}
 
 // Compartido entre la listing profesional y la nueva listing del paciente.
 // Devuelve las sesiones del paciente en orden desc con `summary` inline

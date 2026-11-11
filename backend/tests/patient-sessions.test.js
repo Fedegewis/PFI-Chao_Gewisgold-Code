@@ -1,9 +1,9 @@
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
-import { authHeaderFor } from "./helpers.js";
+import { authHeaderFor, expirePendingSessionReuse } from "./helpers.js";
 
 const EMAIL_SUFFIX = "@patient-sessions-test.com";
 
@@ -28,6 +28,9 @@ async function cleanTestData() {
 }
 
 describe("Patient Sessions API — POST /api/patient/sessions", () => {
+  // Cada test verifica su propia creación: sin reutilizar pendientes previas.
+  beforeEach(() => expirePendingSessionReuse(db));
+
   let professional;
   let patient;
   let patientWithoutProf;
@@ -267,8 +270,8 @@ describe("Patient Sessions API — POST /api/patient/sessions", () => {
       .set("Authorization", patientAuth)
       .send({ sections: [{ section_id: testSectionId }], patient_reported_mood: "cansancio" });
     const sessionId = create.body.id;
-    // Un segundo POST con otro mood crea una sesión distinta — no debe
-    // modificar la primera.
+    // Un segundo POST con otro mood (que reutiliza la sesión pendiente o crea
+    // otra) no debe modificar el snapshot de la primera.
     await request(app)
       .post("/api/patient/sessions")
       .set("Authorization", patientAuth)

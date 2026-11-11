@@ -1,9 +1,9 @@
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import app from "../src/app.js";
 import db from "../src/db/connection.js";
-import { authHeaderFor } from "./helpers.js";
+import { authHeaderFor, expirePendingSessionReuse } from "./helpers.js";
 import { countEligibleQuestions } from "../src/services/questionEligibility.js";
 
 const EMAIL_SUFFIX = "@training-config-test.com";
@@ -32,6 +32,9 @@ async function clean() {
 }
 
 describe("Training config API", () => {
+  // Cada test verifica su propia creación: sin reutilizar pendientes previas.
+  beforeEach(() => expirePendingSessionReuse(db));
+
   let profA, profB;
   let patientA1;
   let profAAuth, profBAuth, patientA1Auth;
