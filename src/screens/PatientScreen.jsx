@@ -42,7 +42,7 @@ function filterStartableActivities(activities, availableSections) {
   return { startable: result, hiddenCount: hidden };
 }
 
-export function PatientScreen({ activities, motivationMessage, onOpenActivity, onUpdatePatient, patient, activityStartError, availableSections, availableSectionsError, isBackendPatient }) {
+export function PatientScreen({ activities, motivationMessage, onOpenActivity, onUpdatePatient, patient, activityStartError, openingActivityId = null, availableSections, availableSectionsError, isBackendPatient }) {
   const completedCount = patient.completed.length;
   const streak = computeStreak(patient.weeklyProgress);
   const { startable: visibleActivities, hiddenCount } = filterStartableActivities(activities, availableSections);
@@ -78,7 +78,7 @@ export function PatientScreen({ activities, motivationMessage, onOpenActivity, o
           </p>
         )}
         <div className="activity-grid" role="list" aria-label="Lista de actividades">
-          {visibleActivities.map((activity, index) => <ActivityCard key={activity.id} activity={activity} index={index} completed={patient.completed.includes(activity.id)} onClick={() => onOpenActivity(activity)} />)}
+          {visibleActivities.map((activity, index) => <ActivityCard key={activity.id} activity={activity} index={index} completed={patient.completed.includes(activity.id)} opening={openingActivityId === activity.id} busy={openingActivityId !== null} onClick={() => onOpenActivity(activity)} />)}
         </div>
       </section>
       <aside className="patient-aside" aria-label="Panel del paciente">

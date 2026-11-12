@@ -282,6 +282,9 @@ textarea { min-height: 150px; resize: vertical; }
 .form-feedback { border-radius: 8px; padding: 10px 12px; font-size: 0.875rem; font-weight: 900; }
 .form-feedback-success { border: 2px solid #9dc88b; background: #f0f8ed; color: #15803d; }
 .form-feedback-error { border: 2px solid #f1b5a7; background: #fff2ef; color: #9a3412; }
+.invite-accepted-notice { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.invite-accepted-notice p { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.invite-accepted-notice p + p { margin-top: 8px; }
 .evolution-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 64px); justify-content: start; align-items: end; gap: 12px; min-height: 190px; max-width: 100%; overflow-x: auto; border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(228,236,223,0.95)); padding: 16px; }
 .evolution-slot { display: grid; justify-items: center; align-items: end; gap: 6px; height: 100%; grid-template-rows: auto 1fr auto; }
 .evolution-value { font-size: 0.875rem; font-weight: 950; color: #30442a; }

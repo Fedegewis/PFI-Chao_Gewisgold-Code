@@ -88,32 +88,37 @@ export function ActivityScreen({ activity, onBack, onComplete, patient, activeSe
   const answeredCount = answers.filter(Boolean).length;
   const isLast = step >= sessionLength - 1;
 
+  // Depende del id y del estado, no de la identidad del objeto: un re-render
+  // con un objeto nuevo de la misma sesión no debe cancelar el inicio en curso
+  // (dejaba `starting` trabado). Si cambia la sesión, App remonta la pantalla
+  // (key = id), así nunca se responde sobre una sesión que no se inició.
+  const activeSessionId = activeSession?.id ?? null;
+  const activeSessionStatus = activeSession?.status ?? null;
   useEffect(() => {
     if (!usingBackend) return;
     if (startedRef.current) return;
-    if (!activeSession) return;
-    if (activeSession.status !== "created") {
+    if (activeSessionId == null) return;
+    if (activeSessionStatus !== "created") {
       startedRef.current = true;
       setStarting(false);
       return;
     }
-    let cancelled = false;
+    // Sin flag de cancelación: con StrictMode (o un efecto re-ejecutado) el
+    // segundo pase sale por startedRef y, si el primero ignoraba su resultado,
+    // `starting` quedaba en true para siempre. setState tras desmontar es inocuo.
     startedRef.current = true;
     setStarting(true);
-    startSessionApi(activeSession.id)
+    startSessionApi(activeSessionId)
       .then(() => {
-        if (cancelled) return;
         setStarting(false);
         setStartError("");
       })
       .catch((err) => {
-        if (cancelled) return;
         setStarting(false);
         startedRef.current = false;
         setStartError(err?.message || "No se pudo iniciar la sesión.");
       });
-    return () => { cancelled = true; };
-  }, [usingBackend, activeSession]);
+  },[usingBackend, activeSessionId, activeSessionStatus]);
 
   useEffect(() => {
     if (hasStimulus) {

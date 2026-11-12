@@ -165,6 +165,11 @@ export function useAppController() {
   const [loginError, setLoginError] = useState(() => (init.sessionExpired ? SESSION_EXPIRED_MESSAGE : ""));
   const [activeSession, setActiveSession] = useState(null);
   const [activityStartError, setActivityStartError] = useState("");
+  // Evita crear dos sesiones si el paciente toca la actividad de nuevo
+  // mientras la primera creación sigue en curso (p. ej. backend despertando).
+  // El ref bloquea de forma sincrónica; el estado sólo alimenta la UI.
+  const openingActivityRef = useRef(false);
+  const [openingActivityId, setOpeningActivityId] = useState(null);
   const [backendPatientSessions, setBackendPatientSessions] = useState({ patientId: null, list: null, loading: false, error: "" });
   // F3: catálogo de secciones iniciables para el paciente autenticado.
   // null = aún no cargado (equivale a "todas" transitoriamente para no bloquear
@@ -275,6 +280,39 @@ export function useAppController() {
       window.removeEventListener("focus", handleVisibility);
     };
   }, [isBackendProfessional, selectedPatientId, fetchSelectedPatientSessions]);
+
+  // Refresco silencioso de la lista del profesional (p. ej. cuando un paciente
+  // acepta una invitación). Sólo agrega los pacientes nuevos y quita los que
+  // ya no están: los existentes conservan su objeto para no interrumpir una
+  // edición en curso del paciente seleccionado. Devuelve los pacientes nuevos.
+  const patientsRef = useRef(patients);
+  useEffect(() => { patientsRef.current = patients; }, [patients]);
+  const refreshPatients = useCallback(async () => {
+    if (!isBackendProfessional) return [];
+    let rows;
+    try {
+      rows = await fetchPatients();
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(rows)) return [];
+    const fresh = rows.map(patientFromBackendUser);
+    const knownIds = new Set(patientsRef.current.map((p) => p.id));
+    const added = fresh.filter((p) => !knownIds.has(p.id));
+    setPatients((current) => {
+      const currentIds = new Set(current.map((p) => p.id));
+      const freshIds = new Set(fresh.map((p) => p.id));
+      const newcomers = fresh.filter((p) => !currentIds.has(p.id));
+      const kept = current.filter((p) => freshIds.has(p.id));
+      if (newcomers.length === 0 && kept.length === current.length) return current;
+      return [...kept, ...newcomers];
+    });
+    setSelectedPatientId((current) => {
+      if (current != null && fresh.some((p) => p.id === current)) return current;
+      return fresh.length > 0 ? fresh[0].id : null;
+    });
+    return added;
+  }, [isBackendProfessional]);
 
   useEffect(() => {
     if (!isBackendProfessional) return;
@@ -473,6 +511,19 @@ export function useAppController() {
     syncFromHash();
     return () => window.removeEventListener("hashchange", syncFromHash);
   }, [isAuthenticated, role]);
+
+  // Un paciente del backend sólo puede estar en la pantalla de actividad con
+  // una sesión creada por openActivity. Si llega sin ella (recarga, pestaña
+  // restaurada por el celular, atrás/adelante del navegador), ActivityScreen
+  // caería al modo local de demo: preguntas de prueba y respuestas que nunca
+  // llegan al backend. Se lo devuelve a la lista para que inicie de nuevo.
+  // Va DESPUÉS de la sincronización por hash: al montar, ésta fija la pantalla
+  // desde la URL y este efecto tiene que poder corregirla en el mismo pase.
+  useEffect(() => {
+    if (screen === SCREEN_NAMES.activity && isBackendPatient && !activeSession) {
+      setScreen(SCREEN_NAMES.patient);
+    }
+  }, [screen, isBackendPatient, activeSession, isAuthenticated, role]);
 
   // Estado común de "paciente autenticado" por enlace (F2/F3).
   function enterPatientSession(user) {
@@ -755,6 +806,7 @@ export function useAppController() {
   async function openActivity(activity) {
     if (!selectedPatient) return;
     if (selectedPatient.completed.includes(activity.id)) return;
+    if (openingActivityRef.current) return;
     setActivityStartError("");
 
     if (isBackendPatient) {
@@ -772,6 +824,8 @@ export function useAppController() {
           return;
         }
       }
+      openingActivityRef.current = true;
+      setOpeningActivityId(activity.id);
       try {
         // Cantidad y dominios los resuelve el backend a partir de la configuración
         // persistida del paciente (users.max_questions / users.active_domain_slugs).
@@ -792,6 +846,9 @@ export function useAppController() {
       } catch (err) {
         setActivityStartError(err?.message || "No se pudo iniciar la actividad. Reintentá más tarde.");
         return;
+      } finally {
+        openingActivityRef.current = false;
+        setOpeningActivityId(null);
       }
     } else {
       setActiveSession(null);
@@ -863,6 +920,8 @@ export function useAppController() {
     restoringSession,
     activeSession,
     activityStartError,
+    openingActivityId,
+    refreshPatients,
     backendPatientSessions,
     patientAvailableSections,
     patientAvailableSectionsError,

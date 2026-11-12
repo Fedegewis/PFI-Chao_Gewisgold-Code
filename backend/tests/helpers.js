@@ -5,6 +5,20 @@ export function authHeaderFor(user) {
 }
 
 /**
+ * POST /api/patient/sessions reutiliza una sesión `created` reciente de las
+ * mismas actividades (anti-duplicados). Los tests que crean varias sesiones
+ * sin iniciarlas para el mismo paciente y verifican cada creación por
+ * separado llaman a esto en beforeEach: atrasa las pendientes fuera de la
+ * ventana de reutilización. Las sesiones `created` no cuentan en el historial
+ * de preguntas recientes ni en el adaptativo, así que no cambia nada más.
+ */
+export async function expirePendingSessionReuse(db) {
+  await db("sessions")
+    .where("status", "created")
+    .update({ created_at: db.raw("created_at - interval '1 day'") });
+}
+
+/**
  * Agrega a un session_section una pregunta real con tipo (subdimension) y su
  * respuesta registrada. Desde el ajuste 3.6, una sesión sin ningún tipo de
  * pregunta con respuestas puntuadas no se envía al modelo (síntesis

@@ -1070,6 +1070,70 @@ describe("MenteActiva critical flows", () => {
     expect(startCalls.length).toBe(1);
   });
 
+  // Regresión: al recargar en #/activity/<id> no hay sesión backend en memoria;
+  // antes caía al modo local de demo (preguntas de prueba, nada persistido).
+  test("recarga en la pantalla de actividad: vuelve a la lista sin mostrar preguntas locales", async () => {
+    setStoredPatientAuth();
+    window.location.hash = "#/activity/market";
+    const calls = stubBackendActivityFetch({ questions: [] });
+    renderApp();
+
+    expect(await screen.findByRole("button", { name: /lista del supermercado/i })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/patient");
+    expect(screen.queryByRole("button", { name: "Siguiente" })).toBeNull();
+    expect(calls.some((c) => c.url.match(/\/sessions\/\d+\/(start|answers)$/))).toBe(false);
+  });
+
+  // Regresión (prod 2026-11-11): con el backend despertando, el paciente tocaba
+  // la actividad dos veces, se creaban dos sesiones y las respuestas iban a la
+  // que nunca se había iniciado (409 "estado 'created'").
+  test("doble toque mientras se crea la sesión: una sola creación y respuestas a la sesión iniciada", async () => {
+    const user = userEvent.setup();
+    setStoredPatientAuth();
+    const calls = [];
+    let releaseCreate;
+    const createGate = new Promise((resolve) => { releaseCreate = resolve; });
+    let nextId = 500;
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      const strUrl = String(url);
+      const method = (opts.method || "GET").toUpperCase();
+      calls.push({ url: strUrl, method });
+      if (strUrl.endsWith("/patient/sessions") && method === "POST") {
+        const id = nextId++;
+        return createGate.then(() => jsonResponse({
+          id, patient_id: 42, status: "created",
+          sections: [{ id: 1, section_id: 100, questions: [
+            { id: 100, display_order: 1, prompt_snapshot: "Q1", options_snapshot: ["a", "b", "c", "d"], stimulus_snapshot: null, response_type: "multiple_choice" },
+          ] }],
+        }, 201));
+      }
+      if (strUrl.match(/\/sessions\/\d+\/start$/) && method === "POST") return jsonResponse({ status: "in_progress" });
+      if (strUrl.match(/\/sessions\/\d+\/answers$/) && method === "POST") return jsonResponse({ id: 1 }, 201);
+      if (strUrl.match(/\/sessions\/\d+\/complete$/) && method === "POST") return jsonResponse({ status: "completed" });
+      return jsonResponse({}, 404);
+    }));
+    renderApp();
+
+    const card = await screen.findByRole("button", { name: /lista del supermercado/i });
+    await user.click(card);
+    await user.click(card);
+    expect(card).toBeDisabled();
+    expect(await screen.findByText("Preparando…")).toBeInTheDocument();
+    releaseCreate();
+
+    await screen.findByText("Q1");
+    await user.click(screen.getByRole("button", { name: /^a/ }));
+    await user.click(screen.getByRole("button", { name: /finalizar|siguiente/i }));
+    await vi.waitFor(() => expect(calls.some((c) => c.url.match(/\/answers$/))).toBe(true));
+
+    const creates = calls.filter((c) => c.url.endsWith("/patient/sessions") && c.method === "POST");
+    expect(creates).toHaveLength(1);
+    const started = calls.filter((c) => c.url.match(/\/start$/)).map((c) => c.url.match(/\/sessions\/(\d+)\//)[1]);
+    const answered = calls.filter((c) => c.url.match(/\/answers$/)).map((c) => c.url.match(/\/sessions\/(\d+)\//)[1]);
+    expect(started).toEqual(["500"]);
+    expect(answered).toEqual(["500"]);
+  });
+
   test("6D.3: answer body only contains session_question_id + selected_answer + response_time_ms", async () => {
     const user = userEvent.setup();
     setStoredPatientAuth();
@@ -1649,6 +1713,73 @@ describe("MenteActiva critical flows", () => {
     expect(revokeCalls.length).toBe(1);
     expect(revokeCalls[0]).toMatch(/\/invitations\/501$/);
     expect(screen.queryByText(/ana pendiente/i)).not.toBeInTheDocument();
+  });
+
+  // Al aceptar la invitación, el paciente aparece en el panel sin recargar y
+  // el profesional puede abrirlo para configurar su entrenamiento.
+  function pendingAna() {
+    return {
+      id: 601,
+      patient_name: "Ana Nueva",
+      email: "ana.nueva@demo.com",
+      age: 70,
+      status: "pending",
+      expires_at: new Date(Date.now() + 86400000).toISOString(),
+    };
+  }
+  const ANA_PATIENT = { id: 777, role: "patient", name: "Ana Nueva", email: "ana.nueva@demo.com", age: 70, professional_id: DEMO_PROFESSIONAL_ID, is_active: true };
+
+  test("invitación aceptada: al volver a la pestaña aparece el paciente con aviso", async () => {
+    const user = userEvent.setup();
+    const patients = [DEMO_PATIENT];
+    const invitations = [pendingAna()];
+    installFetchStub({ patients, invitations });
+    setStoredProfessionalSession();
+    window.location.hash = "#/professional";
+    renderApp();
+
+    expect(await screen.findByRole("button", { name: /revocar invitación a ana\.nueva@demo\.com/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("invite-accepted-notice")).toBeNull();
+
+    // El paciente acepta en otro dispositivo.
+    invitations.splice(0, invitations.length);
+    patients.push(ANA_PATIENT);
+    window.dispatchEvent(new Event("focus"));
+
+    const notice = await screen.findByTestId("invite-accepted-notice");
+    expect(notice).toHaveTextContent(/ana nueva aceptó la invitación/i);
+    expect(screen.queryByRole("button", { name: /revocar invitación a ana\.nueva@demo\.com/i })).toBeNull();
+    expect(screen.getByText(/no hay invitaciones pendientes/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Ver paciente" }));
+    expect(screen.queryByTestId("invite-accepted-notice")).toBeNull();
+    expect(screen.getByRole("list", { name: "Lista de pacientes" })).toHaveTextContent(/ana nueva/i);
+  });
+
+  test("invitación aceptada: con la pestaña abierta se detecta sola (consulta periódica)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const patients = [DEMO_PATIENT];
+      const invitations = [pendingAna()];
+      const fetchStub = installFetchStub({ patients, invitations });
+      setStoredProfessionalSession();
+      window.location.hash = "#/professional";
+      renderApp();
+      expect(await screen.findByRole("button", { name: /revocar invitación a ana\.nueva@demo\.com/i })).toBeInTheDocument();
+
+      invitations.splice(0, invitations.length);
+      patients.push(ANA_PATIENT);
+      await vi.advanceTimersByTimeAsync(15000);
+
+      expect(await screen.findByTestId("invite-accepted-notice")).toHaveTextContent(/ana nueva/i);
+
+      // Sin invitaciones pendientes, no se sigue consultando.
+      const before = fetchStub.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(fetchStub.mock.calls.length).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("deletes a patient after confirmation and removes it from the list", async () => {

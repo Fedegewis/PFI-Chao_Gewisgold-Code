@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Copy, Mail, Search, Send, Trash2, UserPlus, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_PATIENT_AGE } from "../../constants/appConfig.js";
 import { cx } from "../../lib/cx.js";
 import {
@@ -12,6 +12,7 @@ import {
 import { PatientCard } from "./PatientCard.jsx";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const INVITE_POLL_INTERVAL_MS = 15000;
 
 function statusLabel(status) {
   switch (status) {
@@ -38,6 +39,7 @@ export function PatientGrid({
   selectedPatient,
   onSelectPatient,
   useBackendScope = false,
+  onRefreshPatients = null,
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -89,6 +91,64 @@ export function PatientGrid({
   useEffect(() => {
     refreshInvites();
   }, [refreshInvites]);
+
+  // Pacientes que aceptaron su invitación mientras el panel estaba abierto.
+  const [acceptedPatients, setAcceptedPatients] = useState([]);
+  const pendingIdsRef = useRef(new Set());
+  useEffect(() => {
+    pendingIdsRef.current = new Set(pendingInvites.map((i) => i.id));
+  }, [pendingInvites]);
+
+  // Revalidación silenciosa (sin "Cargando…"): si alguna invitación dejó de
+  // estar pendiente (aceptada, vencida o revocada en otra pestaña), se
+  // refresca la lista de pacientes para que el nuevo aparezca sin recargar.
+  const syncInvitesAndPatients = useCallback(async ({ forcePatients = false } = {}) => {
+    if (!useBackendScope) return;
+    let rows;
+    try {
+      rows = await fetchInvitationsApi();
+    } catch {
+      return; // silencioso: el próximo ciclo o el foco vuelven a intentar
+    }
+    const pending = Array.isArray(rows) ? rows.filter((r) => r.status === "pending") : [];
+    const stillPending = new Set(pending.map((i) => i.id));
+    const resolved = [...pendingIdsRef.current].some((id) => !stillPending.has(id));
+    setPendingInvites(pending);
+    setInvitesError("");
+    if ((resolved || forcePatients) && onRefreshPatients) {
+      const added = await onRefreshPatients();
+      if (Array.isArray(added) && added.length > 0) {
+        setAcceptedPatients((current) => [...current, ...added.filter((p) => !current.some((c) => c.id === p.id))]);
+      }
+    }
+  }, [useBackendScope, onRefreshPatients]);
+
+  // Mientras haya invitaciones pendientes y la pestaña esté visible, se
+  // consulta cada INVITE_POLL_INTERVAL_MS. Sin pendientes no hay consultas.
+  const hasPendingInvites = pendingInvites.length > 0;
+  useEffect(() => {
+    if (!useBackendScope || !hasPendingInvites) return undefined;
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      syncInvitesAndPatients();
+    }, INVITE_POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [useBackendScope, hasPendingInvites, syncInvitesAndPatients]);
+
+  // Al volver a la pestaña: el paciente pudo aceptar mientras tanto (incluso
+  // con el panel cerrado), así que también se revalida la lista de pacientes.
+  useEffect(() => {
+    if (!useBackendScope || typeof document === "undefined") return undefined;
+    function onVisible() {
+      if (document.visibilityState === "visible") syncInvitesAndPatients({ forcePatients: true });
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [useBackendScope, syncInvitesAndPatients]);
 
   function resetForm() {
     setNewName("");
@@ -335,6 +395,36 @@ export function PatientGrid({
             </div>
           )}
         </form>
+      )}
+
+      {acceptedPatients.length > 0 && (
+        <div className="form-feedback form-feedback-success invite-accepted-notice" role="status" data-testid="invite-accepted-notice">
+          <div>
+            {acceptedPatients.map((p) => (
+              <p key={p.id}>
+                <CheckCircle2 size={14} aria-hidden="true" /> {p.name} aceptó la invitación. Ya podés configurar su entrenamiento.{" "}
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => {
+                    onSelectPatient(p);
+                    setAcceptedPatients((current) => current.filter((c) => c.id !== p.id));
+                  }}
+                >
+                  Ver paciente
+                </button>
+              </p>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="icon-action"
+            aria-label="Cerrar aviso"
+            onClick={() => setAcceptedPatients([])}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
       )}
 
       <div className="patient-grid" role="list" aria-label="Lista de pacientes">

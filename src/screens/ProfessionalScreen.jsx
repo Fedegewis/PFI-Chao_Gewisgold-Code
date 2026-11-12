@@ -43,7 +43,8 @@ export function ProfessionalScreen({
   isBackendProfessional,
   deletePatientForProfessional,
   deleteSessionForProfessional,
-  backendPatientSessions
+  backendPatientSessions,
+  refreshPatients
 }) {
   const patientSessions = useMemo(
     () =>
@@ -81,6 +82,7 @@ export function ProfessionalScreen({
         selectedPatient={selectedPatient}
         onSelectPatient={handleSelectPatient}
         useBackendScope={isBackendProfessional}
+        onRefreshPatients={refreshPatients}
       />
       {selectedPatient ? (
         isBackendProfessional ? (

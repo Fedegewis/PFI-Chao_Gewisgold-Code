@@ -42,6 +42,8 @@ export function App() {
     acceptInvitationCookieSession,
     goToLogin,
     activityStartError,
+    openingActivityId,
+    refreshPatients,
     activeSession,
     backendPatientSessions,
     patientAvailableSections,
@@ -96,8 +98,8 @@ export function App() {
               </section>
             )}
             {!restoringSession && screen === SCREEN_NAMES.login && <LoginScreen loginError={loginError} onLogin={login} onRegister={register} onGoogleLogin={googleLogin} initialMode={loginStartMode} />}
-            {screen === SCREEN_NAMES.patient && isAuthenticated && role === "patient" && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} activityStartError={activityStartError} availableSections={patientAvailableSections} availableSectionsError={patientAvailableSectionsError} isBackendPatient={isBackendPatient} />}
-            {screen === SCREEN_NAMES.activity && isAuthenticated && role === "patient" && selectedPatient && <ActivityScreen activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} activeSession={activeSession} />}
+            {screen === SCREEN_NAMES.patient && isAuthenticated && role === "patient" && selectedPatient && <PatientScreen activities={activities} motivationMessage={motivationMessage} onOpenActivity={openActivity} onUpdatePatient={updatePatient} patient={selectedPatient} activityStartError={activityStartError} openingActivityId={openingActivityId} availableSections={patientAvailableSections} availableSectionsError={patientAvailableSectionsError} isBackendPatient={isBackendPatient} />}
+            {screen === SCREEN_NAMES.activity && isAuthenticated && role === "patient" && selectedPatient && (!isBackendPatient || activeSession) && <ActivityScreen key={activeSession?.id ?? "local"} activity={selectedActivity} onBack={() => setScreen(SCREEN_NAMES.patient)} onComplete={completeActivity} patient={selectedPatient} activeSession={activeSession} />}
             {screen === SCREEN_NAMES.professional && isAuthenticated && role === "professional" && (
               <ProfessionalScreen
                 professionalName={authUser?.name}
@@ -111,6 +113,7 @@ export function App() {
                 deletePatientForProfessional={deletePatientForProfessional}
                 deleteSessionForProfessional={deleteSessionForProfessional}
                 backendPatientSessions={backendPatientSessions}
+                refreshPatients={refreshPatients}
               />
             )}
           </main>

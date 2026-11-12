@@ -298,16 +298,20 @@ describe("Mecanismo adaptativo de dificultad — integración", { concurrency: f
     assert.ok(a.questions.every((q) => atencionIds.includes(q.question_id)));
   });
 
-  it("concurrencia: dos creaciones simultáneas aplican el cambio una sola vez", async () => {
-    const { auth } = await createPatient(prof);
+  it("concurrencia: dos creaciones simultáneas devuelven una sola sesión con una sola decisión", async () => {
+    const { patient, auth } = await createPatient(prof);
     await runSession(auth, secA.slug, 4);
     await runSession(auth, secA.slug, 4);
     const [r1, r2] = await Promise.all([createSession(auth, secA.slug), createSession(auth, secA.slug)]);
-    assert.equal(r1.status, 201);
-    assert.equal(r2.status, 201);
-    const decisions = [await adaptiveOf(r1.body.id), await adaptiveOf(r2.body.id)];
-    assert.deepEqual(decisions.map((d) => d.level), [3, 3]);
-    assert.deepEqual(decisions.map((d) => d.decision.change).sort(), ["hold", "up"]);
+    // Serializadas por el lock (paciente, sección): la segunda reutiliza la
+    // sesión `created` de la primera en lugar de crear otra.
+    assert.deepEqual([r1.status, r2.status].sort(), [200, 201]);
+    assert.equal(r1.body.id, r2.body.id);
+    const pending = await db("sessions").where({ patient_id: patient.id, status: "created" }).count({ c: "*" }).first();
+    assert.equal(Number(pending.c), 1);
+    const decision = await adaptiveOf(r1.body.id);
+    assert.equal(decision.level, 3);
+    assert.equal(decision.decision.change, "up");
   });
 
   it("completar dos veces (secuencial y simultáneo) no duplica resultados ni evidencia", async () => {
